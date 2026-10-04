@@ -15,7 +15,9 @@ import { cn } from "@/lib/utils";
 
 const policyHelp: Record<BillingPolicy, string> = {
   AFTER_EACH_RETURN: "After every return we offer to pay for the pieces that just came back.",
-  ON_COMPLETION: "We offer to pay once all pieces of a job are back.",
+  IMMEDIATE: "Payment is due the day work comes back.",
+  DAYS_AFTER_RETURN: "Payment is due a set number of days after each return.",
+  AFTER_COMPLETION: "We offer to pay once all pieces of a job are back.",
   MANUAL: "We keep a running “to pay” amount. You record sub bills whenever you pay.",
 };
 

@@ -29,10 +29,13 @@ billingRouter.get("/sub-bills", async (req, res) => {
 });
 
 billingRouter.post("/sub-bills", async (req, res) => {
-  const id = await createSubBill(parse(subBillCreateSchema, req.body), req.user?.id);
-  // The bill is saved either way; the email result is reported alongside it.
-  const email = await emailSubBill(id, req.user?.id, { auto: true });
-  res.status(201).json({ ...(await getSubBill(id)), email });
+  const { id, created } = await createSubBill(parse(subBillCreateSchema, req.body), req.user);
+  // The voucher is saved either way; the email result is reported alongside it. A repeated submit
+  // (same idempotency key) returns the existing voucher and never emails again.
+  const email = created
+    ? await emailSubBill(id, req.user?.id, { auto: true })
+    : { status: "skipped" as const, to: null, message: "This payment was already recorded" };
+  res.status(created ? 201 : 200).json({ ...(await getSubBill(id)), email, duplicate: !created });
 });
 
 billingRouter.post("/sub-bills/:id/email", async (req, res) => {
@@ -46,7 +49,7 @@ billingRouter.get("/sub-bills/:id", async (req, res) => {
 });
 
 billingRouter.post("/sub-bills/:id/void", async (req, res) => {
-  res.json(await voidSubBill(param(req.params.id), parse(reasonSchema, req.body).reason, req.user?.id));
+  res.json(await voidSubBill(param(req.params.id), parse(reasonSchema, req.body).reason, req.user));
 });
 
 billingRouter.get("/main-bills", async (req, res) => {

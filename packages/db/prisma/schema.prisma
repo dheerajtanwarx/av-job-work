@@ -9,10 +9,14 @@ datasource db {
 }
 
 // Money is always stored as integer paise (₹1 = 100 paise).
+// Quantities are Decimal(14,3); the unit decides how many decimals are allowed (see @av/shared UNIT_DECIMALS).
+// User-facing names: Client = Job Worker, Job = Job Work Challan, SubBill = Payment Voucher, MainBill = Final Settlement.
 
-enum BillingPolicy {
+enum PaymentPolicy {
+  IMMEDIATE
   AFTER_EACH_RETURN
-  ON_COMPLETION
+  DAYS_AFTER_RETURN
+  AFTER_COMPLETION
   MANUAL
 }
 
@@ -26,6 +30,7 @@ enum JobStatus {
 
 enum DispatchKind {
   INITIAL
+  ADDITIONAL
   REWORK
 }
 
@@ -33,28 +38,59 @@ enum PaymentMethod {
   CASH
   UPI
   BANK
+  NEFT
+  RTGS
   CHEQUE
   OTHER
+}
+
+enum Unit {
+  PCS
+  MTR
+  KG
+  ROLL
+  DOZEN
+  SET
+}
+
+enum UserRole {
+  OWNER
+  MANAGER
+  ACCOUNTS
+  DATA_ENTRY
+  VIEWER
+}
+
+/// Warehouse-only stock events. Issues/returns to workers are derived from dispatch and return lines.
+enum StockMovementType {
+  RECEIPT
+  ADJUSTMENT_IN
+  ADJUSTMENT_OUT
 }
 
 model User {
   id           String   @id @default(cuid())
   email        String   @unique
   name         String
+  role         UserRole @default(OWNER)
   passwordHash String
   createdAt    DateTime @default(now())
 }
 
 model Settings {
-  id               Int           @id @default(1)
-  businessName     String        @default("My Business")
-  address          String?
-  phone            String?
-  email            String?
-  logo             String? // data:image/png|jpeg;base64,… – printed on bills and embedded in bill emails
-  emailBills       Boolean       @default(true) // email each new sub bill to the job worker
-  billingPolicy    BillingPolicy @default(MANUAL)
-  updatedAt        DateTime      @updatedAt
+  id                   Int           @id @default(1)
+  businessName         String        @default("My Business")
+  address              String?
+  phone                String?
+  email                String?
+  logo                 String? // data:image/png|jpeg;base64,… – printed on bills and embedded in bill emails
+  emailBills           Boolean       @default(true) // email each new payment voucher to the job worker
+  defaultPaymentPolicy PaymentPolicy @default(MANUAL)
+  defaultPaymentDays   Int           @default(0)
+  payDamagedDefault    Boolean       @default(false)
+  payRejectedDefault   Boolean       @default(false)
+  payLostDefault       Boolean       @default(false)
+  updatedAt            DateTime      @updatedAt
 }
 
 model Counter {
@@ -62,85 +98,170 @@ model Counter {
   next Int    @default(1)
 }
 
+/// A job worker.
 model Client {
-  id           String    @id @default(cuid())
-  name         String
-  businessName String?
-  phone        String?
-  email        String?
-  address      String?
-  gstin        String?
-  notes        String?
-  isActive     Boolean   @default(true)
-  createdAt    DateTime  @default(now())
-  updatedAt    DateTime  @updatedAt
-  jobs         Job[]
-  subBills     SubBill[]
-  mainBills    MainBill[]
+  id             String         @id @default(cuid())
+  workerCode     String         @unique
+  name           String
+  businessName   String?
+  phone          String?
+  alternatePhone String?
+  email          String?
+  address        String?
+  gstin          String?
+  pan            String?
+  notes          String?
+  paymentPolicy  PaymentPolicy? // null = Settings default
+  paymentDays    Int?
+  isActive       Boolean        @default(true)
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+  jobs           Job[]
+  subBills       SubBill[]
+  mainBills      MainBill[]
+  photos         ReturnPhoto[]
 
   @@index([name])
+  @@index([phone])
 }
 
 model Product {
-  id          String   @id @default(cuid())
+  id          String     @id @default(cuid())
   name        String
   code        String?
-  unit        String   @default("pcs")
+  unit        Unit       @default(PCS)
   description String?
-  isActive    Boolean  @default(true)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  isActive    Boolean    @default(true)
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
   jobs        Job[]
+  materials   Material[]
+}
+
+model JobWorkType {
+  id          String    @id @default(cuid())
+  name        String
+  code        String?
+  description String?
+  isActive    Boolean   @default(true)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  designs     Design[]
+  jobs        Job[]
+  jobItems    JobItem[]
 }
 
 model Design {
-  id               String    @id @default(cuid())
+  id               String        @id @default(cuid())
   name             String
   code             String?
-  defaultRatePaise Int       @default(0)
+  defaultRatePaise Int           @default(0) // a starting value only – never changes historical rates
   description      String?
-  isActive         Boolean   @default(true)
-  createdAt        DateTime  @default(now())
-  updatedAt        DateTime  @updatedAt
+  jobWorkTypeId    String?
+  jobWorkType      JobWorkType?  @relation(fields: [jobWorkTypeId], references: [id])
+  isActive         Boolean       @default(true)
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
   jobItems         JobItem[]
+  materials        Material[]
+  photos           ReturnPhoto[]
 }
 
+/// Raw material / stock item (a fabric lot, a roll, a batch of blouses…).
+model Material {
+  id         String          @id @default(cuid())
+  code       String          @unique
+  name       String
+  productId  String?
+  product    Product?        @relation(fields: [productId], references: [id])
+  fabricType String?
+  color      String?
+  designId   String?
+  design     Design?         @relation(fields: [designId], references: [id])
+  unit       Unit            @default(PCS)
+  lotNumber  String?
+  rollNumber String?
+  supplier   String?
+  location   String?
+  notes      String?
+  isActive   Boolean         @default(true)
+  createdAt  DateTime        @default(now())
+  updatedAt  DateTime        @updatedAt
+  jobItems   JobItem[]
+  movements  StockMovement[]
+
+  @@index([name])
+  @@index([lotNumber])
+  @@index([rollNumber])
+}
+
+model StockMovement {
+  id          String            @id @default(cuid())
+  materialId  String
+  material    Material          @relation(fields: [materialId], references: [id])
+  type        StockMovementType
+  qty         Decimal           @db.Decimal(14, 3)
+  date        DateTime          @db.Date
+  reason      String?
+  enteredById String?
+  voidedAt    DateTime?
+  voidReason  String?
+  createdAt   DateTime          @default(now())
+
+  @@index([materialId])
+}
+
+/// A job work challan.
 model Job {
-  id                 String     @id @default(cuid())
-  jobNumber          String     @unique
+  id                 String         @id @default(cuid())
+  jobNumber          String         @unique
   clientId           String
-  client             Client     @relation(fields: [clientId], references: [id])
+  client             Client         @relation(fields: [clientId], references: [id])
   productId          String
-  product            Product    @relation(fields: [productId], references: [id])
-  jobDate            DateTime   @db.Date
-  expectedReturnDate DateTime?  @db.Date
-  status             JobStatus  @default(DRAFT)
+  product            Product        @relation(fields: [productId], references: [id])
+  jobWorkTypeId      String?
+  jobWorkType        JobWorkType?   @relation(fields: [jobWorkTypeId], references: [id])
+  jobDate            DateTime       @db.Date
+  expectedReturnDate DateTime?      @db.Date
+  paymentPolicy      PaymentPolicy? // null = the worker's terms
+  paymentDays        Int?
+  status             JobStatus      @default(DRAFT)
   notes              String?
+  publicToken        String         @unique
+  createdById        String?
   completedAt        DateTime?
   cancelledAt        DateTime?
   cancelReason       String?
-  createdAt          DateTime   @default(now())
-  updatedAt          DateTime   @updatedAt
+  createdAt          DateTime       @default(now())
+  updatedAt          DateTime       @updatedAt
   items              JobItem[]
   dispatches         Dispatch[]
   returns            Return[]
   subBills           SubBill[]
   mainBill           MainBill?
+  photos             ReturnPhoto[]
 
   @@index([clientId])
   @@index([status])
   @@index([jobDate])
 }
 
+/// One design line on a challan.
 model JobItem {
   id            String         @id @default(cuid())
   jobId         String
   job           Job            @relation(fields: [jobId], references: [id])
   designId      String
   design        Design         @relation(fields: [designId], references: [id])
-  designName    String // snapshot at job creation
-  quantity      Int
-  ratePaise     Int // snapshot; never follows the design's default rate
+  designName    String // snapshot at challan creation
+  materialId    String? // required for new challans; null on lines created before materials existed
+  material      Material?      @relation(fields: [materialId], references: [id])
+  jobWorkTypeId String?
+  jobWorkType   JobWorkType?   @relation(fields: [jobWorkTypeId], references: [id])
+  unit          Unit           @default(PCS)
+  quantity      Decimal        @db.Decimal(14, 3)
+  ratePaise     Int // challan rate snapshot; never follows the design's default rate
+  notes         String?
   sortOrder     Int            @default(0)
   dispatchLines DispatchLine[]
   returnLines   ReturnLine[]
@@ -148,19 +269,21 @@ model JobItem {
 
   @@index([jobId])
   @@index([designId])
+  @@index([materialId])
 }
 
 model Dispatch {
-  id         String         @id @default(cuid())
-  jobId      String
-  job        Job            @relation(fields: [jobId], references: [id])
-  date       DateTime       @db.Date
-  kind       DispatchKind   @default(INITIAL)
-  notes      String?
-  voidedAt   DateTime?
-  voidReason String?
-  createdAt  DateTime       @default(now())
-  lines      DispatchLine[]
+  id          String         @id @default(cuid())
+  jobId       String
+  job         Job            @relation(fields: [jobId], references: [id])
+  date        DateTime       @db.Date
+  kind        DispatchKind   @default(INITIAL)
+  notes       String?
+  enteredById String?
+  voidedAt    DateTime?
+  voidReason  String?
+  createdAt   DateTime       @default(now())
+  lines       DispatchLine[]
 
   @@index([jobId])
 }
@@ -171,62 +294,123 @@ model DispatchLine {
   dispatch   Dispatch @relation(fields: [dispatchId], references: [id])
   jobItemId  String
   jobItem    JobItem  @relation(fields: [jobItemId], references: [id])
-  qty        Int
+  qty        Decimal  @db.Decimal(14, 3)
+
+  @@index([jobItemId])
 }
 
+/// A job work return. `date` is the business date (editable for back entry); `receivedAt` is the exact server time it was recorded.
 model Return {
-  id           String       @id @default(cuid())
-  returnNumber String       @unique
+  id           String        @id @default(cuid())
+  returnNumber String        @unique
   jobId        String
-  job          Job          @relation(fields: [jobId], references: [id])
-  date         DateTime     @db.Date
+  job          Job           @relation(fields: [jobId], references: [id])
+  date         DateTime      @db.Date
+  receivedAt   DateTime      @default(now())
   notes        String?
+  enteredById  String?
+  editedAt     DateTime?
   voidedAt     DateTime?
   voidReason   String?
-  createdAt    DateTime     @default(now())
+  createdAt    DateTime      @default(now())
   lines        ReturnLine[]
+  photos       ReturnPhoto[]
+  subBills     SubBill[]
 
-  @@index([jobId])
-}
-
-model ReturnLine {
-  id              String  @id @default(cuid())
-  returnId        String
-  return          Return  @relation(fields: [returnId], references: [id])
-  jobItemId       String
-  jobItem         JobItem @relation(fields: [jobItemId], references: [id])
-  okQty           Int     @default(0)
-  damagedQty      Int     @default(0)
-  rejectedQty     Int     @default(0)
-  lostQty         Int     @default(0)
-  exceptionReason String?
-}
-
-// A sub bill is a payment made to the job worker for returned (OK) pieces of one job.
-model SubBill {
-  id          String        @id @default(cuid())
-  billNumber  String        @unique
-  clientId    String
-  client      Client        @relation(fields: [clientId], references: [id])
-  jobId       String
-  job         Job           @relation(fields: [jobId], references: [id])
-  date        DateTime      @db.Date
-  amountPaise Int
-  method      PaymentMethod @default(CASH)
-  reference   String?
-  notes       String?
-  voidedAt    DateTime?
-  voidReason  String?
-  emailedAt   DateTime? // last successful email to the job worker
-  emailedTo   String?
-  createdAt   DateTime      @default(now())
-  lines       SubBillLine[]
-
-  @@index([clientId])
-  @@index([jobId])
+  @@index([jobId, voidedAt])
+  @@index([receivedAt])
   @@index([date])
 }
 
+model ReturnLine {
+  id                String        @id @default(cuid())
+  returnId          String
+  return            Return        @relation(fields: [returnId], references: [id])
+  jobItemId         String
+  jobItem           JobItem       @relation(fields: [jobItemId], references: [id])
+  okQty             Decimal       @default(0) @db.Decimal(14, 3)
+  damagedQty        Decimal       @default(0) @db.Decimal(14, 3)
+  rejectedQty       Decimal       @default(0) @db.Decimal(14, 3)
+  lostQty           Decimal       @default(0) @db.Decimal(14, 3)
+  ratePaise         Int // the rate for this returned work – historical, never follows challan/design changes
+  payDamaged        Boolean       @default(false)
+  payRejected       Boolean       @default(false)
+  payLost           Boolean       @default(false)
+  payOverrideReason String?
+  exceptionReason   String?
+  photos            ReturnPhoto[]
+
+  @@index([returnId])
+  @@index([jobItemId])
+}
+
+/// A design / job work photo attached to a specific return. Files live in storage; only keys are stored here.
+model ReturnPhoto {
+  id           String      @id @default(cuid())
+  returnId     String
+  return       Return      @relation(fields: [returnId], references: [id])
+  returnLineId String?
+  returnLine   ReturnLine? @relation(fields: [returnLineId], references: [id])
+  jobId        String
+  job          Job         @relation(fields: [jobId], references: [id])
+  clientId     String
+  client       Client      @relation(fields: [clientId], references: [id])
+  designId     String?
+  design       Design?     @relation(fields: [designId], references: [id])
+  storageKey   String // original, never modified
+  displayKey   String // compressed copy for viewing
+  thumbKey     String
+  originalName String?
+  mimeType     String
+  sizeBytes    Int
+  width        Int?
+  height       Int?
+  meta         Json? // snapshot of qty/rate/time at upload (audit only; views read live values)
+  uploadedById String?
+  voidedAt     DateTime?
+  voidReason   String?
+  voidedById   String?
+  createdAt    DateTime    @default(now())
+
+  @@index([returnId])
+  @@index([jobId])
+  @@index([clientId, createdAt])
+  @@index([designId])
+  @@index([createdAt])
+}
+
+/// A payment voucher: money paid to the job worker against one challan (optionally one return).
+model SubBill {
+  id             String        @id @default(cuid())
+  billNumber     String        @unique
+  clientId       String
+  client         Client        @relation(fields: [clientId], references: [id])
+  jobId          String
+  job            Job           @relation(fields: [jobId], references: [id])
+  returnId       String?
+  return         Return?       @relation(fields: [returnId], references: [id])
+  date           DateTime      @db.Date
+  amountPaise    Int
+  method         PaymentMethod @default(CASH)
+  reference      String?
+  notes          String?
+  advanceReason  String? // set when the payment exceeded what was outstanding
+  idempotencyKey String?       @unique
+  proofKey       String?
+  enteredById    String?
+  voidedAt       DateTime?
+  voidReason     String?
+  emailedAt      DateTime? // last successful email to the job worker
+  emailedTo      String?
+  createdAt      DateTime      @default(now())
+  lines          SubBillLine[]
+
+  @@index([clientId])
+  @@index([jobId, voidedAt])
+  @@index([date])
+}
+
+/// Design-wise breakdown of a qty-based (legacy) payment voucher.
 model SubBillLine {
   id          String  @id @default(cuid())
   subBillId   String
@@ -234,7 +418,7 @@ model SubBillLine {
   jobItemId   String
   jobItem     JobItem @relation(fields: [jobItemId], references: [id])
   designName  String // snapshot
-  qty         Int
+  qty         Decimal @db.Decimal(14, 3)
   ratePaise   Int
   amountPaise Int
 
@@ -242,8 +426,8 @@ model SubBillLine {
   @@index([jobItemId])
 }
 
-// The main bill settles a job: created automatically once the job is completed and every OK piece is paid.
-// Its content is built live from the job and its sub bills; the row holds the number, date and status.
+// The final settlement of a challan: created automatically once the challan is completed and fully paid.
+// Its content is built live from the challan and its vouchers; the row holds the number, date and status.
 model MainBill {
   id           String    @id @default(cuid())
   billNumber   String    @unique
@@ -252,7 +436,7 @@ model MainBill {
   clientId     String
   client       Client    @relation(fields: [clientId], references: [id])
   date         DateTime  @db.Date
-  qty          Int
+  qty          Decimal   @db.Decimal(14, 3)
   totalPaise   Int
   cancelledAt  DateTime?
   cancelReason String?
@@ -263,16 +447,36 @@ model MainBill {
   @@index([date])
 }
 
+/// Every notification attempt (email today; WhatsApp/SMS/in-app later).
+model NotificationLog {
+  id        String   @id @default(cuid())
+  channel   String // email | whatsapp | sms | in_app
+  kind      String // e.g. payment_voucher
+  entity    String
+  entityId  String
+  recipient String?
+  status    String // sent | skipped | failed
+  error     String?
+  auto      Boolean  @default(false)
+  userId    String?
+  createdAt DateTime @default(now())
+
+  @@index([entity, entityId])
+  @@index([createdAt])
+}
+
 model AuditLog {
   id        String   @id @default(cuid())
   entity    String
   entityId  String
   action    String
   summary   String?
+  reason    String?
   before    Json?
   after     Json?
   userId    String?
   createdAt DateTime @default(now())
 
   @@index([entity, entityId])
+  @@index([createdAt])
 }

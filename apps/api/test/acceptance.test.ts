@@ -2,7 +2,7 @@ import { prisma } from "@av/db";
 import type { ClientSummary, Dashboard, JobDetail, MainBillDetail, ReturnResult, SubBillDetail, UnpaidLine } from "@av/shared";
 import type TestAgent from "supertest/lib/agent.js";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { loggedInAgent, resetDb } from "./helpers.js";
+import { loggedInAgent, resetDb, stockedMaterial } from "./helpers.js";
 
 /** Brief §25 – the critical acceptance scenario, end to end through the HTTP API. */
 describe("acceptance: Sharma Embroidery / 100 plain blouses", () => {
@@ -18,6 +18,7 @@ describe("acceptance: Sharma Embroidery / 100 plain blouses", () => {
     api = await loggedInAgent();
     clientId = (await api.post("/clients").send({ name: "Sharma Embroidery", phone: "9800000000" }).expect(201)).body.id;
     const productId = (await api.post("/products").send({ name: "Plain Blouse", unit: "pcs" }).expect(201)).body.id;
+    const materialId = await stockedMaterial(api, "Plain blouse lot");
     for (const [name, rate] of [["Floral", 2000], ["Royal", 2500], ["Simple", 1500]] as const) {
       design[name] = (await api.post("/designs").send({ name, defaultRatePaise: rate }).expect(201)).body.id;
     }
@@ -31,9 +32,9 @@ describe("acceptance: Sharma Embroidery / 100 plain blouses", () => {
           expectedReturnDate: "2026-10-20",
           dispatchNow: true,
           items: [
-            { designId: design.Floral, quantity: 20, ratePaise: 2000 },
-            { designId: design.Royal, quantity: 50, ratePaise: 2500 },
-            { designId: design.Simple, quantity: 30, ratePaise: 1500 },
+            { designId: design.Floral, materialId, quantity: 20, ratePaise: 2000 },
+            { designId: design.Royal, materialId, quantity: 50, ratePaise: 2500 },
+            { designId: design.Simple, materialId, quantity: 30, ratePaise: 1500 },
           ],
         })
         .expect(201)
@@ -59,7 +60,7 @@ describe("acceptance: Sharma Embroidery / 100 plain blouses", () => {
   };
 
   it("creates the job: 100 pieces, ₹2,100, sent", () => {
-    expect(job.jobNumber).toBe("JOB-001");
+    expect(job.jobNumber).toBe("JW-0001"); // challans are numbered JW-0001 (was JOB-001)
     expect(job.status).toBe("IN_PROGRESS");
     expect(job.totals.quantity).toBe(100);
     expect(job.totals.sent).toBe(100);
@@ -135,7 +136,7 @@ describe("acceptance: Sharma Embroidery / 100 plain blouses", () => {
     expect(mb).toMatchObject({ billNumber: "MB-001", qty: 100, totalPaise: 210000, subBillCount: 3, cancelledAt: null });
     expect(mb.date.slice(0, 10)).toBe("2026-10-10");
     expect(mb.product.name).toBe("Plain Blouse");
-    expect(mb.job.jobNumber).toBe("JOB-001");
+    expect(mb.job.jobNumber).toBe("JW-0001");
     expect(mb.designs.map((d) => [d.designName, d.quantity, d.ok, d.paidQty, d.paidValuePaise])).toEqual([
       ["Floral", 20, 20, 20, 40000],
       ["Royal", 50, 50, 50, 125000],
@@ -210,17 +211,19 @@ describe("edge cases", () => {
   let clientId: string;
   let productId: string;
   let designId: string;
+  let materialId: string;
 
   beforeAll(async () => {
     await resetDb();
     api = await loggedInAgent();
+    materialId = await stockedMaterial(api, "Saree lot");
     clientId = (await api.post("/clients").send({ name: "Gupta Prints" }).expect(201)).body.id;
     productId = (await api.post("/products").send({ name: "Saree" }).expect(201)).body.id;
     designId = (await api.post("/designs").send({ name: "Border", defaultRatePaise: 5000 }).expect(201)).body.id;
   });
 
   const newJob = async (qty: number, dispatchNow = true) =>
-    (await api.post("/jobs").send({ clientId, productId, jobDate: "2026-10-01", dispatchNow, items: [{ designId, quantity: qty, ratePaise: 5000 }] }).expect(201)).body as JobDetail;
+    (await api.post("/jobs").send({ clientId, productId, jobDate: "2026-10-01", dispatchNow, items: [{ designId, materialId, quantity: qty, ratePaise: 5000 }] }).expect(201)).body as JobDetail;
 
   it("damaged/rejected/lost are kept separate, not payable, and close the job", async () => {
     const j = await newJob(10);
@@ -231,10 +234,10 @@ describe("edge cases", () => {
     expect(r.job.status).toBe("COMPLETED");
 
     // Rework the rejected piece: job reopens, then completes again
-    const afterRework: JobDetail = (await api.post(`/jobs/${j.id}/dispatches`).send({ date: "2026-10-03", kind: "REWORK", lines: [{ jobItemId: j.items[0].id, qty: 1 }] }).expect(201)).body;
+    const afterRework: JobDetail = (await api.post(`/jobs/${j.id}/dispatches`).send({ date: "2026-10-03", kind: "REWORK", reason: "Thread work redone", lines: [{ jobItemId: j.items[0].id, qty: 1 }] }).expect(201)).body;
     expect(afterRework.totals.pending).toBe(1);
     expect(afterRework.status).toBe("PARTIALLY_RECEIVED");
-    await api.post(`/jobs/${j.id}/dispatches`).send({ date: "2026-10-03", kind: "REWORK", lines: [{ jobItemId: j.items[0].id, qty: 5 }] }).expect(422);
+    await api.post(`/jobs/${j.id}/dispatches`).send({ date: "2026-10-03", kind: "REWORK", reason: "Too many", lines: [{ jobItemId: j.items[0].id, qty: 5 }] }).expect(422);
     const back: ReturnResult = (await api.post(`/jobs/${j.id}/returns`).send({ date: "2026-10-04", lines: [{ jobItemId: j.items[0].id, okQty: 1 }] }).expect(201)).body;
     expect(back.job.status).toBe("COMPLETED");
     expect(back.job.totals.ok).toBe(7);

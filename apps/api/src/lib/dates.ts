@@ -1,3 +1,6 @@
+import { businessToday } from "@av/shared";
+import { env } from "../env.js";
+
 /** Calendar dates are stored as UTC midnight. */
 export function toDate(iso: string): Date {
   return new Date(`${iso}T00:00:00.000Z`);
@@ -11,9 +14,14 @@ export function iso(d: Date | null | undefined): string | null {
   return d ? d.toISOString() : null;
 }
 
+/** Today's calendar date in the business time zone ("2026-10-04"). */
+export function today(): string {
+  return businessToday(env.businessTz);
+}
+
+/** Today as a stored calendar date (UTC midnight). */
 export function todayUTC(): Date {
-  const n = new Date();
-  return new Date(Date.UTC(n.getFullYear(), n.getMonth(), n.getDate()));
+  return toDate(today());
 }
 
 const MONTHS = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"];

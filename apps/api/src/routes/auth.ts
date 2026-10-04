@@ -11,7 +11,7 @@ authRouter.post("/login", async (req, res) => {
   const { email, password } = parse(loginSchema, req.body);
   const user = await prisma.user.findUnique({ where: { email } });
   if (!user || !(await bcrypt.compare(password, user.passwordHash))) throw new HttpError(401, "Email or password is incorrect");
-  const session = { id: user.id, email: user.email, name: user.name };
+  const session = { id: user.id, email: user.email, name: user.name, role: user.role };
   setSessionCookie(res, signSession(session));
   res.json({ user: session });
 });

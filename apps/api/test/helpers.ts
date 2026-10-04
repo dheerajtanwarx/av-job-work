@@ -15,3 +15,10 @@ export async function loggedInAgent() {
   if (res.status !== 200) throw new Error(`login failed: ${res.status}`);
   return agent;
 }
+
+/** A material with plenty of opening stock (challan lines must name the material issued). */
+export async function stockedMaterial(agent: Awaited<ReturnType<typeof loggedInAgent>>, name = "Fabric lot", unit = "PCS", openingQty = 100000): Promise<string> {
+  const res = await agent.post("/materials").send({ name, unit, openingQty });
+  if (res.status !== 201) throw new Error(`material failed: ${res.status} ${JSON.stringify(res.body)}`);
+  return res.body.id;
+}

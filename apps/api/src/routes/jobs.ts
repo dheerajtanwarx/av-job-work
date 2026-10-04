@@ -3,7 +3,10 @@ import { dispatchCreateSchema, JOB_STATUSES, jobCreateSchema, jobUpdateSchema, O
 import { Router } from "express";
 import { toDate } from "../lib/dates.js";
 import { param, parse, str } from "../lib/http.js";
-import { cancelJob, createDispatch, createJob, createReturn, getJobDetail, loadJobs, toJobRow, updateJob, voidDispatch, voidReturn } from "../services/jobs.js";
+import { cancelJob, createDispatch, createJob, getJobDetail, loadJobs, regeneratePublicToken, toJobRow, updateJob, voidDispatch } from "../services/jobs.js";
+import { challanLedger } from "../services/accounts.js";
+import { createReturn, getReturn, listReturns, updateReturn, voidReturn } from "../services/returns.js";
+import { returnUpdateSchema } from "@av/shared";
 
 export const jobsRouter = Router();
 
@@ -32,7 +35,7 @@ jobsRouter.get("/", async (req, res) => {
 });
 
 jobsRouter.post("/", async (req, res) => {
-  res.status(201).json(await createJob(parse(jobCreateSchema, req.body), req.user?.id));
+  res.status(201).json(await createJob(parse(jobCreateSchema, req.body), req.user));
 });
 
 jobsRouter.get("/:id", async (req, res) => {
@@ -40,27 +43,61 @@ jobsRouter.get("/:id", async (req, res) => {
 });
 
 jobsRouter.patch("/:id", async (req, res) => {
-  res.json(await updateJob(param(req.params.id), parse(jobUpdateSchema, req.body), req.user?.id));
+  res.json(await updateJob(param(req.params.id), parse(jobUpdateSchema, req.body), req.user));
+});
+
+jobsRouter.get("/:id/ledger", async (req, res) => {
+  res.json(await challanLedger(param(req.params.id)));
+});
+
+jobsRouter.post("/:id/public-token", async (req, res) => {
+  res.json(await regeneratePublicToken(param(req.params.id), req.user));
 });
 
 jobsRouter.post("/:id/cancel", async (req, res) => {
-  res.json(await cancelJob(param(req.params.id), parse(reasonSchema, req.body).reason, req.user?.id));
+  res.json(await cancelJob(param(req.params.id), parse(reasonSchema, req.body).reason, req.user));
 });
 
 jobsRouter.post("/:id/dispatches", async (req, res) => {
-  res.status(201).json(await createDispatch(param(req.params.id), parse(dispatchCreateSchema, req.body), req.user?.id));
+  res.status(201).json(await createDispatch(param(req.params.id), parse(dispatchCreateSchema, req.body), req.user));
 });
 
 jobsRouter.post("/:id/returns", async (req, res) => {
-  res.status(201).json(await createReturn(param(req.params.id), parse(returnCreateSchema, req.body), req.user?.id));
+  res.status(201).json(await createReturn(param(req.params.id), parse(returnCreateSchema, req.body), req.user));
 });
 
 export const entriesRouter = Router();
 
 entriesRouter.post("/dispatches/:id/void", async (req, res) => {
-  res.json(await voidDispatch(param(req.params.id), parse(reasonSchema, req.body).reason, req.user?.id));
+  res.json(await voidDispatch(param(req.params.id), parse(reasonSchema, req.body).reason, req.user));
 });
 
 entriesRouter.post("/returns/:id/void", async (req, res) => {
-  res.json(await voidReturn(param(req.params.id), parse(reasonSchema, req.body).reason, req.user?.id));
+  res.json(await voidReturn(param(req.params.id), parse(reasonSchema, req.body).reason, req.user));
+});
+
+entriesRouter.get("/returns", async (req, res) => {
+  res.json(
+    await listReturns({
+      clientId: str(req.query.clientId),
+      jobId: str(req.query.jobId),
+      designId: str(req.query.designId),
+      productId: str(req.query.productId),
+      jobWorkTypeId: str(req.query.jobWorkTypeId),
+      from: str(req.query.from),
+      to: str(req.query.to),
+      q: str(req.query.q),
+      includeVoided: req.query.voided === "true",
+      skip: Number(req.query.skip) || 0,
+      take: Math.min(200, Number(req.query.take) || 50),
+    }),
+  );
+});
+
+entriesRouter.get("/returns/:id", async (req, res) => {
+  res.json(await getReturn(param(req.params.id)));
+});
+
+entriesRouter.patch("/returns/:id", async (req, res) => {
+  res.json(await updateReturn(param(req.params.id), parse(returnUpdateSchema, req.body), req.user));
 });

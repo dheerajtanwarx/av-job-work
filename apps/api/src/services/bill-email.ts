@@ -42,7 +42,7 @@ const esc = (s: string | null | undefined) =>
 const nl2br = (s: string | null | undefined) => esc(s).replace(/\r?\n/g, "<br>");
 
 /** "We have made a payment of ₹500 to you via UPI on …" */
-const PAID_HOW: Record<SubBillDetail["method"], string> = { CASH: " in cash", UPI: " via UPI", BANK: " by bank transfer", CHEQUE: " by cheque", OTHER: "" };
+const PAID_HOW: Record<SubBillDetail["method"], string> = { CASH: " in cash", UPI: " via UPI", BANK: " by bank transfer", NEFT: " by NEFT", RTGS: " by RTGS", CHEQUE: " by cheque", OTHER: "" };
 
 const C = { fg: "#18181b", muted: "#71717a", border: "#e4e4e7", soft: "#f4f4f5", accent: "#166534", accentBg: "#f0fdf4" };
 const FONT = "-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif";

@@ -17,11 +17,11 @@ async function main() {
   if ((await prisma.product.count()) === 0) {
     await prisma.product.createMany({
       data: [
-        { name: "Plain Blouse", code: "BLS", unit: "pcs" },
-        { name: "Saree", code: "SAR", unit: "pcs" },
-        { name: "Shirt", code: "SHT", unit: "pcs" },
-        { name: "Dupatta", code: "DUP", unit: "pcs" },
-        { name: "Fabric", code: "FAB", unit: "m" },
+        { name: "Plain Blouse", code: "BLS", unit: "PCS" },
+        { name: "Saree", code: "SAR", unit: "PCS" },
+        { name: "Shirt", code: "SHT", unit: "PCS" },
+        { name: "Dupatta", code: "DUP", unit: "PCS" },
+        { name: "Fabric", code: "FAB", unit: "MTR" },
       ],
     });
   }
@@ -33,6 +33,12 @@ async function main() {
         { name: "Royal Design", code: "RYL", defaultRatePaise: 2500 },
         { name: "Simple Design", code: "SMP", defaultRatePaise: 1500 },
       ],
+    });
+  }
+
+  if ((await prisma.jobWorkType.count()) === 0) {
+    await prisma.jobWorkType.createMany({
+      data: ["Embroidery", "Printing", "Stitching", "Dyeing", "Finishing", "Cutting", "Other"].map((name) => ({ name, code: name.slice(0, 3).toUpperCase() })),
     });
   }
 

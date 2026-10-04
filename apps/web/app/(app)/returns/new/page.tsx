@@ -127,7 +127,7 @@ function RecordReturn() {
               <Link href={`/jobs/${result.job.id}`}>Open job</Link>
             </Button>
             {result.job.totals.unbilledQty > 0 &&
-              (result.billingPolicy === "AFTER_EACH_RETURN" || (result.billingPolicy === "ON_COMPLETION" && result.justCompleted) || result.billingPolicy === "MANUAL") && (
+              (result.billingPolicy === "AFTER_EACH_RETURN" || (result.billingPolicy === "AFTER_COMPLETION" && result.justCompleted) || result.billingPolicy === "MANUAL") && (
                 <Button asChild variant={result.billingPolicy === "MANUAL" ? "secondary" : "primary"}>
                   <Link href={`/bills/new?jobId=${result.job.id}`}>
                     <Wallet /> Pay {formatINR(result.job.totals.unbilledValuePaise)} now

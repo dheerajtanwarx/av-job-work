@@ -4,7 +4,7 @@ import type { SendMailOptions, Transporter } from "nodemailer";
 import type TestAgent from "supertest/lib/agent.js";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { setTransport } from "../src/lib/mailer.js";
-import { loggedInAgent, resetDb } from "./helpers.js";
+import { loggedInAgent, resetDb, stockedMaterial } from "./helpers.js";
 
 const PNG = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=";
 
@@ -14,6 +14,7 @@ describe("sub bills are emailed to the job worker", () => {
   let clientId: string;
   let productId: string;
   let designId: string;
+  let materialId: string;
 
   beforeAll(async () => {
     await resetDb();
@@ -21,6 +22,7 @@ describe("sub bills are emailed to the job worker", () => {
     clientId = (await api.post("/clients").send({ name: "Gupta Prints", email: "gupta@example.com" }).expect(201)).body.id;
     productId = (await api.post("/products").send({ name: "Kurta", unit: "pcs" }).expect(201)).body.id;
     designId = (await api.post("/designs").send({ name: "Paisley", code: "PS-1", defaultRatePaise: 1500 }).expect(201)).body.id;
+    materialId = await stockedMaterial(api, "Kurta lot");
     await api.put("/settings").send({ businessName: "AV Textiles", phone: "9811111111", email: "owner@av.example", logo: PNG, billingPolicy: "MANUAL" }).expect(200);
   });
 
@@ -41,7 +43,7 @@ describe("sub bills are emailed to the job worker", () => {
 
   const newJob = async (client = clientId, qty = 10) => {
     const job: JobDetail = (
-      await api.post("/jobs").send({ clientId: client, productId, jobDate: "2026-10-01", dispatchNow: true, items: [{ designId, quantity: qty, ratePaise: 1500 }] }).expect(201)
+      await api.post("/jobs").send({ clientId: client, productId, jobDate: "2026-10-01", dispatchNow: true, items: [{ designId, materialId, quantity: qty, ratePaise: 1500 }] }).expect(201)
     ).body;
     return { job, line: job.items[0].id };
   };
