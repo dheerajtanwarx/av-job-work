@@ -1,81 +1,292 @@
 @import "tailwindcss";
 
-/* Bahi-khata ledger: warm paper, indigo ink, marigold accent. */
-@theme {
-  --font-sans: var(--font-figtree), ui-sans-serif, system-ui, sans-serif;
-  --font-display: var(--font-fraunces), ui-serif, Georgia, serif;
+/*
+ * Design tokens. Semantic names only; raw values live in :root and are
+ * re-tuned (not inverted) for dark mode below.
+ */
+@theme inline {
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, monospace;
 
-  --color-paper: #f7f3ea;
-  --color-paper-2: #efe8d9;
-  --color-card: #fffdf8;
-  --color-line: #e3dac7;
-  --color-line-strong: #cfc3aa;
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-surface-3: var(--surface-3);
+  --color-sidebar: var(--sidebar);
+  --color-border: var(--border);
+  --color-border-strong: var(--border-strong);
 
-  --color-ink: #1d2550;
-  --color-ink-2: #3a4270;
-  --color-muted: #6d6a60;
-  --color-faint: #9a9586;
+  --color-fg: var(--fg);
+  --color-fg-2: var(--fg-2);
+  --color-fg-muted: var(--fg-muted);
+  --color-fg-faint: var(--fg-faint);
 
-  --color-indigo: #27357a;
-  --color-indigo-600: #1f2b66;
-  --color-indigo-50: #eceffa;
+  --color-accent: var(--accent);
+  --color-accent-solid: var(--accent-solid);
+  --color-accent-solid-hover: var(--accent-solid-hover);
+  --color-accent-subtle: var(--accent-subtle);
+  --color-on-accent: var(--on-accent);
 
-  --color-marigold: #e19a12;
-  --color-marigold-50: #fdf3dc;
-  --color-marigold-700: #8a5a00;
+  --color-success: var(--success);
+  --color-success-subtle: var(--success-subtle);
+  --color-warning: var(--warning);
+  --color-warning-solid: var(--warning-solid);
+  --color-warning-subtle: var(--warning-subtle);
+  --color-danger: var(--danger);
+  --color-danger-solid: var(--danger-solid);
+  --color-danger-subtle: var(--danger-subtle);
 
-  --color-leaf: #2f7d4f;
-  --color-leaf-50: #e5f2ea;
+  --shadow-overlay: var(--shadow-overlay-value);
+  --shadow-xs: var(--shadow-xs-value);
+}
 
-  --color-madder: #b4442c;
-  --color-madder-50: #fbe9e4;
+:root {
+  color-scheme: light;
 
-  --color-plum: #7a3b69;
-  --color-plum-50: #f5e8f1;
+  --bg: #fafaf9;
+  --surface: #ffffff;
+  --surface-2: #f4f4f2;
+  --surface-3: #ebebe8;
+  --sidebar: #f5f5f3;
+  --border: rgb(24 24 20 / 0.085);
+  --border-strong: rgb(24 24 20 / 0.15);
 
-  --radius-card: 14px;
-  --shadow-card: 0 1px 0 rgba(29, 37, 80, 0.04), 0 1px 3px rgba(29, 37, 80, 0.06);
-  --shadow-pop: 0 10px 30px -10px rgba(29, 37, 80, 0.25), 0 2px 6px rgba(29, 37, 80, 0.08);
+  --fg: #18181b;
+  --fg-2: #3f3f46;
+  --fg-muted: #6e6e76;
+  --fg-faint: #a1a1a8;
 
-  --animate-rise: rise 0.35s cubic-bezier(0.2, 0.8, 0.2, 1) both;
-  @keyframes rise {
-    from { opacity: 0; transform: translateY(6px); }
-    to { opacity: 1; transform: none; }
+  --accent: #3b4ba8;
+  --accent-solid: #3b4ba8;
+  --accent-solid-hover: #33419a;
+  --accent-subtle: rgb(59 75 168 / 0.08);
+  --on-accent: #ffffff;
+
+  --success: #1d7a4b;
+  --success-subtle: rgb(29 122 75 / 0.09);
+  --warning: #9a5a00;
+  --warning-solid: #d98a0b;
+  --warning-subtle: rgb(217 138 11 / 0.11);
+  --danger: #c0352a;
+  --danger-solid: #c93a2f;
+  --danger-subtle: rgb(192 53 42 / 0.08);
+
+  --shadow-xs-value: 0 1px 1px rgb(0 0 0 / 0.03);
+  --shadow-overlay-value: 0 0 0 1px rgb(0 0 0 / 0.06), 0 4px 8px -2px rgb(0 0 0 / 0.06), 0 16px 32px -8px rgb(0 0 0 / 0.12);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    color-scheme: dark;
+
+    --bg: #0d0d0f;
+    --surface: #141417;
+    --surface-2: #1b1b1f;
+    --surface-3: #232328;
+    --sidebar: #0a0a0c;
+    --border: rgb(255 255 255 / 0.075);
+    --border-strong: rgb(255 255 255 / 0.13);
+
+    --fg: #ececee;
+    --fg-2: #c6c6cc;
+    --fg-muted: #8c8c95;
+    --fg-faint: #5e5e68;
+
+    --accent: #9aa5f6;
+    --accent-solid: #5664d2;
+    --accent-solid-hover: #6370dc;
+    --accent-subtle: rgb(130 145 245 / 0.12);
+    --on-accent: #ffffff;
+
+    --success: #55c48d;
+    --success-subtle: rgb(85 196 141 / 0.12);
+    --warning: #e8a64a;
+    --warning-solid: #d9922a;
+    --warning-subtle: rgb(232 166 74 / 0.12);
+    --danger: #f0786b;
+    --danger-solid: #d2473b;
+    --danger-subtle: rgb(240 120 107 / 0.12);
+
+    --shadow-xs-value: 0 0 0 transparent;
+    --shadow-overlay-value: 0 0 0 1px rgb(255 255 255 / 0.08), 0 8px 24px -4px rgb(0 0 0 / 0.6);
   }
 }
 
 @layer base {
-  html { -webkit-text-size-adjust: 100%; }
-  body {
-    background: var(--color-paper);
-    color: var(--color-ink);
-    font-family: var(--font-sans);
-    font-feature-settings: "tnum" 1, "lnum" 1;
-    -webkit-font-smoothing: antialiased;
+  html {
+    -webkit-text-size-adjust: 100%;
+    text-rendering: optimizeLegibility;
   }
-  ::selection { background: var(--color-marigold-50); }
-  :focus-visible { outline: 2px solid var(--color-marigold); outline-offset: 2px; }
-  input[type="number"]::-webkit-inner-spin-button { opacity: 0.4; }
+  body {
+    background: var(--bg);
+    color: var(--fg);
+    font-family: var(--font-sans);
+    font-size: 14px;
+    line-height: 1.5;
+    font-feature-settings: "cv11", "ss01";
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+  *,
+  ::before,
+  ::after {
+    border-color: var(--border);
+  }
+  ::selection {
+    background: var(--accent-subtle);
+  }
+  :focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+    border-radius: 4px;
+  }
+  input[type="number"]::-webkit-inner-spin-button {
+    opacity: 0.35;
+  }
+  input[type="date"]::-webkit-calendar-picker-indicator {
+    opacity: 0.5;
+    cursor: pointer;
+  }
+  @media (prefers-color-scheme: dark) {
+    input[type="date"]::-webkit-calendar-picker-indicator {
+      filter: invert(1);
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    ::before,
+    ::after {
+      animation-duration: 0.01ms !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
 }
 
 @layer components {
-  /* Embroidery-stitch divider used throughout */
-  .stitch { background-image: linear-gradient(to right, var(--color-line-strong) 55%, transparent 0); background-size: 9px 1.5px; background-repeat: repeat-x; height: 1.5px; }
-  .stitch-v { background-image: linear-gradient(to bottom, var(--color-line-strong) 55%, transparent 0); background-size: 1.5px 9px; background-repeat: repeat-y; width: 1.5px; }
-  .num { font-variant-numeric: tabular-nums lining-nums; }
+  /* Numbers: tabular, lining, slashed zero. Use on every figure. */
+  .num {
+    font-variant-numeric: tabular-nums lining-nums slashed-zero;
+    font-feature-settings: "tnum", "lnum", "zero", "cv11";
+  }
 
-  .ledger { width: 100%; border-collapse: separate; border-spacing: 0; }
-  .ledger th { text-align: left; font-size: 0.72rem; letter-spacing: 0.06em; text-transform: uppercase; font-weight: 600; color: var(--color-muted); padding: 0.6rem 0.85rem; border-bottom: 1px solid var(--color-line); white-space: nowrap; background: var(--color-card); }
-  .ledger td { padding: 0.7rem 0.85rem; border-bottom: 1px solid var(--color-line); vertical-align: middle; }
-  .ledger tbody tr:last-child td { border-bottom: 0; }
-  .ledger tbody tr.row-link { cursor: pointer; }
-  .ledger tbody tr.row-link:hover td { background: var(--color-paper); }
-  .ledger tfoot td { padding: 0.75rem 0.85rem; font-weight: 700; border-top: 2px solid var(--color-ink); background: var(--color-paper); }
-  .ledger .r { text-align: right; }
+  /* Small uppercase-free section label used above groups. */
+  .label {
+    font-size: 12px;
+    line-height: 16px;
+    font-weight: 500;
+    color: var(--fg-muted);
+  }
+
+  /* Data table */
+  .ledger {
+    width: 100%;
+    border-collapse: separate;
+    border-spacing: 0;
+    font-size: 13px;
+  }
+  .ledger th {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    height: 34px;
+    padding: 0 12px;
+    text-align: left;
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--fg-muted);
+    white-space: nowrap;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+  }
+  .ledger td {
+    height: 40px;
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--border);
+    vertical-align: middle;
+  }
+  .ledger th:first-child,
+  .ledger td:first-child {
+    padding-left: 16px;
+  }
+  .ledger th:last-child,
+  .ledger td:last-child {
+    padding-right: 16px;
+  }
+  .ledger tbody tr:last-child td {
+    border-bottom: 0;
+  }
+  .ledger tbody tr {
+    transition: background-color 80ms ease-out;
+  }
+  .ledger tbody tr.row-link {
+    cursor: pointer;
+  }
+  .ledger tbody tr.row-link:hover td,
+  .ledger tbody tr.row-link:focus-within td {
+    background: var(--surface-2);
+  }
+  .ledger tfoot td {
+    height: 40px;
+    padding: 8px 12px;
+    font-weight: 600;
+    border-top: 1px solid var(--border-strong);
+    background: var(--surface);
+  }
+  .ledger tfoot td:first-child {
+    padding-left: 16px;
+  }
+  .ledger tfoot td:last-child {
+    padding-right: 16px;
+  }
+  .ledger .r {
+    text-align: right;
+  }
+  .ledger td.r,
+  .ledger tfoot td.r {
+    font-variant-numeric: tabular-nums lining-nums slashed-zero;
+    font-feature-settings: "tnum", "lnum", "zero", "cv11";
+  }
+
+  @media (pointer: coarse) {
+    .ledger td {
+      height: 44px;
+    }
+  }
+}
+
+@keyframes overlay-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes pop-in {
+  from { opacity: 0; transform: translateY(2px) scale(0.985); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes dialog-in {
+  from { opacity: 0; transform: translate(-50%, calc(-50% + 4px)) scale(0.985); }
+  to { opacity: 1; transform: translate(-50%, -50%); }
+}
+@keyframes sheet-in {
+  from { transform: translateY(16px); opacity: 0; }
+  to { transform: none; opacity: 1; }
+}
+@keyframes drawer-in {
+  from { transform: translateX(-12px); opacity: 0; }
+  to { transform: none; opacity: 1; }
+}
+@keyframes shimmer {
+  0% { opacity: 1; }
+  50% { opacity: 0.55; }
+  100% { opacity: 1; }
 }
 
 @media print {
   @page { size: A4; margin: 14mm; }
+  :root {
+    color-scheme: light;
+    --bg: #fff; --surface: #fff; --surface-2: #f4f4f2; --border: rgb(0 0 0 / 0.12); --border-strong: rgb(0 0 0 / 0.2);
+    --fg: #111; --fg-2: #333; --fg-muted: #666; --fg-faint: #999; --accent: #3b4ba8;
+  }
   body { background: white !important; }
   .no-print { display: none !important; }
   .print-plain { box-shadow: none !important; border: 0 !important; padding: 0 !important; margin: 0 !important; }

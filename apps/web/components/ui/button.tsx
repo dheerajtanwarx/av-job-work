@@ -3,19 +3,18 @@ import { forwardRef, type ButtonHTMLAttributes } from "react";
 import { cn } from "@/lib/utils";
 
 const variants = {
-  primary: "bg-indigo text-white hover:bg-indigo-600 shadow-[inset_0_-2px_0_rgba(0,0,0,0.15)]",
-  accent: "bg-marigold text-ink hover:brightness-95 shadow-[inset_0_-2px_0_rgba(0,0,0,0.12)]",
-  secondary: "bg-card text-ink border border-line-strong hover:bg-paper-2",
-  ghost: "text-ink-2 hover:bg-paper-2",
-  danger: "bg-madder text-white hover:brightness-95",
-  "danger-ghost": "text-madder hover:bg-madder-50",
+  primary: "bg-accent-solid text-on-accent shadow-xs hover:bg-accent-solid-hover",
+  secondary: "border border-border-strong bg-surface text-fg shadow-xs hover:bg-surface-2",
+  ghost: "text-fg-2 hover:bg-surface-2 hover:text-fg",
+  danger: "bg-danger-solid text-white shadow-xs hover:brightness-110",
+  "danger-ghost": "text-danger hover:bg-danger-subtle",
 } as const;
 
 const sizes = {
-  sm: "h-8 px-3 text-sm gap-1.5",
-  md: "h-10 px-4 text-[0.95rem] gap-2",
-  lg: "h-12 px-5 text-base gap-2",
-  icon: "h-9 w-9",
+  sm: "h-7 px-2.5 text-[13px] gap-1.5 [&_svg]:size-3.5",
+  md: "h-8 px-3 text-[13px] gap-1.5 [&_svg]:size-3.5 pointer-coarse:h-10",
+  lg: "h-9 px-3.5 text-sm gap-2 [&_svg]:size-4 pointer-coarse:h-10",
+  icon: "size-8 [&_svg]:size-4 pointer-coarse:size-10",
 } as const;
 
 export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
@@ -34,19 +33,20 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button
     <Comp
       ref={ref}
       className={cn(
-        "inline-flex shrink-0 items-center justify-center rounded-lg font-semibold whitespace-nowrap transition-[background,filter,box-shadow] select-none disabled:pointer-events-none disabled:opacity-50 [&_svg]:size-[1.1em] [&_svg]:shrink-0",
+        "inline-flex shrink-0 items-center justify-center rounded-md font-medium whitespace-nowrap transition-[background-color,color,filter,opacity] duration-100 ease-out select-none active:opacity-85 disabled:pointer-events-none disabled:opacity-45 [&_svg]:shrink-0",
         variants[variant],
         sizes[size],
         className,
       )}
       disabled={disabled || loading}
+      aria-busy={loading || undefined}
       {...props}
     >
       {asChild ? (
         children
       ) : (
         <>
-          {loading && <span className="size-4 animate-spin rounded-full border-2 border-current border-r-transparent" />}
+          {loading && <span className="size-3 animate-spin rounded-full border-[1.5px] border-current border-r-transparent" aria-hidden />}
           {children}
         </>
       )}

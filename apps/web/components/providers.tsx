@@ -22,9 +22,12 @@ export function Providers({ children }: { children: React.ReactNode }) {
     <QueryClientProvider client={client}>
       {children}
       <Toaster
-        position="top-center"
+        position="bottom-right"
+        theme="system"
         richColors
-        toastOptions={{ style: { fontFamily: "var(--font-figtree)", fontSize: "0.95rem" } }}
+        closeButton
+        mobileOffset={{ bottom: 72 }}
+        toastOptions={{ style: { fontFamily: "var(--font-sans)", fontSize: "13px", borderRadius: "8px" } }}
       />
     </QueryClientProvider>
   );
