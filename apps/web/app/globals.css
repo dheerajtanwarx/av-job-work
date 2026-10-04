@@ -187,14 +187,6 @@
     font-feature-settings: "tnum", "lnum", "zero", "cv11";
   }
 
-  /* Small uppercase-free section label used above groups. */
-  .label {
-    font-size: 12px;
-    line-height: 16px;
-    font-weight: 500;
-    color: var(--fg-muted);
-  }
-
   /* Data table */
   .ledger {
     width: 100%;

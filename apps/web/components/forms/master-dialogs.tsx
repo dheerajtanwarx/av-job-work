@@ -21,9 +21,12 @@ function useMasterSave<T>(path: string, keys: string[], existingId?: string) {
 
 function ActiveToggle({ value, onChange }: { value: boolean; onChange: (v: boolean) => void }) {
   return (
-    <label className="flex cursor-pointer items-center gap-2 text-sm">
-      <input type="checkbox" className="size-4 accent-indigo" checked={value} onChange={(e) => onChange(e.target.checked)} />
-      Active <span className="text-muted">(inactive items are hidden when creating jobs)</span>
+    <label className="flex cursor-pointer items-start gap-2 text-[13px]">
+      <input type="checkbox" className="mt-0.5 size-3.5 accent-[var(--accent-solid)]" checked={value} onChange={(e) => onChange(e.target.checked)} />
+      <span>
+        <span className="font-medium">Active</span>
+        <span className="block text-xs text-fg-muted">Inactive items are hidden when creating jobs.</span>
+      </span>
     </label>
   );
 }
@@ -72,7 +75,7 @@ export function ClientDialog({
     <Dialog open={open} onOpenChange={onOpenChange} title={client ? "Edit client" : "New client"} description="The job worker / party you send material to." wide>
       <form onSubmit={submit} className="grid gap-4 sm:grid-cols-2">
         <Field label="Name" required error={errors.name}>
-          <Input autoFocus value={form.name} onChange={set("name")} placeholder="e.g. Sharma Embroidery" />
+          <Input autoFocus value={form.name} onChange={set("name")} placeholder="Sharma Embroidery" />
         </Field>
         <Field label="Business name" error={errors.businessName}>
           <Input value={form.businessName} onChange={set("businessName")} />
@@ -87,7 +90,7 @@ export function ClientDialog({
           <Textarea rows={2} value={form.address} onChange={set("address")} />
         </Field>
         <Field label="GSTIN" hint="Optional" error={errors.gstin}>
-          <Input value={form.gstin} onChange={set("gstin")} className="uppercase" />
+          <Input value={form.gstin} onChange={set("gstin")} className="num uppercase" />
         </Field>
         <Field label="Notes" error={errors.notes}>
           <Input value={form.notes} onChange={set("notes")} />
@@ -97,7 +100,7 @@ export function ClientDialog({
             <ActiveToggle value={form.isActive} onChange={(v) => setForm((f) => ({ ...f, isActive: v }))} />
           </div>
         )}
-        <div className="flex justify-end gap-2 sm:col-span-2">
+        <div className="-mx-5 -mb-5 flex justify-end gap-2 border-t border-border px-5 py-3 sm:col-span-2">
           <Button type="button" variant="secondary" onClick={() => onOpenChange(false)}>
             Cancel
           </Button>
@@ -153,7 +156,7 @@ export function ProductDialog({
     <Dialog open={open} onOpenChange={onOpenChange} title={product ? "Edit product" : "New product"} description="Something you send out for work, like Plain Blouse or Saree.">
       <form onSubmit={submit} className="space-y-4">
         <Field label="Name" required error={errors.name}>
-          <Input autoFocus value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="e.g. Plain Blouse" />
+          <Input autoFocus value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Plain Blouse" />
         </Field>
         <div className="grid grid-cols-2 gap-4">
           <Field label="Code" error={errors.code}>
@@ -167,7 +170,7 @@ export function ProductDialog({
           <Textarea rows={2} value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} />
         </Field>
         {product && <ActiveToggle value={form.isActive} onChange={(v) => setForm({ ...form, isActive: v })} />}
-        <div className="flex justify-end gap-2">
+        <div className="-mx-5 -mb-5 flex justify-end gap-2 border-t border-border px-5 py-3">
           <Button type="button" variant="secondary" onClick={() => onOpenChange(false)}>
             Cancel
           </Button>
@@ -227,7 +230,7 @@ export function DesignDialog({
     <Dialog open={open} onOpenChange={onOpenChange} title={design ? "Edit design" : "New design"} description="A type of work with its usual rate per piece.">
       <form onSubmit={submit} className="space-y-4">
         <Field label="Design name" required error={errors.name}>
-          <Input autoFocus value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="e.g. Floral Design" />
+          <Input autoFocus value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Floral Design" />
         </Field>
         <div className="grid grid-cols-2 gap-4">
           <Field label="Default rate / piece" error={errors.defaultRatePaise}>
@@ -237,12 +240,12 @@ export function DesignDialog({
             <Input value={form.code} onChange={(e) => setForm({ ...form, code: e.target.value })} />
           </Field>
         </div>
-        {design && <p className="rounded-lg bg-marigold-50 px-3 py-2 text-sm text-marigold-700">Changing the rate only affects new jobs. Existing jobs keep their own rate.</p>}
+        {design && <p className="rounded-md bg-surface-2 px-3 py-2 text-xs text-fg-2">Changing the rate only affects new jobs. Existing jobs keep their own rate.</p>}
         <Field label="Notes" error={errors.description}>
           <Textarea rows={2} value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} />
         </Field>
         {design && <ActiveToggle value={form.isActive} onChange={(v) => setForm({ ...form, isActive: v })} />}
-        <div className="flex justify-end gap-2">
+        <div className="-mx-5 -mb-5 flex justify-end gap-2 border-t border-border px-5 py-3">
           <Button type="button" variant="secondary" onClick={() => onOpenChange(false)}>
             Cancel
           </Button>
