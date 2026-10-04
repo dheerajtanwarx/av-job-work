@@ -1,6 +1,6 @@
 "use client";
 
-import { amountInWords, formatINR, formatQty, PAYMENT_METHOD_LABEL, PAYMENT_METHODS, todayISO, type PaymentMethod, type SubBillDetail, type UnpaidLine } from "@av/shared";
+import { amountInWords, formatINR, formatQty, PAYMENT_METHOD_LABEL, PAYMENT_METHODS, todayISO, type PaymentMethod, type SubBillWithEmail, type UnpaidLine } from "@av/shared";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ReceiptText } from "lucide-react";
 import Link from "next/link";
@@ -73,7 +73,7 @@ function NewSubBill() {
 
   const create = useMutation({
     mutationFn: () =>
-      api.post<SubBillDetail>("/sub-bills", {
+      api.post<SubBillWithEmail>("/sub-bills", {
         jobId,
         date,
         method,
@@ -87,7 +87,10 @@ function NewSubBill() {
         b.mainBill && !b.mainBill.cancelled
           ? `${b.billNumber} saved. ${b.job.jobNumber} is fully paid, main bill ${b.mainBill.billNumber} issued.`
           : `${b.billNumber} saved: ${formatINR(b.amountPaise)} paid to ${b.client.name}`,
+        b.email.status === "sent" ? { description: b.email.message } : undefined,
       );
+      // Turned off in Settings is a choice, not a problem; anything else that stopped the email is worth a heads-up.
+      if (b.email.status === "failed" || (b.email.status === "skipped" && b.business.emailBills)) toast.warning(`Bill not emailed. ${b.email.message}`);
       router.push(`/bills/sub/${b.id}`);
     },
     onError: (e) => toast.error(e.message),

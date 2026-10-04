@@ -56,7 +56,7 @@ export async function getUnpaid(db: DB, filter: { clientId?: string; jobId?: str
 
 export async function getSettings(db: DB = prisma): Promise<Settings> {
   const s = await db.settings.upsert({ where: { id: 1 }, update: {}, create: { id: 1 } });
-  return { businessName: s.businessName, address: s.address, phone: s.phone, email: s.email, billingPolicy: s.billingPolicy };
+  return { businessName: s.businessName, address: s.address, phone: s.phone, email: s.email, logo: s.logo, emailBills: s.emailBills, billingPolicy: s.billingPolicy };
 }
 
 // ───────────────────────── Sub bills (payments) ─────────────────────────
@@ -95,6 +95,8 @@ export async function getSubBill(id: string): Promise<SubBillDetail> {
     client: { ...b.client, createdAt: b.client.createdAt.toISOString() },
     lines: b.lines.map((l) => ({ id: l.id, jobItemId: l.jobItemId, designName: l.designName, qty: l.qty, ratePaise: l.ratePaise, amountPaise: l.amountPaise })),
     mainBill: mb ? { id: mb.id, billNumber: mb.billNumber, cancelled: !!mb.cancelledAt } : null,
+    emailedAt: iso(b.emailedAt),
+    emailedTo: b.emailedTo,
     business: await getSettings(),
   };
 }
@@ -130,7 +132,7 @@ export async function createSubBill(input: z.output<typeof subBillCreateSchema>,
     await recomputeJobStatus(tx, job.id, userId);
     return b.id;
   });
-  return getSubBill(id);
+  return id;
 }
 
 export async function voidSubBill(id: string, reason: string, userId?: string) {

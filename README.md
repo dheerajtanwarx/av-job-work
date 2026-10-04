@@ -25,6 +25,8 @@ pnpm db:setup               # starts Postgres, applies migrations, seeds owner +
 pnpm dev                    # web on http://localhost:3000, API on http://localhost:4000
 ```
 
+To email bills, fill in the `SMTP_*` values in `.env` (for Gmail, use `smtp.gmail.com`, port 465, `SMTP_SECURE=true` and an [App Password](https://myaccount.google.com/apppasswords)). Without them, bills are still saved but not emailed.
+
 Log in with `OWNER_EMAIL` / `OWNER_PASSWORD` from `.env` (default `owner@example.com` / `admin123`).
 
 The browser only ever calls `/api/*` on the Next.js server, which proxies to Express. That keeps the auth cookie same-origin.
@@ -67,6 +69,7 @@ Per design line:
 - A **sub bill** (`SB-001`) records one payment to a job worker for returned, not-yet-paid pieces of **one job**, so nothing can be paid twice.
 - A **main bill** (`MB-001`) is issued automatically once a job is completed and every returned piece is paid. It lists the product, the design-wise breakdown and every sub bill. If a sub bill or return is voided later, the main bill is cancelled. It is re-issued under the same number once the job is fully paid again.
 - Both bills print as A4 payment vouchers (Print / Save PDF). There is no tax, GSTIN or due date.
+- Each new sub bill is **emailed to the job worker** (if they have an email address) as a detailed payment voucher with your logo. If the payment settles the job, the main bill is included in the same email. Turn this off or upload a logo in **Settings**. A failed or skipped email never blocks saving the bill, and the sub bill page has **Email bill / Resend email**.
 - Nothing is deleted:
   - Dispatches, returns and sub bills are **voided** with a reason.
   - Jobs are **cancelled** with a reason. Main bills are cancelled automatically, as described above.

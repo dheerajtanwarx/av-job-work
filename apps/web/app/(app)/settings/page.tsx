@@ -1,8 +1,9 @@
 "use client";
 
-import { BILLING_POLICIES, BILLING_POLICY_LABEL, type BillingPolicy, type Settings } from "@av/shared";
+import { BILLING_POLICIES, BILLING_POLICY_LABEL, MAX_LOGO_CHARS, type BillingPolicy, type Settings } from "@av/shared";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useState } from "react";
+import { ImageUp, Trash2 } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -42,7 +43,7 @@ export default function SettingsPage() {
         </Card>
       </>
     );
-  const set = (k: keyof Settings) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => setForm({ ...form, [k]: e.target.value });
+  const set = (k: "businessName" | "address" | "phone" | "email") => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => setForm({ ...form, [k]: e.target.value });
 
   return (
     <form
@@ -93,8 +94,67 @@ export default function SettingsPage() {
             </Field>
           </div>
         </SettingsGroup>
+        <SettingsGroup title="Logo" description="Shown on printed bills and at the top of every bill email. PNG or JPEG, under 200 KB.">
+          <LogoPicker value={form.logo} onChange={(logo) => setForm({ ...form, logo })} />
+        </SettingsGroup>
+        <SettingsGroup title="Bill emails" description="Job workers need an email address on their profile to receive bills.">
+          <label className="flex cursor-pointer gap-3 rounded-lg border border-border bg-surface px-4 py-3">
+            <input
+              type="checkbox"
+              className="mt-0.5 size-3.5 shrink-0 accent-[var(--accent-solid)]"
+              checked={form.emailBills}
+              onChange={(e) => setForm({ ...form, emailBills: e.target.checked })}
+            />
+            <span>
+              <span className="block text-[13px] font-medium">Email each new sub bill to the job worker</span>
+              <span className="text-xs text-fg-muted">A detailed payment voucher with your logo. When a payment settles a job, the main bill is included too.</span>
+            </span>
+          </label>
+        </SettingsGroup>
       </div>
     </form>
+  );
+}
+
+function LogoPicker({ value, onChange }: { value: string | null; onChange: (logo: string | null) => void }) {
+  const input = useRef<HTMLInputElement>(null);
+  const pick = (file: File | undefined) => {
+    if (!file) return;
+    if (!["image/png", "image/jpeg"].includes(file.type)) return toast.error("Please choose a PNG or JPEG image");
+    const reader = new FileReader();
+    reader.onload = () => {
+      const url = String(reader.result);
+      if (url.length > MAX_LOGO_CHARS) return toast.error("Logo must be smaller than 200 KB");
+      onChange(url);
+    };
+    reader.readAsDataURL(file);
+  };
+  return (
+    <div className="flex flex-wrap items-center gap-4">
+      <div className="grid size-20 shrink-0 place-items-center overflow-hidden rounded-lg border border-border bg-surface">
+        {value ? <img src={value} alt="Business logo" className="max-h-full max-w-full object-contain" /> : <ImageUp className="size-5 text-fg-faint" aria-hidden />}
+      </div>
+      <div className="flex flex-wrap gap-2">
+        <Button type="button" variant="secondary" onClick={() => input.current?.click()}>
+          {value ? "Change logo" : "Upload logo"}
+        </Button>
+        {value && (
+          <Button type="button" variant="ghost" onClick={() => onChange(null)}>
+            <Trash2 /> Remove
+          </Button>
+        )}
+      </div>
+      <input
+        ref={input}
+        type="file"
+        accept="image/png,image/jpeg"
+        hidden
+        onChange={(e) => {
+          pick(e.target.files?.[0]);
+          e.target.value = "";
+        }}
+      />
+    </div>
   );
 }
 

@@ -1,8 +1,8 @@
 "use client";
 
-import { formatDate, formatINR, formatQty, PAYMENT_METHOD_LABEL, type SubBillDetail } from "@av/shared";
+import { formatDate, formatINR, formatQty, PAYMENT_METHOD_LABEL, type SubBillDetail, type SubBillWithEmail } from "@av/shared";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Ban, FileCheck2, Printer } from "lucide-react";
+import { Ban, FileCheck2, Mail, MailCheck, Printer } from "lucide-react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useState } from "react";
@@ -32,6 +32,15 @@ export default function SubBillPage() {
         b.mainBill?.cancelled ? `Sub bill voided. Main bill ${b.mainBill.billNumber} is cancelled until the job is fully paid again.` : "Sub bill voided. Its pieces can be paid for again.",
       );
       setVoidOpen(false);
+    },
+    onError: (e) => toast.error(e.message),
+  });
+  const sendEmail = useMutation({
+    mutationFn: () => api.post<SubBillWithEmail>(`/sub-bills/${id}/email`),
+    onSuccess: ({ email, ...b }) => {
+      qc.setQueryData(["sub-bill", id], b);
+      if (email.status === "sent") toast.success(email.message);
+      else toast.error(email.message);
     },
     onError: (e) => toast.error(e.message),
   });
@@ -70,6 +79,11 @@ export default function SubBillPage() {
             </Link>{" "}
             · {formatDate(b.date)}
           </div>
+          {b.emailedAt && (
+            <div className="mt-1 flex items-center gap-1.5 text-xs text-fg-muted">
+              <MailCheck className="size-3.5" aria-hidden /> Emailed to {b.emailedTo} on {formatDate(b.emailedAt)}
+            </div>
+          )}
         </div>
         <div className="flex flex-wrap items-center gap-2">
           {b.mainBill && !b.mainBill.cancelled && (
@@ -77,6 +91,17 @@ export default function SubBillPage() {
               <Link href={`/bills/main/${b.mainBill.id}`}>
                 <FileCheck2 /> Main bill {b.mainBill.billNumber}
               </Link>
+            </Button>
+          )}
+          {!voided && (
+            <Button
+              variant="ghost"
+              loading={sendEmail.isPending}
+              disabled={!b.client.email}
+              title={b.client.email ? `Send to ${b.client.email}` : `${b.client.name} has no email address`}
+              onClick={() => sendEmail.mutate()}
+            >
+              <Mail /> {b.emailedAt ? "Resend email" : "Email bill"}
             </Button>
           )}
           <Button variant="ghost" onClick={() => window.print()}>

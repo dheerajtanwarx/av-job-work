@@ -51,6 +51,8 @@ model Settings {
   address          String?
   phone            String?
   email            String?
+  logo             String? // data:image/png|jpeg;base64,… – printed on bills and embedded in bill emails
+  emailBills       Boolean       @default(true) // email each new sub bill to the job worker
   billingPolicy    BillingPolicy @default(MANUAL)
   updatedAt        DateTime      @updatedAt
 }
@@ -215,6 +217,8 @@ model SubBill {
   notes       String?
   voidedAt    DateTime?
   voidReason  String?
+  emailedAt   DateTime? // last successful email to the job worker
+  emailedTo   String?
   createdAt   DateTime      @default(now())
   lines       SubBillLine[]
 

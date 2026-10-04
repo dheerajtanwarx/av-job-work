@@ -35,10 +35,13 @@ export function BillSheet({
       <div className="p-6 sm:p-10 print:p-0 print:pt-4">
         {/* Letterhead */}
         <header className="flex flex-wrap items-start justify-between gap-6">
-          <div className="min-w-0">
+          <div className="flex min-w-0 items-start gap-4">
+            {business.logo && <img src={business.logo} alt="" className="size-14 shrink-0 object-contain" />}
+            <div className="min-w-0">
             <div className="text-lg leading-6 font-semibold tracking-[-0.01em]">{business.businessName}</div>
             {business.address && <div className="mt-1 max-w-xs text-xs leading-relaxed whitespace-pre-line text-fg-muted">{business.address}</div>}
             {(business.phone || business.email) && <div className="mt-0.5 text-xs text-fg-muted">{[business.phone, business.email].filter(Boolean).join(" · ")}</div>}
+            </div>
           </div>
           <div className="sm:text-right">
             <div className="text-[10px] font-semibold tracking-[0.16em] text-fg-muted uppercase">{kind}</div>

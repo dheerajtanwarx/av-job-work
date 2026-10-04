@@ -9,6 +9,9 @@ const optText = z
   .nullable()
   .transform((v) => (v ? v : null));
 
+/** ≈200 KB of image once base64-encoded. */
+export const MAX_LOGO_CHARS = 280_000;
+
 export const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Please pick a date");
 const optDate = z
   .union([isoDate, z.literal(""), z.null()])
@@ -147,6 +150,14 @@ export const settingsSchema = z.object({
   address: optText,
   phone: optText,
   email: optText,
+  /** Kept small so it can be embedded inline in every bill email. */
+  logo: z
+    .string()
+    .regex(/^data:image\/(png|jpeg);base64,[A-Za-z0-9+/=]+$/, "Logo must be a PNG or JPEG image")
+    .max(MAX_LOGO_CHARS, "Logo must be smaller than 200 KB")
+    .nullable()
+    .optional(),
+  emailBills: z.boolean().optional(),
   billingPolicy: z.enum(BILLING_POLICIES),
 });
 export type SettingsInput = z.input<typeof settingsSchema>;

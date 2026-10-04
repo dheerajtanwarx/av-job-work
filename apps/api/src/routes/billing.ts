@@ -4,6 +4,7 @@ import { Router } from "express";
 import { audit } from "../lib/audit.js";
 import { toDate } from "../lib/dates.js";
 import { param, parse, str } from "../lib/http.js";
+import { emailSubBill } from "../services/bill-email.js";
 import { createSubBill, getMainBill, getSettings, getSubBill, getUnpaid, listMainBills, listSubBills, voidSubBill } from "../services/billing.js";
 
 const dateQ = (v: unknown) => (str(v) ? toDate(str(v)!) : undefined);
@@ -28,7 +29,16 @@ billingRouter.get("/sub-bills", async (req, res) => {
 });
 
 billingRouter.post("/sub-bills", async (req, res) => {
-  res.status(201).json(await createSubBill(parse(subBillCreateSchema, req.body), req.user?.id));
+  const id = await createSubBill(parse(subBillCreateSchema, req.body), req.user?.id);
+  // The bill is saved either way; the email result is reported alongside it.
+  const email = await emailSubBill(id, req.user?.id, { auto: true });
+  res.status(201).json({ ...(await getSubBill(id)), email });
+});
+
+billingRouter.post("/sub-bills/:id/email", async (req, res) => {
+  const id = param(req.params.id);
+  const email = await emailSubBill(id, req.user?.id);
+  res.json({ ...(await getSubBill(id)), email });
 });
 
 billingRouter.get("/sub-bills/:id", async (req, res) => {

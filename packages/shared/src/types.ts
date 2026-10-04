@@ -138,7 +138,21 @@ export interface SubBillDetail extends SubBillRow {
   client: Client;
   lines: { id: string; jobItemId: string; designName: string; qty: number; ratePaise: number; amountPaise: number }[];
   mainBill: { id: string; billNumber: string; cancelled: boolean } | null;
+  emailedAt: string | null;
+  emailedTo: string | null;
   business: Settings;
+}
+
+/** What happened when a sub bill was emailed to the job worker. */
+export interface BillEmailResult {
+  status: "sent" | "skipped" | "failed";
+  to: string | null;
+  message: string;
+}
+
+/** Returned when a sub bill is created or (re)emailed. */
+export interface SubBillWithEmail extends SubBillDetail {
+  email: BillEmailResult;
 }
 
 /** A main bill: the settlement of a whole job once every OK piece is paid. */
@@ -207,6 +221,9 @@ export interface Settings {
   address: string | null;
   phone: string | null;
   email: string | null;
+  /** data: URL (PNG or JPEG), or null when no logo is set. */
+  logo: string | null;
+  emailBills: boolean;
   billingPolicy: BillingPolicy;
 }
 
