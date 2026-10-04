@@ -1,0 +1,271 @@
+generator client {
+  provider     = "prisma-client"
+  output       = "../src/generated/prisma"
+  moduleFormat = "esm"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// Money is always stored as integer paise (₹1 = 100 paise).
+
+enum BillingPolicy {
+  AFTER_EACH_RETURN
+  ON_COMPLETION
+  MANUAL
+}
+
+enum JobStatus {
+  DRAFT
+  IN_PROGRESS
+  PARTIALLY_RECEIVED
+  COMPLETED
+  CANCELLED
+}
+
+enum DispatchKind {
+  INITIAL
+  REWORK
+}
+
+enum PaymentMethod {
+  CASH
+  UPI
+  BANK
+  CHEQUE
+  OTHER
+}
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  name         String
+  passwordHash String
+  createdAt    DateTime @default(now())
+}
+
+model Settings {
+  id               Int           @id @default(1)
+  businessName     String        @default("My Business")
+  address          String?
+  phone            String?
+  email            String?
+  gstin            String?
+  billingPolicy    BillingPolicy @default(MANUAL)
+  defaultTaxPercent Decimal      @default(0) @db.Decimal(5, 2)
+  invoiceFooter    String?
+  updatedAt        DateTime      @updatedAt
+}
+
+model Counter {
+  name String @id
+  next Int    @default(1)
+}
+
+model Client {
+  id           String    @id @default(cuid())
+  name         String
+  businessName String?
+  phone        String?
+  email        String?
+  address      String?
+  gstin        String?
+  notes        String?
+  isActive     Boolean   @default(true)
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  jobs         Job[]
+  invoices     Invoice[]
+  payments     Payment[]
+
+  @@index([name])
+}
+
+model Product {
+  id          String   @id @default(cuid())
+  name        String
+  code        String?
+  unit        String   @default("pcs")
+  description String?
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  jobs        Job[]
+}
+
+model Design {
+  id               String    @id @default(cuid())
+  name             String
+  code             String?
+  defaultRatePaise Int       @default(0)
+  description      String?
+  isActive         Boolean   @default(true)
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+  jobItems         JobItem[]
+}
+
+model Job {
+  id                 String     @id @default(cuid())
+  jobNumber          String     @unique
+  clientId           String
+  client             Client     @relation(fields: [clientId], references: [id])
+  productId          String
+  product            Product    @relation(fields: [productId], references: [id])
+  jobDate            DateTime   @db.Date
+  expectedReturnDate DateTime?  @db.Date
+  status             JobStatus  @default(DRAFT)
+  notes              String?
+  completedAt        DateTime?
+  cancelledAt        DateTime?
+  cancelReason       String?
+  createdAt          DateTime   @default(now())
+  updatedAt          DateTime   @updatedAt
+  items              JobItem[]
+  dispatches         Dispatch[]
+  returns            Return[]
+
+  @@index([clientId])
+  @@index([status])
+  @@index([jobDate])
+}
+
+model JobItem {
+  id            String         @id @default(cuid())
+  jobId         String
+  job           Job            @relation(fields: [jobId], references: [id])
+  designId      String
+  design        Design         @relation(fields: [designId], references: [id])
+  designName    String // snapshot at job creation
+  quantity      Int
+  ratePaise     Int // snapshot; never follows the design's default rate
+  sortOrder     Int            @default(0)
+  dispatchLines DispatchLine[]
+  returnLines   ReturnLine[]
+  invoiceLines  InvoiceLine[]
+
+  @@index([jobId])
+  @@index([designId])
+}
+
+model Dispatch {
+  id         String         @id @default(cuid())
+  jobId      String
+  job        Job            @relation(fields: [jobId], references: [id])
+  date       DateTime       @db.Date
+  kind       DispatchKind   @default(INITIAL)
+  notes      String?
+  voidedAt   DateTime?
+  voidReason String?
+  createdAt  DateTime       @default(now())
+  lines      DispatchLine[]
+
+  @@index([jobId])
+}
+
+model DispatchLine {
+  id         String   @id @default(cuid())
+  dispatchId String
+  dispatch   Dispatch @relation(fields: [dispatchId], references: [id])
+  jobItemId  String
+  jobItem    JobItem  @relation(fields: [jobItemId], references: [id])
+  qty        Int
+}
+
+model Return {
+  id           String       @id @default(cuid())
+  returnNumber String       @unique
+  jobId        String
+  job          Job          @relation(fields: [jobId], references: [id])
+  date         DateTime     @db.Date
+  notes        String?
+  voidedAt     DateTime?
+  voidReason   String?
+  createdAt    DateTime     @default(now())
+  lines        ReturnLine[]
+
+  @@index([jobId])
+}
+
+model ReturnLine {
+  id              String  @id @default(cuid())
+  returnId        String
+  return          Return  @relation(fields: [returnId], references: [id])
+  jobItemId       String
+  jobItem         JobItem @relation(fields: [jobItemId], references: [id])
+  okQty           Int     @default(0)
+  damagedQty      Int     @default(0)
+  rejectedQty     Int     @default(0)
+  lostQty         Int     @default(0)
+  exceptionReason String?
+}
+
+model Invoice {
+  id            String        @id @default(cuid())
+  invoiceNumber String        @unique
+  clientId      String
+  client        Client        @relation(fields: [clientId], references: [id])
+  date          DateTime      @db.Date
+  dueDate       DateTime?     @db.Date
+  subtotalPaise Int
+  taxPercent    Decimal       @default(0) @db.Decimal(5, 2)
+  taxPaise      Int           @default(0)
+  totalPaise    Int
+  notes         String?
+  cancelledAt   DateTime?
+  cancelReason  String?
+  createdAt     DateTime      @default(now())
+  lines         InvoiceLine[]
+  payments      Payment[]
+
+  @@index([clientId])
+  @@index([date])
+}
+
+model InvoiceLine {
+  id          String  @id @default(cuid())
+  invoiceId   String
+  invoice     Invoice @relation(fields: [invoiceId], references: [id])
+  jobItemId   String
+  jobItem     JobItem @relation(fields: [jobItemId], references: [id])
+  jobNumber   String
+  designName  String
+  productName String
+  qty         Int
+  ratePaise   Int
+  amountPaise Int
+}
+
+model Payment {
+  id          String        @id @default(cuid())
+  clientId    String
+  client      Client        @relation(fields: [clientId], references: [id])
+  invoiceId   String
+  invoice     Invoice       @relation(fields: [invoiceId], references: [id])
+  date        DateTime      @db.Date
+  amountPaise Int
+  method      PaymentMethod @default(CASH)
+  reference   String?
+  notes       String?
+  voidedAt    DateTime?
+  voidReason  String?
+  createdAt   DateTime      @default(now())
+
+  @@index([invoiceId])
+  @@index([clientId])
+}
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  entity    String
+  entityId  String
+  action    String
+  summary   String?
+  before    Json?
+  after     Json?
+  userId    String?
+  createdAt DateTime @default(now())
+
+  @@index([entity, entityId])
+}

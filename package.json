@@ -1,0 +1,22 @@
+{
+  "name": "av-erp",
+  "private": true,
+  "packageManager": "pnpm@12.8.1",
+  "scripts": {
+    "dev": "turbo run dev",
+    "build": "turbo run build",
+    "test": "turbo run test",
+    "typecheck": "turbo run typecheck",
+    "db:up": "docker compose up -d --wait",
+    "db:down": "docker compose down",
+    "db:migrate": "pnpm --filter @av/db migrate",
+    "db:deploy": "pnpm --filter @av/db deploy",
+    "db:seed": "pnpm --filter @av/db seed",
+    "db:studio": "pnpm --filter @av/db studio",
+    "setup": "pnpm db:up && pnpm db:deploy && pnpm db:seed"
+  },
+  "devDependencies": {
+    "turbo": "^2.11.7",
+    "typescript": "~5.9.3"
+  }
+}
