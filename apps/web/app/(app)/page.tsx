@@ -42,7 +42,7 @@ export default function DashboardPage() {
         <div>
           <div className="text-sm font-semibold tracking-[0.12em] text-marigold-700 uppercase">{formatDate(new Date())}</div>
           <h1 className="font-display text-[2rem] leading-tight font-semibold tracking-tight">{greeting()}.</h1>
-          <p className="text-muted">
+          <div className="text-muted">
             {d ? (
               d.ops.piecesOutside > 0 ? (
                 <>
@@ -54,7 +54,7 @@ export default function DashboardPage() {
             ) : (
               <Skeleton className="h-5 w-64" />
             )}
-          </p>
+          </div>
         </div>
         <div className="flex gap-2">
           <Button asChild variant="accent" size="lg"><Link href="/returns/new"><PackageCheck /> Record Return</Link></Button>

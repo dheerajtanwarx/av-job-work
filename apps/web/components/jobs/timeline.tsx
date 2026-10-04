@@ -40,7 +40,7 @@ export function Timeline({ events, onVoid }: { events: TimelineEvent[]; onVoid?:
   return (
     <ol className="relative">
       {groups.map((g) => (
-        <li key={g.day} className="grid grid-cols-[4.5rem_1fr] gap-x-3 sm:grid-cols-[6rem_1fr]">
+        <li key={g.day} className="grid grid-cols-[3.5rem_1fr] gap-x-5 sm:grid-cols-[4.5rem_1fr] sm:gap-x-6">
           <div className="pt-1.5 text-right">
             <div className="font-display text-sm font-semibold text-ink">{formatDate(g.day).slice(0, 6)}</div>
             <div className="text-xs text-faint">{g.day.slice(0, 4)}</div>

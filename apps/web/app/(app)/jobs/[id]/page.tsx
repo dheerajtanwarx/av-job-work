@@ -161,7 +161,30 @@ export default function JobPage() {
       {/* Design-wise table */}
       <Card>
         <CardHeader title="Design-wise position" description="Each design is tracked separately." />
-        <TableWrap>
+        {/* Phones: one compact card per design so Pending is always visible */}
+        <ul className="divide-y divide-line border-t border-line sm:hidden">
+          {job.items.map((i) => (
+            <li key={i.id} className="px-5 py-3">
+              <div className="flex items-baseline justify-between gap-2">
+                <span className="font-semibold">{i.designName}</span>
+                <span className="num text-sm text-muted">{formatINR(i.ratePaise)} × {formatQty(i.quantity)} = {formatINR(i.expectedValuePaise)}</span>
+              </div>
+              <div className="num mt-2 grid grid-cols-3 text-center">
+                <div><div className="text-[0.7rem] font-semibold text-muted uppercase">Sent</div><div className="text-lg font-semibold">{formatQty(i.sent)}</div></div>
+                <div><div className="text-[0.7rem] font-semibold text-muted uppercase">Received</div><div className="text-lg font-semibold text-leaf">{formatQty(i.ok)}</div></div>
+                <div><div className="text-[0.7rem] font-semibold text-muted uppercase">Pending</div><div className={cn("text-lg font-bold", i.pending ? "text-marigold-700" : "text-leaf")}>{i.pending ? formatQty(i.pending) : "0 ✓"}</div></div>
+              </div>
+              <FlowBar className="mt-2" sent={i.sent} ok={i.ok} exceptions={i.exceptions} pending={i.pending} />
+              {i.exceptions > 0 && <div className="mt-1 text-xs text-madder">{i.damaged} damaged · {i.rejected} rejected · {i.lost} lost</div>}
+            </li>
+          ))}
+          <li className="num grid grid-cols-3 bg-paper px-5 py-3 text-center font-bold">
+            <span>{formatQty(t.sent)}</span>
+            <span className="text-leaf">{formatQty(t.ok)}</span>
+            <span className={t.pending ? "text-marigold-700" : "text-leaf"}>{formatQty(t.pending)}</span>
+          </li>
+        </ul>
+        <TableWrap className="max-sm:hidden">
           <table className="ledger">
             <thead>
               <tr>
