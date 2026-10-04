@@ -52,6 +52,7 @@ function JobsList() {
         <Select value={filters.status} onChange={(e) => setFilter({ status: e.target.value })} className="w-48" aria-label="Status">
           <option value="">All statuses</option>
           <option value="open">Open (not completed)</option>
+          <option value="active">Active (sent, not complete)</option>
           <option value="overdue">Overdue</option>
           {JOB_STATUSES.map((s) => (
             <option key={s} value={s}>{JOB_STATUS_LABEL[s]}</option>
