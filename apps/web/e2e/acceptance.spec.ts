@@ -19,7 +19,7 @@ async function pick(page: Page, trigger: string | RegExp, search: string) {
 }
 
 async function recordReturn(page: Page, qty: Record<string, number>) {
-  await page.getByRole("link", { name: "Record return" }).click();
+  await page.getByRole("main").getByRole("link", { name: "Record return", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Record a return" })).toBeVisible();
   for (const [design, n] of Object.entries(qty)) await page.getByLabel(`${design} received now`).fill(String(n));
   await page.getByRole("button", { name: "Save return" }).click();
@@ -42,8 +42,8 @@ test("acceptance: 100 plain blouses, 3 designs, 3 partial returns, invoice, part
 
   // ── Create job ──
   await page.goto("/jobs/new");
-  await pick(page, "Who is doing the work?", client);
-  await pick(page, "What are you sending?", "Plain Blouse");
+  await pick(page, /^Client/, client);
+  await pick(page, /^Product/, "Plain Blouse");
   const lines: [string, number][] = [["Floral Design", 20], ["Royal Design", 50], ["Simple Design", 30]];
   for (let i = 0; i < lines.length; i++) {
     if (i > 0) await page.getByRole("button", { name: "Add another design" }).click();
