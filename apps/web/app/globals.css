@@ -1,0 +1,82 @@
+@import "tailwindcss";
+
+/* Bahi-khata ledger: warm paper, indigo ink, marigold accent. */
+@theme {
+  --font-sans: var(--font-figtree), ui-sans-serif, system-ui, sans-serif;
+  --font-display: var(--font-fraunces), ui-serif, Georgia, serif;
+
+  --color-paper: #f7f3ea;
+  --color-paper-2: #efe8d9;
+  --color-card: #fffdf8;
+  --color-line: #e3dac7;
+  --color-line-strong: #cfc3aa;
+
+  --color-ink: #1d2550;
+  --color-ink-2: #3a4270;
+  --color-muted: #6d6a60;
+  --color-faint: #9a9586;
+
+  --color-indigo: #27357a;
+  --color-indigo-600: #1f2b66;
+  --color-indigo-50: #eceffa;
+
+  --color-marigold: #e19a12;
+  --color-marigold-50: #fdf3dc;
+  --color-marigold-700: #8a5a00;
+
+  --color-leaf: #2f7d4f;
+  --color-leaf-50: #e5f2ea;
+
+  --color-madder: #b4442c;
+  --color-madder-50: #fbe9e4;
+
+  --color-plum: #7a3b69;
+  --color-plum-50: #f5e8f1;
+
+  --radius-card: 14px;
+  --shadow-card: 0 1px 0 rgba(29, 37, 80, 0.04), 0 1px 3px rgba(29, 37, 80, 0.06);
+  --shadow-pop: 0 10px 30px -10px rgba(29, 37, 80, 0.25), 0 2px 6px rgba(29, 37, 80, 0.08);
+
+  --animate-rise: rise 0.35s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  @keyframes rise {
+    from { opacity: 0; transform: translateY(6px); }
+    to { opacity: 1; transform: none; }
+  }
+}
+
+@layer base {
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    background: var(--color-paper);
+    color: var(--color-ink);
+    font-family: var(--font-sans);
+    font-feature-settings: "tnum" 1, "lnum" 1;
+    -webkit-font-smoothing: antialiased;
+  }
+  ::selection { background: var(--color-marigold-50); }
+  :focus-visible { outline: 2px solid var(--color-marigold); outline-offset: 2px; }
+  input[type="number"]::-webkit-inner-spin-button { opacity: 0.4; }
+}
+
+@layer components {
+  /* Embroidery-stitch divider used throughout */
+  .stitch { background-image: linear-gradient(to right, var(--color-line-strong) 55%, transparent 0); background-size: 9px 1.5px; background-repeat: repeat-x; height: 1.5px; }
+  .stitch-v { background-image: linear-gradient(to bottom, var(--color-line-strong) 55%, transparent 0); background-size: 1.5px 9px; background-repeat: repeat-y; width: 1.5px; }
+  .num { font-variant-numeric: tabular-nums lining-nums; }
+
+  .ledger { width: 100%; border-collapse: separate; border-spacing: 0; }
+  .ledger th { text-align: left; font-size: 0.72rem; letter-spacing: 0.06em; text-transform: uppercase; font-weight: 600; color: var(--color-muted); padding: 0.6rem 0.85rem; border-bottom: 1px solid var(--color-line); white-space: nowrap; background: var(--color-card); }
+  .ledger td { padding: 0.7rem 0.85rem; border-bottom: 1px solid var(--color-line); vertical-align: middle; }
+  .ledger tbody tr:last-child td { border-bottom: 0; }
+  .ledger tbody tr.row-link { cursor: pointer; }
+  .ledger tbody tr.row-link:hover td { background: var(--color-paper); }
+  .ledger tfoot td { padding: 0.75rem 0.85rem; font-weight: 700; border-top: 2px solid var(--color-ink); background: var(--color-paper); }
+  .ledger .r { text-align: right; }
+}
+
+@media print {
+  @page { size: A4; margin: 14mm; }
+  body { background: white !important; }
+  .no-print { display: none !important; }
+  .print-plain { box-shadow: none !important; border: 0 !important; padding: 0 !important; margin: 0 !important; }
+}
