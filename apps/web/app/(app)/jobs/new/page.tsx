@@ -13,7 +13,7 @@ function NewJob() {
 export default function NewJobPage() {
   return (
     <>
-      <PageHeader eyebrow="Jobs" title="New job" subtitle="Choose who is doing the work, what you're sending, and the designs." />
+      <PageHeader eyebrow="Jobs" title="New job" subtitle="Who is doing the work, what you're sending, and which designs." />
       <Suspense>
         <NewJob />
       </Suspense>

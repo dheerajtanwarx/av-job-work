@@ -108,10 +108,12 @@ export function JobForm({ job, defaultClientId }: { job?: JobDetail; defaultClie
 
   const product = products.data?.find((p) => p.id === productId);
 
+  const clientName = clients.data?.find((c) => c.id === clientId)?.name;
+
   return (
-    <form onSubmit={submit} className="grid gap-5 lg:grid-cols-[1fr_20rem]">
-      <div className="space-y-5">
-        <Card className="p-5">
+    <form onSubmit={submit} className="grid gap-x-10 gap-y-8 lg:grid-cols-[minmax(0,1fr)_17rem]">
+      <div className="min-w-0 space-y-8">
+        <FormSection title="Details">
           <div className="grid gap-4 sm:grid-cols-2">
             <Field label="Client" required error={errors.clientId}>
               <Combobox
@@ -139,139 +141,146 @@ export function JobForm({ job, defaultClientId }: { job?: JobDetail; defaultClie
             <Field label="Job date" required>
               <Input type="date" value={jobDate} onChange={(e) => setJobDate(e.target.value)} required />
             </Field>
-            <Field label="Expected back by" hint="Optional – used to flag overdue jobs">
+            <Field label="Expected back by" hint="Optional. Used to flag overdue jobs.">
               <Input type="date" value={expected} min={jobDate} onChange={(e) => setExpected(e.target.value)} />
             </Field>
           </div>
-        </Card>
+        </FormSection>
 
-        <Card>
-          <div className="flex items-center justify-between px-5 pt-4 pb-2">
-            <div>
-              <h2 className="font-display text-lg font-semibold">Designs & quantities</h2>
-              <p className="text-sm text-muted">One line per design. The rate fills in automatically, but you can change it.</p>
-            </div>
-          </div>
-          {errors.items && <p className="px-5 text-sm text-madder">{errors.items}</p>}
-          <div className="hidden grid-cols-[minmax(0,1fr)_7rem_8rem_7.5rem_2.5rem] gap-3 border-b border-line px-5 pb-2 text-xs font-semibold tracking-wide text-muted uppercase sm:grid">
-            <span>Design</span>
-            <span className="text-right">Pieces</span>
-            <span className="text-right">Rate / pc</span>
-            <span className="text-right">Amount</span>
-            <span />
-          </div>
-          <ul className="divide-y divide-line">
-            {lines.map((l, idx) => {
-              const amount = (Number(l.quantity) || 0) * rupeesToPaise(l.rate || 0);
-              return (
-                <li key={l.key} className="grid grid-cols-2 gap-3 px-5 py-3 sm:grid-cols-[minmax(0,1fr)_7rem_8rem_7.5rem_2.5rem] sm:items-start">
-                  <div className="col-span-2 sm:col-span-1">
-                    <span className="mb-1 block text-xs font-semibold text-muted sm:hidden">Design {idx + 1}</span>
-                    <Combobox
-                      options={designOptions}
-                      value={l.designId}
-                      onChange={(id) => {
-                        const d = designById.get(id);
-                        if (d) pickDesign(l.key, d);
-                        else update(l.key, { designId: id });
-                      }}
-                      placeholder="Choose design"
-                      invalid={!!errors[`${l.key}.design`]}
-                      onCreate={(name) => setDialog({ kind: "design", name, lineKey: l.key })}
-                      createLabel="New design"
-                    />
-                  </div>
-                  <div>
-                    <span className="mb-1 block text-xs font-semibold text-muted sm:hidden">Pieces</span>
-                    <Input
-                      type="number"
-                      inputMode="numeric"
-                      min={l.minQty || 1}
-                      step={1}
-                      value={l.quantity}
-                      onChange={(e) => update(l.key, { quantity: e.target.value })}
-                      aria-invalid={!!errors[`${l.key}.qty`]}
-                      className="num text-right"
-                      placeholder="0"
-                      aria-label="Pieces"
-                    />
-                    {errors[`${l.key}.qty`] && <span className="mt-1 block text-xs text-madder">{errors[`${l.key}.qty`]}</span>}
-                  </div>
-                  <div>
-                    <span className="mb-1 block text-xs font-semibold text-muted sm:hidden">Rate / pc</span>
-                    <MoneyInput value={l.rate} onChange={(e) => update(l.key, { rate: e.target.value })} className="text-right" placeholder="0" aria-label="Rate per piece" />
-                  </div>
-                  <div className="num flex h-10 items-center justify-end font-semibold text-ink max-sm:col-span-1 max-sm:justify-start">
-                    <span className="mr-2 text-xs font-normal text-muted sm:hidden">Amount</span>
-                    {formatINR(amount)}
-                  </div>
-                  <div className="flex h-10 items-center justify-end max-sm:col-span-1">
-                    <Button
-                      type="button"
-                      size="icon"
-                      variant="danger-ghost"
-                      disabled={l.locked || lines.length === 1}
-                      onClick={() => setLines((ls) => ls.filter((x) => x.key !== l.key))}
-                      aria-label="Remove line"
-                      title={l.locked ? "Material already sent for this line" : "Remove"}
-                    >
-                      <Trash2 />
-                    </Button>
-                  </div>
-                </li>
-              );
-            })}
-          </ul>
-          <div className="flex flex-wrap items-center justify-between gap-3 border-t border-line px-5 py-3">
-            <Button type="button" variant="secondary" onClick={() => setLines((ls) => [...ls, newLine()])}>
-              <Plus /> Add another design
-            </Button>
-          </div>
-          <div className="stitch mx-5" />
-          <div className="grid grid-cols-2 gap-3 px-5 py-4 sm:grid-cols-[minmax(0,1fr)_7rem_8rem_7.5rem_2.5rem]">
-            <div className="font-display text-lg font-semibold">Total</div>
-            <div className="num text-right font-display text-lg font-semibold">{formatQty(totals.qty)}</div>
-            <div className="hidden sm:block" />
-            <div className="num text-right font-display text-lg font-semibold max-sm:col-span-2">{formatINR(totals.amount)}</div>
-          </div>
-        </Card>
-
-        <Card className="p-5">
-          <Field label="Notes" hint="Anything to remember about this job">
-            <Textarea rows={2} value={notes} onChange={(e) => setNotes(e.target.value)} />
-          </Field>
-          {started && (
-            <Field label="Reason for change" className="mt-4" hint="Changes to quantity or rate are recorded in the job history.">
-              <Input value={reason} onChange={(e) => setReason(e.target.value)} placeholder="e.g. Client agreed to a new rate" />
-            </Field>
+        <FormSection title="Designs" description="One line per design. Rate fills in from the design; you can change it.">
+          {errors.items && (
+            <p role="alert" className="mb-2 text-xs text-danger">
+              {errors.items}
+            </p>
           )}
-        </Card>
+          <Card className="overflow-hidden">
+            <div className="hidden h-[34px] grid-cols-[minmax(0,1fr)_6rem_7rem_7rem_2rem] items-center gap-3 border-b border-border px-3 text-xs font-medium text-fg-muted sm:grid">
+              <span>Design</span>
+              <span className="text-right">Pieces</span>
+              <span className="text-right">Rate / pc</span>
+              <span className="text-right">Amount</span>
+              <span />
+            </div>
+            <ul className="divide-y divide-border">
+              {lines.map((l, idx) => {
+                const amount = (Number(l.quantity) || 0) * rupeesToPaise(l.rate || 0);
+                return (
+                  <li key={l.key} className="grid grid-cols-2 gap-x-3 gap-y-2 px-3 py-2.5 sm:grid-cols-[minmax(0,1fr)_6rem_7rem_7rem_2rem] sm:items-start">
+                    <div className="col-span-2 sm:col-span-1">
+                      <span className="mb-1 block text-xs text-fg-muted sm:hidden">Design {idx + 1}</span>
+                      <Combobox
+                        options={designOptions}
+                        value={l.designId}
+                        onChange={(id) => {
+                          const d = designById.get(id);
+                          if (d) pickDesign(l.key, d);
+                          else update(l.key, { designId: id });
+                        }}
+                        placeholder="Choose design"
+                        invalid={!!errors[`${l.key}.design`]}
+                        onCreate={(name) => setDialog({ kind: "design", name, lineKey: l.key })}
+                        createLabel="New design"
+                      />
+                    </div>
+                    <div>
+                      <span className="mb-1 block text-xs text-fg-muted sm:hidden">Pieces</span>
+                      <Input
+                        type="number"
+                        inputMode="numeric"
+                        min={l.minQty || 1}
+                        step={1}
+                        value={l.quantity}
+                        onChange={(e) => update(l.key, { quantity: e.target.value })}
+                        aria-invalid={!!errors[`${l.key}.qty`]}
+                        className="num text-right"
+                        placeholder="0"
+                        aria-label="Pieces"
+                      />
+                      {errors[`${l.key}.qty`] && (
+                        <span role="alert" className="mt-1 block text-xs text-danger">
+                          {errors[`${l.key}.qty`]}
+                        </span>
+                      )}
+                    </div>
+                    <div>
+                      <span className="mb-1 block text-xs text-fg-muted sm:hidden">Rate / pc</span>
+                      <MoneyInput value={l.rate} onChange={(e) => update(l.key, { rate: e.target.value })} className="text-right" placeholder="0" aria-label="Rate per piece" />
+                    </div>
+                    <div className="num flex h-8 items-center justify-end text-[13px] font-medium text-fg max-sm:justify-start pointer-coarse:h-10">
+                      <span className="mr-2 text-xs font-normal text-fg-muted sm:hidden">Amount</span>
+                      {formatINR(amount)}
+                    </div>
+                    <div className="flex h-8 items-center justify-end pointer-coarse:h-10">
+                      <Button
+                        type="button"
+                        size="icon"
+                        variant="ghost"
+                        className="size-7 text-fg-faint hover:bg-danger-subtle hover:text-danger"
+                        disabled={l.locked || lines.length === 1}
+                        onClick={() => setLines((ls) => ls.filter((x) => x.key !== l.key))}
+                        aria-label="Remove line"
+                        title={l.locked ? "Material already sent for this line" : "Remove"}
+                      >
+                        <Trash2 className="!size-3.5" />
+                      </Button>
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
+            <div className="border-t border-border px-1.5 py-1.5">
+              <Button type="button" variant="ghost" size="sm" onClick={() => setLines((ls) => [...ls, newLine()])}>
+                <Plus /> Add another design
+              </Button>
+            </div>
+            <div className="grid grid-cols-2 items-center gap-3 border-t border-border-strong bg-surface-2/50 px-3 py-2.5 text-[13px] font-semibold sm:grid-cols-[minmax(0,1fr)_6rem_7rem_7rem_2rem]">
+              <div>Total</div>
+              <div className="num text-right">{formatQty(totals.qty)}</div>
+              <div className="hidden sm:block" />
+              <div className="num text-right max-sm:col-span-2 max-sm:text-left">{formatINR(totals.amount)}</div>
+            </div>
+          </Card>
+        </FormSection>
+
+        <FormSection title="Notes">
+          <div className="space-y-4">
+            <Field label="Notes" hint="Anything to remember about this job">
+              <Textarea rows={2} value={notes} onChange={(e) => setNotes(e.target.value)} />
+            </Field>
+            {started && (
+              <Field label="Reason for change" hint="Quantity and rate changes are recorded in the job history.">
+                <Input value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Client agreed to a new rate" />
+              </Field>
+            )}
+          </div>
+        </FormSection>
       </div>
 
       {/* Summary rail */}
-      <div className="lg:sticky lg:top-24 lg:self-start">
-        <Card className="overflow-hidden">
-          <div className="bg-indigo px-5 py-4 text-white">
-            <div className="text-xs font-semibold tracking-[0.12em] text-white/60 uppercase">{editing ? job!.jobNumber : "New job"}</div>
-            <div className="mt-1 font-display text-lg font-semibold">{clients.data?.find((c) => c.id === clientId)?.name ?? "Choose a client"}</div>
-            <div className="text-sm text-white/70">{product?.name ?? "Choose a product"}</div>
+      <aside className="lg:sticky lg:top-8 lg:self-start">
+        <Card>
+          <div className="border-b border-border px-4 py-3">
+            <div className="num text-xs text-fg-muted">{editing ? job!.jobNumber : "New job"}</div>
+            <div className={cn("mt-0.5 truncate text-[13px] font-medium", !clientName && "text-fg-faint")}>{clientName ?? "No client yet"}</div>
+            <div className={cn("truncate text-xs", product ? "text-fg-muted" : "text-fg-faint")}>{product?.name ?? "No product yet"}</div>
           </div>
-          <div className="space-y-3 p-5">
+          <dl className="space-y-2 px-4 py-3 text-[13px]">
             <div className="flex items-baseline justify-between">
-              <span className="text-muted">Pieces</span>
-              <span className="num font-display text-2xl font-semibold">{formatQty(totals.qty)}</span>
+              <dt className="text-fg-muted">Pieces</dt>
+              <dd className="num font-medium">{formatQty(totals.qty)}</dd>
             </div>
             <div className="flex items-baseline justify-between">
-              <span className="text-muted">Work value</span>
-              <span className="num font-display text-2xl font-semibold text-indigo">{formatINR(totals.amount)}</span>
+              <dt className="text-fg-muted">Work value</dt>
+              <dd className="num text-[15px] font-semibold">{formatINR(totals.amount)}</dd>
             </div>
-            <div className="stitch" />
+          </dl>
+          <div className="space-y-2 border-t border-border p-3">
             {!editing && (
-              <label className={cn("flex cursor-pointer gap-3 rounded-lg border p-3", dispatchNow ? "border-indigo/30 bg-indigo-50" : "border-line")}>
-                <input type="checkbox" className="mt-0.5 size-4 accent-indigo" checked={dispatchNow} onChange={(e) => setDispatchNow(e.target.checked)} />
-                <span className="text-sm">
-                  <span className="block font-semibold text-ink">Material sent today</span>
-                  <span className="text-muted">Mark all {totals.qty ? formatQty(totals.qty) : ""} pieces as sent on the job date. Untick to save as a draft and send later.</span>
+              <label className="flex cursor-pointer gap-2.5 rounded-md px-1 py-1.5">
+                <input type="checkbox" className="mt-0.5 size-3.5 shrink-0 accent-[var(--accent-solid)]" checked={dispatchNow} onChange={(e) => setDispatchNow(e.target.checked)} />
+                <span className="text-xs leading-relaxed">
+                  <span className="block text-[13px] font-medium text-fg">Material sent today</span>
+                  <span className="text-fg-muted">Marks all {totals.qty ? formatQty(totals.qty) : ""} pieces as sent on the job date. Untick to save a draft.</span>
                 </span>
               </label>
             )}
@@ -283,7 +292,7 @@ export function JobForm({ job, defaultClientId }: { job?: JobDetail; defaultClie
             </Button>
           </div>
         </Card>
-      </div>
+      </aside>
 
       <ClientDialog open={dialog?.kind === "client"} onOpenChange={(o) => !o && setDialog(null)} initialName={dialog?.name} onSaved={(c) => setClientId(c.id)} />
       <ProductDialog open={dialog?.kind === "product"} onOpenChange={(o) => !o && setDialog(null)} initialName={dialog?.name} onSaved={(p) => setProductId(p.id)} />
@@ -296,5 +305,17 @@ export function JobForm({ job, defaultClientId }: { job?: JobDetail; defaultClie
         }}
       />
     </form>
+  );
+}
+
+function FormSection({ title, description, children }: { title: string; description?: string; children: React.ReactNode }) {
+  return (
+    <section>
+      <div className="mb-3">
+        <h2 className="text-[13px] font-semibold">{title}</h2>
+        {description && <p className="mt-0.5 text-xs text-fg-muted">{description}</p>}
+      </div>
+      {children}
+    </section>
   );
 }
