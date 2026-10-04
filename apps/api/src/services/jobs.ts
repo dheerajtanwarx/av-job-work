@@ -127,10 +127,8 @@ export async function recomputeJobStatus(db: DB, jobId: string, userId?: string 
 
 export async function createJob(input: z.output<typeof jobCreateSchema>, userId?: string) {
   const id = await prisma.$transaction(async (tx) => {
-    const [client, product] = await Promise.all([
-      tx.client.findUnique({ where: { id: input.clientId } }),
-      tx.product.findUnique({ where: { id: input.productId } }),
-    ]);
+    const client = await tx.client.findUnique({ where: { id: input.clientId } });
+    const product = await tx.product.findUnique({ where: { id: input.productId } });
     if (!client) throw unprocessable("Choose a valid client");
     if (!product) throw unprocessable("Choose a valid product");
     const designs = await tx.design.findMany({ where: { id: { in: input.items.map((i) => i.designId) } } });
