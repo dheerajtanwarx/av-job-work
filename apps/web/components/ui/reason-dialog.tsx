@@ -59,8 +59,8 @@ export function ReasonDialog({
       }
     >
       {children}
-      <Field label="Reason" required error={touched && invalid ? "Please write a short reason" : undefined} hint="This is kept in the history.">
-        <Textarea autoFocus value={reason} onChange={(e) => setReason(e.target.value)} placeholder="e.g. Entered twice by mistake" />
+      <Field label="Reason" required error={touched && invalid ? "Add a short reason" : undefined} hint="This is kept in the history.">
+        <Textarea autoFocus value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Entered twice by mistake" />
       </Field>
     </Dialog>
   );

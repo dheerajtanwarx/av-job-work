@@ -2,21 +2,28 @@ import { JOB_STATUS_LABEL, PAYMENT_STATUS_LABEL, type JobStatus, type PaymentSta
 import type { ReactNode } from "react";
 import { cn } from "@/lib/utils";
 
-const tones = {
-  neutral: "bg-paper-2 text-ink-2 ring-line-strong",
-  indigo: "bg-indigo-50 text-indigo ring-indigo/20",
-  marigold: "bg-marigold-50 text-marigold-700 ring-marigold/30",
-  leaf: "bg-leaf-50 text-leaf ring-leaf/25",
-  madder: "bg-madder-50 text-madder ring-madder/25",
-  plum: "bg-plum-50 text-plum ring-plum/20",
+/** Dot colour per tone. Text stays neutral so status never relies on colour alone. */
+const dots = {
+  neutral: "bg-fg-faint",
+  accent: "bg-accent",
+  warning: "bg-warning-solid",
+  success: "bg-success",
+  danger: "bg-danger",
 } as const;
 
-export type Tone = keyof typeof tones;
+export type Tone = keyof typeof dots;
 
-export function Badge({ tone = "neutral", children, className, dot }: { tone?: Tone; children: ReactNode; className?: string; dot?: boolean }) {
+export function Badge({ tone = "neutral", children, className, dot = tone !== "neutral" }: { tone?: Tone; children: ReactNode; className?: string; dot?: boolean }) {
   return (
-    <span className={cn("inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-semibold whitespace-nowrap ring-1 ring-inset", tones[tone], className)}>
-      {dot && <span className="size-1.5 rounded-full bg-current" />}
+    <span
+      className={cn(
+        "inline-flex h-5 items-center gap-1.5 rounded px-1.5 text-xs leading-none font-medium whitespace-nowrap",
+        tone === "neutral" ? "bg-surface-2 text-fg-muted" : "text-fg-2",
+        tone === "danger" && "text-danger",
+        className,
+      )}
+    >
+      {dot && <span className={cn("size-1.5 shrink-0 rounded-full", dots[tone])} aria-hidden />}
       {children}
     </span>
   );
@@ -24,28 +31,28 @@ export function Badge({ tone = "neutral", children, className, dot }: { tone?: T
 
 const jobTone: Record<JobStatus, Tone> = {
   DRAFT: "neutral",
-  IN_PROGRESS: "indigo",
-  PARTIALLY_RECEIVED: "marigold",
-  COMPLETED: "leaf",
-  CANCELLED: "madder",
+  IN_PROGRESS: "accent",
+  PARTIALLY_RECEIVED: "warning",
+  COMPLETED: "success",
+  CANCELLED: "neutral",
 };
 
 export function JobStatusBadge({ status, overdue }: { status: JobStatus; overdue?: boolean }) {
   return (
-    <span className="inline-flex flex-wrap gap-1">
-      <Badge tone={jobTone[status]} dot>
+    <span className="inline-flex items-center gap-2">
+      <Badge tone={jobTone[status]} dot className="bg-transparent px-0">
         {JOB_STATUS_LABEL[status]}
       </Badge>
-      {overdue && <Badge tone="madder">Overdue</Badge>}
+      {overdue && <span className="text-xs font-medium text-danger">Overdue</span>}
     </span>
   );
 }
 
-const payTone: Record<PaymentStatus, Tone> = { UNPAID: "madder", PARTIAL: "marigold", PAID: "leaf", CANCELLED: "neutral" };
+const payTone: Record<PaymentStatus, Tone> = { UNPAID: "danger", PARTIAL: "warning", PAID: "success", CANCELLED: "neutral" };
 
 export function PaymentStatusBadge({ status }: { status: PaymentStatus }) {
   return (
-    <Badge tone={payTone[status]} dot>
+    <Badge tone={payTone[status]} dot className="bg-transparent px-0">
       {PAYMENT_STATUS_LABEL[status]}
     </Badge>
   );
