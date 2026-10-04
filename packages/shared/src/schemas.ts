@@ -221,6 +221,8 @@ export const returnCreateSchema = z.object({
     .array(returnLineSchema)
     .transform((ls) => ls.filter((l) => l.okQty + l.damagedQty + l.rejectedQty + l.lostQty > 0))
     .refine((ls) => ls.length > 0, "Enter at least one received quantity"),
+  /** One per Record Return form: a retried submit returns the return already recorded instead of a second one. */
+  idempotencyKey: optText,
   /** Pay now, in the same step. Omit (or amount 0) for "no payment now". */
   payment: paymentNowSchema.optional().nullable(),
 });

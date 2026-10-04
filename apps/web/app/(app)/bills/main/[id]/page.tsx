@@ -1,6 +1,6 @@
 "use client";
 
-import { formatDate, formatINR, formatQty, PAYMENT_METHOD_LABEL, type MainBillDetail } from "@av/shared";
+import { formatDate, formatINR, formatQty, L, PAYMENT_METHOD_LABEL, type MainBillDetail } from "@av/shared";
 import { useQuery } from "@tanstack/react-query";
 import { Ban, Printer } from "lucide-react";
 import Link from "next/link";
@@ -40,9 +40,9 @@ export default function MainBillPage() {
         <div className="min-w-0">
           <div className="mb-1 text-xs text-fg-muted">
             <Link href="/bills?tab=main" className="hover:text-fg">
-              Bills
+              {L.mainBills}
             </Link>{" "}
-            / Main bill
+            / {L.mainBill}
           </div>
           <div className="flex flex-wrap items-center gap-x-3">
             <h1 className="text-xl leading-7 font-semibold tracking-[-0.01em]">{m.billNumber}</h1>
@@ -67,22 +67,24 @@ export default function MainBillPage() {
       {cancelled && (
         <Notice tone="danger" icon={Ban} className="no-print">
           <span className="font-medium text-fg">Cancelled on {formatDate(m.cancelledAt)}.</span>{" "}
-          <span className="text-fg-muted">{m.cancelReason}. It comes back automatically, with the same number, once every returned piece is paid for again.</span>
+          <span className="text-fg-muted">{m.cancelReason}. It comes back automatically, with the same number, once the challan is complete and its job work value is fully paid again.</span>
         </Notice>
       )}
 
       <div className="mx-auto max-w-4xl">
         <BillSheet
           business={m.business}
-          kind="Job settlement"
-          title="Main Bill"
+          kind="Challan settlement"
+          title={L.mainBill}
+          numberLabel="Settlement no."
+          signatures={{ worker: "Received by", business: "Paid by" }}
           number={m.billNumber}
           date={formatDate(m.date)}
           paidTo={m.client}
           stamp={cancelled ? { label: "Cancelled", tone: "danger" } : { label: "Fully settled", tone: "success" }}
           details={[
-            { label: "Job", value: m.job.jobNumber },
-            { label: "Job date", value: formatDate(m.job.jobDate) },
+            { label: L.job, value: <span className="num">{m.job.jobNumber}</span> },
+            { label: "Challan date", value: formatDate(m.job.jobDate) },
             ...(m.job.expectedReturnDate
               ? [
                   {
@@ -94,7 +96,7 @@ export default function MainBillPage() {
             { label: "Completed", value: formatDate(m.job.completedAt) },
             {
               label: "Payments",
-              value: `${m.subBills.length} sub bill${m.subBills.length === 1 ? "" : "s"}`,
+              value: `${m.subBills.length} ${m.subBills.length === 1 ? L.subBill.toLowerCase() : L.subBills.toLowerCase()}`,
             },
           ]}
         >
@@ -106,14 +108,14 @@ export default function MainBillPage() {
                   {m.product.code && <span className="num ml-2 text-xs font-normal text-fg-muted">{m.product.code}</span>}
                 </div>
                 {m.product.description && <p className="mt-0.5 text-xs leading-relaxed whitespace-pre-line text-fg-muted">{m.product.description}</p>}
-                {m.job.notes && <p className="mt-1.5 text-xs leading-relaxed whitespace-pre-line text-fg-2">Job notes: {m.job.notes}</p>}
+                {m.job.notes && <p className="mt-1.5 text-xs leading-relaxed whitespace-pre-line text-fg-2">Challan notes: {m.job.notes}</p>}
               </div>
               <dl className="num grid grid-cols-4 gap-x-5 text-right text-xs sm:gap-x-6">
                 {[
                   ["Ordered", t.quantity],
-                  ["Sent", t.sent],
-                  ["Back OK", t.ok],
-                  ["Not OK", t.exceptions],
+                  ["Issued", t.sent],
+                  ["Good", t.ok],
+                  ["Not good", t.exceptions],
                 ].map(([label, n]) => (
                   <div key={label}>
                     <dt className="text-fg-muted">{label}</dt>
@@ -131,14 +133,14 @@ export default function MainBillPage() {
                   <th className="w-8">#</th>
                   <th>Design</th>
                   <th className="r">Ordered</th>
-                  <th className="r">Sent</th>
-                  <th className="r">OK</th>
+                  <th className="r">Issued</th>
+                  <th className="r">Good</th>
                   <th className="r">Damaged</th>
                   <th className="r">Rejected</th>
                   <th className="r">Lost</th>
-                  <th className="r">Rate</th>
-                  <th className="r">Paid pcs</th>
-                  <th className="r">Amount</th>
+                  <th className="r">Challan rate</th>
+                  <th className="r">Payable qty</th>
+                  <th className="r">Work value</th>
                 </tr>
               </thead>
               <tbody>
@@ -171,23 +173,26 @@ export default function MainBillPage() {
                   <td className="r">{qtyOrDash(t.rejected)}</td>
                   <td className="r">{qtyOrDash(t.lost)}</td>
                   <td />
-                  <td className="r">{formatQty(t.billedQty)}</td>
-                  <td className="r">{formatINR(t.billedValuePaise)}</td>
+                  <td className="r">{formatQty(m.designs.reduce((s, d) => s + d.paidQty, 0))}</td>
+                  <td className="r">{formatINR(m.designs.reduce((s, d) => s + d.paidValuePaise, 0))}</td>
                 </tr>
               </tfoot>
             </SheetTable>
-            {t.exceptions > 0 && <p className="mt-2 text-xs text-fg-muted">Damaged, rejected and lost pieces are recorded for reference and are not paid for.</p>}
+            <p className="mt-2 text-xs text-fg-muted">
+              Work value is calculated from each return at the rate recorded on that return.
+              {t.exceptions > 0 && " Damaged, rejected and lost quantities are paid only where marked payable on the return."}
+            </p>
           </SheetSection>
 
-          <SheetSection title="Payments (sub bills)" aside={`${m.subBills.length}`}>
+          <SheetSection title={L.subBills} aside={`${m.subBills.length}`}>
             <SheetTable>
               <thead>
                 <tr>
                   <th className="w-8">#</th>
-                  <th>Sub bill</th>
+                  <th>Voucher</th>
                   <th>Date</th>
-                  <th>Paid by</th>
-                  <th className="r">Pieces</th>
+                  <th>Method</th>
+                  <th>Return</th>
                   <th className="r">Amount</th>
                 </tr>
               </thead>
@@ -205,24 +210,24 @@ export default function MainBillPage() {
                       {PAYMENT_METHOD_LABEL[b.method]}
                       {b.reference && <span className="num text-xs text-fg-muted"> · {b.reference}</span>}
                     </td>
-                    <td className="r">{formatQty(b.qty)}</td>
+                    <td className="num whitespace-nowrap">{b.returnNumber ?? <span className="text-fg-faint">On account</span>}</td>
                     <td className="r font-medium">{formatINR(b.amountPaise)}</td>
                   </tr>
                 ))}
               </tbody>
               <tfoot>
                 <tr>
-                  <td colSpan={4}>Total paid</td>
-                  <td className="r">{formatQty(m.qty)}</td>
+                  <td colSpan={5}>Total paid</td>
                   <td className="r">{formatINR(m.totalPaise)}</td>
                 </tr>
               </tfoot>
             </SheetTable>
           </SheetSection>
 
-          <AmountBox label="Total paid for this job" paise={m.totalPaise}>
+          <AmountBox label="Total paid on this challan" paise={m.totalPaise}>
             <div className="mt-1 text-xs text-fg-muted">
-              {formatQty(m.qty)} {unit} of {m.product.name} across {m.subBills.length} payment{m.subBills.length === 1 ? "" : "s"}. Nothing is left to pay on {m.job.jobNumber}.
+              {formatQty(t.ok)} {unit} of {m.product.name} received good, paid across {m.subBills.length} {m.subBills.length === 1 ? L.subBill.toLowerCase() : L.subBills.toLowerCase()}.{" "}
+              {cancelled ? "This settlement is cancelled." : `Nothing is left to pay on ${m.job.jobNumber}.`}
             </div>
           </AmountBox>
         </BillSheet>

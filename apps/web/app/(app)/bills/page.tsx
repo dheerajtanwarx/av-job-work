@@ -1,6 +1,6 @@
 "use client";
 
-import { formatINR, type MainBillRow, type MoneySummary, type SubBillRow } from "@av/shared";
+import { formatINR, L, type MainBillRow, type MoneySummary, type SubBillRow } from "@av/shared";
 import { useQuery } from "@tanstack/react-query";
 import { Plus, ReceiptText, Search, X } from "lucide-react";
 import Link from "next/link";
@@ -66,12 +66,12 @@ function BillList() {
   return (
     <>
       <PageHeader
-        title="Bills"
-        subtitle="What you've paid job workers. A sub bill records each payment. The main bill settles a job once every piece is paid."
+        title="Payments"
+        subtitle={`What you've paid job workers. A ${L.subBill} records each payment (full, part or advance). The ${L.mainBill} closes a challan once its work is fully paid.`}
         actions={
           <Button asChild>
             <Link href="/bills/new">
-              <Plus /> New sub bill
+              <Plus /> New payment
             </Link>
           </Button>
         }
@@ -79,7 +79,7 @@ function BillList() {
       <MetricStrip className="mb-6 grid-cols-3">
         <Metric label={anyFilter ? "Paid (filtered)" : "Total paid"} value={subBills.data ? formatINR(paidInView) : "—"} />
         <Metric label="To pay" value={money.data ? formatINR(money.data.toPayPaise) : "—"} tone={money.data?.toPayPaise ? "danger" : "fg"} sub="Returned, not yet paid" />
-        <Metric label="Jobs settled" value={mainBills.data ? settled : "—"} />
+        <Metric label="Challans settled" value={mainBills.data ? settled : "—"} />
       </MetricStrip>
 
       <Tabs<Tab>
@@ -87,12 +87,12 @@ function BillList() {
         value={tab}
         onChange={(t) => setParams({ tab: t })}
         items={[
-          { value: "sub", label: "Sub bills", count: subBills.data?.length },
-          { value: "main", label: "Main bills", count: mainBills.data?.length },
+          { value: "sub", label: L.subBills, count: subBills.data?.length },
+          { value: "main", label: L.mainBills, count: mainBills.data?.length },
         ]}
       />
       <Toolbar>
-        <SearchInput value={q} onChange={setQ} placeholder="Bill no., job worker, job…" label="Search bills" />
+        <SearchInput value={q} onChange={setQ} placeholder="Voucher no., worker, challan…" label="Search payments" />
         <Select value={filters.clientId} onChange={(e) => setParams({ clientId: e.target.value })} className="w-full sm:w-48" aria-label="Job worker">
           <option value="">All job workers</option>
           {clients.data?.map((c) => (
@@ -118,7 +118,7 @@ function BillList() {
         ) : list.data.length === 0 ? (
           <EmptyState
             icon={anyFilter ? Search : ReceiptText}
-            title={anyFilter ? "No matching bills" : tab === "sub" ? "No sub bills yet" : "No main bills yet"}
+            title={anyFilter ? "No matching payments" : tab === "sub" ? `No ${L.subBills.toLowerCase()} yet` : `No ${L.mainBills.toLowerCase()} yet`}
             action={
               anyFilter ? (
                 <Button variant="secondary" onClick={clear}>
@@ -127,13 +127,13 @@ function BillList() {
               ) : tab === "sub" ? (
                 <Button asChild>
                   <Link href="/bills/new">
-                    <Plus /> New sub bill
+                    <Plus /> New payment
                   </Link>
                 </Button>
               ) : undefined
             }
           >
-            {!anyFilter && (tab === "sub" ? "Once pieces come back, record what you paid for them here." : "A main bill is issued automatically when a job is complete and fully paid.")}
+            {!anyFilter && (tab === "sub" ? "Record what you pay job workers here, after a return or as an advance." : `A ${L.mainBill} is issued automatically when a challan is complete and fully paid.`)}
           </EmptyState>
         ) : (
           <div className={list.isPlaceholderData ? "opacity-60 transition-opacity" : "transition-opacity"}>

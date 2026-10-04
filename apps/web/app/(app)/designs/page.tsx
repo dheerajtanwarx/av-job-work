@@ -7,7 +7,7 @@ import { useState } from "react";
 import { DesignDialog } from "@/components/forms/master-dialogs";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, TableWrap } from "@/components/ui/card";
+import { Card, MobileList, MobileListItem, TableWrap } from "@/components/ui/card";
 import { EmptyState, ErrorBlock, LoadingBlock, PageHeader } from "@/components/ui/misc";
 import { useDesigns } from "@/lib/queries";
 import { cn } from "@/lib/utils";
@@ -28,7 +28,7 @@ export default function DesignsPage() {
     <>
       <PageHeader
         title="Designs"
-        subtitle="Types of work and their usual rate. The rate can still change per job."
+        subtitle="Designs with their default job work rate – used to prefill new challans only."
         actions={
           <Button onClick={openNew}>
             <Plus /> Add design
@@ -52,17 +52,19 @@ export default function DesignsPage() {
               </Button>
             }
           >
-            The kinds of work you pay for, like Floral Design at ₹20 a piece.
+            Designs you pay for, like Floral Design at ₹20 a piece.
           </EmptyState>
         ) : (
-          <TableWrap>
+          <>
+          <TableWrap className="max-sm:hidden">
             <table className="ledger">
               <thead>
                 <tr>
                   <th>Design</th>
                   <th>Code</th>
-                  <th className="r">Default rate</th>
-                  <th className="r">Used in jobs</th>
+                  <th>Job work type</th>
+                  <th className="r" title="Default for new challans only">Default rate</th>
+                  <th className="r">Used in challans</th>
                   <th>Status</th>
                 </tr>
               </thead>
@@ -74,6 +76,7 @@ export default function DesignsPage() {
                       {d.description && <div className="text-xs text-fg-muted">{d.description}</div>}
                     </td>
                     <td className="num text-fg-muted">{d.code ?? "—"}</td>
+                    <td className="text-fg-2">{d.jobWorkType?.name ?? <span className="text-fg-faint">—</span>}</td>
                     <td className="r font-medium">{formatINR(d.defaultRatePaise)}</td>
                     <td className="r">
                       {d.jobCount ? (
@@ -90,6 +93,21 @@ export default function DesignsPage() {
               </tbody>
             </table>
           </TableWrap>
+          <MobileList className="sm:hidden">
+            {q.data.map((d) => (
+              <MobileListItem key={d.id} onClick={() => edit(d)} className={cn(!d.isActive && "text-fg-muted")}>
+                <div className="flex items-baseline justify-between gap-2">
+                  <span className="truncate text-[13px] font-medium">{d.name}</span>
+                  <span className="num shrink-0 text-[13px] font-semibold">{formatINR(d.defaultRatePaise)}</span>
+                </div>
+                <div className="flex justify-between gap-2 text-xs text-fg-muted">
+                  <span className="truncate">{[d.code, d.jobWorkType?.name, `${d.jobCount ?? 0} challans`].filter(Boolean).join(" · ")}</span>
+                  {!d.isActive && <Badge>Inactive</Badge>}
+                </div>
+              </MobileListItem>
+            ))}
+          </MobileList>
+          </>
         )}
       </Card>
       <DesignDialog open={open} onOpenChange={setOpen} design={editing} />

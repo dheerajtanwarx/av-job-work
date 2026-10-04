@@ -1,7 +1,7 @@
 import { prisma } from "@av/db";
-import { reasonSchema, settingsSchema, subBillCreateSchema } from "@av/shared";
+import { NOTIFY_STATUSES, reasonSchema, settingsSchema, subBillCreateSchema, type NotificationLogRow, type NotifyStatus } from "@av/shared";
 import { Router } from "express";
-import { audit } from "../lib/audit.js";
+import { audit, userNames } from "../lib/audit.js";
 import { toDate } from "../lib/dates.js";
 import { param, parse, str } from "../lib/http.js";
 import { emailSubBill } from "../services/bill-email.js";
@@ -69,4 +69,41 @@ billingRouter.put("/settings", async (req, res) => {
   await prisma.settings.upsert({ where: { id: 1 }, update: data, create: { id: 1, ...data } });
   await audit(prisma, { entity: "Settings", entityId: "1", action: "update", after: data, userId: req.user?.id });
   res.json(await getSettings());
+});
+
+/** Notification log (Settings → Notification log, and per record). Newest first. */
+billingRouter.get("/notifications", async (req, res) => {
+  const status = str(req.query.status);
+  if (status && !NOTIFY_STATUSES.includes(status as NotifyStatus)) return res.status(422).json({ message: "Unknown status" });
+  const take = Math.min(200, Math.max(1, Number(str(req.query.take)) || 50));
+  const rows = await prisma.notificationLog.findMany({
+    where: { entity: str(req.query.entity), entityId: str(req.query.entityId), status, channel: str(req.query.channel) },
+    orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+    take,
+  });
+  const voucherIds = rows.filter((r) => r.entity === "SubBill").map((r) => r.entityId);
+  const [vouchers, names] = await Promise.all([
+    voucherIds.length ? prisma.subBill.findMany({ where: { id: { in: voucherIds } }, select: { id: true, billNumber: true } }) : [],
+    userNames(prisma, rows.map((r) => r.userId)),
+  ]);
+  const voucherNo = new Map(vouchers.map((v) => [v.id, v.billNumber]));
+  const out: NotificationLogRow[] = rows.map((r) => {
+    const ref = r.entity === "SubBill" ? (voucherNo.get(r.entityId) ?? null) : null;
+    return {
+      id: r.id,
+      channel: r.channel,
+      kind: r.kind,
+      entity: r.entity,
+      entityId: r.entityId,
+      ref,
+      href: ref ? `/bills/sub/${r.entityId}` : null,
+      recipient: r.recipient,
+      status: r.status as NotifyStatus,
+      error: r.error,
+      auto: r.auto,
+      user: r.userId ? (names.get(r.userId) ?? null) : null,
+      createdAt: r.createdAt.toISOString(),
+    };
+  });
+  res.json(out);
 });

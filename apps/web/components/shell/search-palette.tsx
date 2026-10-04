@@ -1,9 +1,9 @@
 "use client";
 
-import { formatDate, formatINR, JOB_STATUS_LABEL, type SearchResults } from "@av/shared";
+import { formatDate, formatINR, JOB_STATUS_LABEL, L, type SearchResultsV2 } from "@av/shared";
 import { useQuery } from "@tanstack/react-query";
 import { Command } from "cmdk";
-import { Briefcase, Package, Palette, ReceiptText, Search, Users } from "lucide-react";
+import { Boxes, Briefcase, Package, PackageCheck, Palette, ReceiptText, Search, Users } from "lucide-react";
 import { Dialog as D } from "radix-ui";
 import { useRouter } from "next/navigation";
 import { useEffect, useState, type ReactNode } from "react";
@@ -26,7 +26,7 @@ export function SearchPalette({ open, onOpenChange }: { open: boolean; onOpenCha
   const dq = useDebounced(q.trim());
   const { data, isFetching } = useQuery({
     queryKey: ["search", dq],
-    queryFn: () => api.get<SearchResults>(`/search?q=${encodeURIComponent(dq)}`),
+    queryFn: () => api.get<SearchResultsV2>(`/search?q=${encodeURIComponent(dq)}`),
     enabled: dq.length > 0,
     placeholderData: (prev) => prev,
   });
@@ -48,7 +48,7 @@ export function SearchPalette({ open, onOpenChange }: { open: boolean; onOpenCha
     router.push(href);
   };
 
-  const total = data ? data.clients.length + data.jobs.length + data.bills.length + data.products.length + data.designs.length : 0;
+  const total = data ? data.clients.length + data.jobs.length + data.bills.length + data.products.length + data.designs.length + (data.returns?.length ?? 0) + (data.materials?.length ?? 0) : 0;
 
   return (
     <D.Root open={open} onOpenChange={onOpenChange}>
@@ -56,7 +56,7 @@ export function SearchPalette({ open, onOpenChange }: { open: boolean; onOpenCha
         <D.Overlay className="fixed inset-0 z-40 bg-black/30 data-[state=open]:animate-[overlay-in_120ms_ease-out] dark:bg-black/55" />
         <D.Content className="fixed top-[12vh] left-1/2 z-50 w-[calc(100%-1.5rem)] max-w-[560px] -translate-x-1/2 overflow-hidden rounded-xl bg-surface shadow-overlay data-[state=open]:animate-[pop-in_120ms_ease-out] focus:outline-none">
           <D.Title className="sr-only">Search</D.Title>
-          <D.Description className="sr-only">Search clients, jobs, bills, products and designs</D.Description>
+          <D.Description className="sr-only">Search workers, challans, returns, payment vouchers, materials, products and designs</D.Description>
           <Command shouldFilter={false} loop>
             <div className="flex items-center gap-2.5 border-b border-border px-4">
               <Search className="size-4 shrink-0 text-fg-muted" />
@@ -64,39 +64,54 @@ export function SearchPalette({ open, onOpenChange }: { open: boolean; onOpenCha
                 autoFocus
                 value={q}
                 onValueChange={setQ}
-                placeholder="Search jobs, clients, bills, designs…"
+                placeholder="Search challans, workers, returns, vouchers, lots, amounts…"
                 className="h-12 w-full bg-transparent text-[15px] text-fg outline-none placeholder:text-fg-faint"
               />
               {isFetching && <span className="size-3.5 shrink-0 animate-spin rounded-full border-[1.5px] border-fg-faint border-r-transparent" aria-hidden />}
             </div>
             <Command.List className="max-h-[min(60vh,420px)] overflow-y-auto p-1.5">
-              {!dq && <div className="px-3 py-8 text-center text-[13px] text-fg-muted">Client name, job or bill number, design, or a date like “04 Oct”</div>}
+              {!dq && <div className="px-3 py-8 text-center text-[13px] text-fg-muted">Worker name or phone, challan, return or voucher number, lot number, an amount like “₹2,000” or a date like “04 Oct”</div>}
               {dq && data && total === 0 && <div className="px-3 py-8 text-center text-[13px] text-fg-muted">No results for “{dq}”</div>}
               {data && dq && (
                 <>
-                  <Group heading="Jobs">
+                  {(data.matchedAmountPaise || data.matchedDate) && (
+                    <div className="px-2.5 pt-1 pb-1 text-[11px] text-fg-muted">
+                      {data.matchedAmountPaise ? `Matching amount ${formatINR(data.matchedAmountPaise)}` : `Matching date ${formatDate(data.matchedDate)}`}
+                    </div>
+                  )}
+                  <Group heading={L.jobs}>
                     {data.jobs.map((j) => (
                       <Row key={j.id} onSelect={() => go(`/jobs/${j.id}`)} icon={<Briefcase />} title={j.clientName} meta={j.jobNumber} sub={`${j.productName} · ${formatDate(j.jobDate)} · ${JOB_STATUS_LABEL[j.status]}`} />
                     ))}
                   </Group>
-                  <Group heading="Clients">
+                  <Group heading={L.clients}>
                     {data.clients.map((c) => (
                       <Row key={c.id} onSelect={() => go(`/clients/${c.id}`)} icon={<Users />} title={c.name} sub={c.sub} />
                     ))}
                   </Group>
-                  <Group heading="Bills">
+                  <Group heading={L.returns}>
+                    {(data.returns ?? []).map((r) => (
+                      <Row key={r.id} onSelect={() => go(`/returns/${r.id}`)} icon={<PackageCheck />} title={`${r.returnNumber} · ${r.clientName}`} meta={formatINR(r.valuePaise)} sub={`${r.jobNumber} · ${formatDate(r.date)}${r.voided ? " · Voided" : ""}`} />
+                    ))}
+                  </Group>
+                  <Group heading={`${L.subBills} & settlements`}>
                     {data.bills.map((b) => (
-                      <Row key={b.id} onSelect={() => go(`/bills/${b.kind}/${b.id}`)} icon={<ReceiptText />} title={`${b.billNumber} · ${b.clientName}`} meta={formatINR(b.amountPaise)} sub={`${b.kind === "main" ? "Main bill" : "Sub bill"} · ${formatDate(b.date)}`} />
+                      <Row key={b.id} onSelect={() => go(`/bills/${b.kind}/${b.id}`)} icon={<ReceiptText />} title={`${b.billNumber} · ${b.clientName}`} meta={formatINR(b.amountPaise)} sub={`${b.kind === "main" ? L.mainBill : L.subBill} · ${formatDate(b.date)}`} />
+                    ))}
+                  </Group>
+                  <Group heading={L.materials}>
+                    {(data.materials ?? []).map((m) => (
+                      <Row key={m.id} onSelect={() => go(`/materials/${m.id}`)} icon={<Boxes />} title={m.name} meta={m.code} sub={[m.unit, m.lotNumber && `Lot ${m.lotNumber}`, m.rollNumber && `Roll ${m.rollNumber}`].filter(Boolean).join(" · ")} />
                     ))}
                   </Group>
                   <Group heading="Designs">
                     {data.designs.map((d) => (
-                      <Row key={d.id} onSelect={() => go(`/jobs?designId=${d.id}`)} icon={<Palette />} title={d.name} sub="Jobs with this design" />
+                      <Row key={d.id} onSelect={() => go(`/jobs?designId=${d.id}`)} icon={<Palette />} title={d.name} sub={`${L.jobs} with this design`} />
                     ))}
                   </Group>
                   <Group heading="Products">
                     {data.products.map((p) => (
-                      <Row key={p.id} onSelect={() => go(`/jobs?productId=${p.id}`)} icon={<Package />} title={p.name} sub="Jobs for this product" />
+                      <Row key={p.id} onSelect={() => go(`/jobs?productId=${p.id}`)} icon={<Package />} title={p.name} sub={`${L.jobs} for this product`} />
                     ))}
                   </Group>
                 </>

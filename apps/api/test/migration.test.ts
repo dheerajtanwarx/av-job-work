@@ -58,7 +58,8 @@ describe("migration of existing data to challan_v2", () => {
       ('sl1', 'sb1', 'i1', 'Floral', 9, 8000, 72000), ('sl2', 'sb2', 'i2', 'Floral', 20, 1500, 30000)`);
     await sql(`INSERT INTO "MainBill" (id, "billNumber", "jobId", "clientId", date, qty, "totalPaise", "updatedAt") VALUES ('mb1', 'MB-001', 'j1', 'c1', '2026-09-15', 9, 72000, now())`);
 
-    await run(V2);
+    // challan_v2 and everything after it, exactly as `prisma migrate deploy` would.
+    for (const f of all.filter((f) => f >= V2)) await run(f);
   });
 
   afterAll(async () => {

@@ -14,3 +14,6 @@ backups/
 
 # npm lockfile (this repo uses pnpm)
 /package-lock.json
+
+# local photo storage (UPLOAD_DIR)
+uploads/

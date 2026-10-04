@@ -42,6 +42,13 @@ const flagNames = (f: { payDamaged: boolean; payRejected: boolean; payLost: bool
 export async function createReturn(jobId: string, input: z.output<typeof returnCreateSchema>, actor?: Actor): Promise<ReturnResult> {
   const userId = actor?.id;
   const defaults = await defaultTerms(prisma);
+  if (input.idempotencyKey) {
+    const existing = await prisma.return.findUnique({ where: { idempotencyKey: input.idempotencyKey }, select: { id: true, jobId: true } });
+    if (existing) {
+      if (existing.jobId !== jobId) throw unprocessable("This form was already used for another challan. Reload and try again.");
+      return existingReturnResult(existing.id, defaults);
+    }
+  }
   const result = await prisma.$transaction(async (tx) => {
     const job = await loadJob(tx, jobId);
     const items = new Map(summarizeJobItems(job).map((i) => [i.id, i]));
@@ -77,6 +84,7 @@ export async function createReturn(jobId: string, input: z.output<typeof returnC
         jobId,
         date: toDate(input.date),
         receivedAt: new Date(),
+        idempotencyKey: input.idempotencyKey,
         notes: input.notes,
         enteredById: userId,
         lines: {
@@ -93,6 +101,7 @@ export async function createReturn(jobId: string, input: z.output<typeof returnC
           })),
         },
       },
+      include: { lines: { select: { id: true, jobItemId: true } } },
     });
     const receivedNow = roundQty(lines.reduce((s, x) => s + returnLineTotal(x.l), 0));
     const okNow = roundQty(lines.reduce((s, x) => s + x.l.okQty, 0));
@@ -130,7 +139,7 @@ export async function createReturn(jobId: string, input: z.output<typeof returnC
     if (input.payment && input.payment.amountPaise > 0) {
       voucherId = (await createVoucherTx(tx, voucherFromReturn(jobId, r.id, input.date, input.payment), actor)).id;
     }
-    return { id: r.id, returnNumber, receivedAt: r.receivedAt.toISOString(), receivedNow, okNow, okValueNowPaise: valueNow, justCompleted: status === "COMPLETED" && previous !== "COMPLETED", voucherId, job };
+    return { id: r.id, returnNumber, receivedAt: r.receivedAt.toISOString(), lines: r.lines, duplicate: false, receivedNow, okNow, okValueNowPaise: valueNow, justCompleted: status === "COMPLETED" && previous !== "COMPLETED", voucherId, job };
   });
 
   let voucher: SubBillWithEmail | null = null;
@@ -142,6 +151,32 @@ export async function createReturn(jobId: string, input: z.output<typeof returnC
   const terms = termsFor(result.job as never, result.job.client as never, defaults);
   const { voucherId: _v, job: _j, ...rest } = result;
   return { ...rest, job, terms, billingPolicy: terms.policy, payment: rows[0]?.payment ?? null, voucher, warnings: [] };
+}
+
+/** The result for a return that was already recorded by an earlier submit of the same form. */
+async function existingReturnResult(id: string, defaults: Awaited<ReturnType<typeof defaultTerms>>): Promise<ReturnResult> {
+  const r = await prisma.return.findUniqueOrThrow({ where: { id }, include: { lines: true, subBills: { where: { voidedAt: null }, select: { id: true }, take: 1 } } });
+  const [job, rows, base] = await Promise.all([getJobDetail(r.jobId), loadReturnRows(prisma, { id }, today()), loadJob(prisma, r.jobId)]);
+  const nums = r.lines.map((l) => ({ okQty: num(l.okQty), damagedQty: num(l.damagedQty), rejectedQty: num(l.rejectedQty), lostQty: num(l.lostQty) }));
+  const terms = termsFor(base as never, base.client as never, defaults);
+  const voucherId = r.subBills[0]?.id;
+  return {
+    id,
+    returnNumber: r.returnNumber,
+    receivedAt: r.receivedAt.toISOString(),
+    lines: r.lines.map((l) => ({ id: l.id, jobItemId: l.jobItemId })),
+    duplicate: true,
+    receivedNow: roundQty(nums.reduce((s, l) => s + returnLineTotal(l), 0)),
+    okNow: roundQty(nums.reduce((s, l) => s + l.okQty, 0)),
+    okValueNowPaise: rows[0]?.valuePaise ?? 0,
+    justCompleted: false,
+    job,
+    terms,
+    billingPolicy: terms.policy,
+    payment: rows[0]?.payment ?? null,
+    voucher: voucherId ? { ...(await getSubBill(voucherId)), email: { status: "skipped", to: null, message: "This return was already recorded" } } : null,
+    warnings: ["This return was already recorded – nothing was saved twice."],
+  };
 }
 
 // ───────────────────────── Edit (audited) ─────────────────────────

@@ -109,6 +109,8 @@ export interface MaterialMovementRow {
   client: { id: string; name: string } | null;
   designName: string | null;
   ref: string | null;
+  /** Set on return movements, for linking to /returns/:id. */
+  returnId: string | null;
   notes: string | null;
   enteredBy: string | null;
   voided: boolean;
@@ -382,7 +384,8 @@ export interface NotificationRow {
   channel: string;
   kind: string;
   recipient: string | null;
-  status: "sent" | "skipped" | "failed";
+  /** "pending" while an automatic send is in flight (or if it crashed mid-send). */
+  status: "sent" | "skipped" | "failed" | "pending";
   error: string | null;
   auto: boolean;
   createdAt: string;
@@ -526,6 +529,10 @@ export interface ReturnResult {
   id: string;
   returnNumber: string;
   receivedAt: string;
+  /** The saved lines (to tag photos to a design line). */
+  lines: { id: string; jobItemId: string }[];
+  /** True when this was a retried submit and the existing return is returned. */
+  duplicate: boolean;
   receivedNow: number;
   okNow: number;
   okValueNowPaise: number;

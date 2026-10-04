@@ -238,6 +238,12 @@ materialsRouter.post("/", async (req, res) => {
   res.status(201).json(m);
 });
 
+materialsRouter.get("/:id", async (req, res) => {
+  const [row] = await materialRows({ id: param(req.params.id) });
+  if (!row) throw notFound("Material");
+  res.json(row);
+});
+
 materialsRouter.get("/:id/ledger", async (req, res) => {
   res.json(await materialLedger({ materialId: param(req.params.id), from: str(req.query.from), to: str(req.query.to) }));
 });

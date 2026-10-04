@@ -1,71 +1,120 @@
 import { prisma } from "@av/db";
-import { formatQty, OPEN_JOB_STATUSES, roundQty, sumTotals, type ClientSummary, type Dashboard, type JobStatus, type PaymentPolicy, type SearchResults } from "@av/shared";
-import { parseSearchDate, todayUTC } from "../lib/dates.js";
+import {
+  AGING_BUCKETS,
+  agingBucket,
+  diffDays,
+  formatDate,
+  formatINR,
+  formatQty,
+  LONG_HOLD_DAYS,
+  meanOf,
+  monthsBack,
+  monthSpan,
+  OPEN_JOB_STATUSES,
+  parseAmountQuery,
+  percent,
+  roundQty,
+  sumTotals,
+  type AttentionItem,
+  type ClientSummary,
+  type Dashboard,
+  type DashboardCharts,
+  type DashboardV2,
+  type JobStatus,
+  type PaymentPolicy,
+  type QtyByUnit,
+  type SearchResultsV2,
+  type Unit,
+} from "@av/shared";
+import { parseSearchDate, toDate, today, todayUTC } from "../lib/dates.js";
 import { notFound } from "../lib/http.js";
+import { challansOutside, completionRows, jobMoney, materialHolders, pendingByDesign, periodMoney, quantityMismatches, returnLines, workerMoney, workGrouped, type JobMoneyRow } from "./analytics.js";
 import { getUnpaid, listMainBills, listSubBills, moneySummary } from "./billing.js";
 import { loadJobs, summarizeJobItems, toJobRow } from "./jobs.js";
-import { num, VALUE_SQL } from "./ledger.js";
+import { num, returnMoney, VALUE_SQL } from "./ledger.js";
+import { photoInclude, toPhotoViews } from "./photo-views.js";
+import { loadReturnRows } from "./return-rows.js";
 
 // ───────────────────────── Dashboard ─────────────────────────
 
-export async function getDashboard(): Promise<Dashboard> {
-  const [jobs, money, recentReturns, recentSubBills, recentJobs] = await Promise.all([
-    loadJobs(prisma),
-    moneySummary(prisma),
+const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
+
+function qtyByUnit<T extends { unit: Unit }>(rows: T[], get: (r: T) => number): QtyByUnit[] {
+  const m = new Map<Unit, number>();
+  for (const r of rows) m.set(r.unit, roundQty((m.get(r.unit) ?? 0) + get(r)));
+  return [...m].filter(([, qty]) => qty > 0).map(([unit, qty]) => ({ unit, qty })).sort((a, b) => b.qty - a.qty);
+}
+
+/** Per-return payment state for every challan that still owes money (the only ones that can be due or overdue). */
+async function unpaidReturns(jobs: JobMoneyRow[], now: string) {
+  const owing = jobs.filter((j) => j.valuePaise > j.paidPaise).map((j) => j.jobId);
+  const money = await returnMoney(prisma, owing, now);
+  const open = [...money.values()].filter((m) => m.outstandingPaise > 0);
+  const info = await prisma.return.findMany({
+    where: { id: { in: open.map((m) => m.returnId) } },
+    select: { id: true, returnNumber: true, job: { select: { id: true, jobNumber: true, productId: true, client: { select: { id: true, name: true } } } } },
+  });
+  const byId = new Map(info.map((r) => [r.id, r]));
+  return open
+    .map((m) => ({ ...m, ret: byId.get(m.returnId)! }))
+    .filter((m) => m.ret)
+    .sort((a, b) => b.overdueDays - a.overdueDays || a.date.localeCompare(b.date));
+}
+
+export type UnpaidReturn = Awaited<ReturnType<typeof unpaidReturns>>[number];
+export { unpaidReturns };
+
+export async function getDashboard(range: { from?: string; to?: string } = {}): Promise<DashboardV2> {
+  const now = today();
+  const ranged = !!(range.from || range.to);
+  const [holders, outside, allOutside, designRows, jm, period, mismatches, arrivals, photos, counts, activeClients, recentReturns, recentSubBills, recentJobs] = await Promise.all([
+    materialHolders({}, now),
+    challansOutside({}, now),
+    challansOutside({}, now, { includeCancelled: true }),
+    pendingByDesign(),
+    jobMoney({}, now),
+    ranged ? periodMoney(range, now) : Promise.resolve(null),
+    quantityMismatches(),
+    returnLines({ date: now }, now, "day", { skip: 0, take: 30 }),
+    prisma.returnPhoto.findMany({ where: { voidedAt: null, return: { voidedAt: null } }, include: photoInclude, orderBy: { createdAt: "desc" }, take: 12 }),
+    prisma.job.groupBy({ by: ["status"], _count: true }),
+    prisma.job.findMany({ where: { status: { in: ["IN_PROGRESS", "PARTIALLY_RECEIVED"] } }, select: { clientId: true }, distinct: ["clientId"] }),
     prisma.return.findMany({ where: { voidedAt: null }, orderBy: { createdAt: "desc" }, take: 5, include: { lines: true, job: { select: { id: true, jobNumber: true, client: { select: { name: true } } } } } }),
     prisma.subBill.findMany({ where: { voidedAt: null }, orderBy: { createdAt: "desc" }, take: 5, include: { client: { select: { name: true } } } }),
     prisma.job.findMany({ orderBy: { createdAt: "desc" }, take: 5, include: { client: { select: { name: true } } } }),
   ]);
+  const count = (s: string) => counts.find((c) => c.status === s)?._count ?? 0;
+  const activeJobs = count("IN_PROGRESS") + count("PARTIALLY_RECEIVED");
 
+  // Legacy figures (kept exactly as before).
+  const overdueJobs = await loadJobs(prisma, { status: { in: ["IN_PROGRESS", "PARTIALLY_RECEIVED"] }, expectedReturnDate: { lt: toDate(now) } });
+  const overdue = overdueJobs.map((j) => toJobRow(j, undefined, now)).filter((r) => r.overdue);
   const clients = new Map<string, Dashboard["clientsPending"][number]>();
-  const designs = new Map<string, Dashboard["designsPending"][number] & { jobIds: Set<string> }>();
-  const toPay = new Map<string, Dashboard["toPay"][number] & { paid: number; value: number }>();
-  const overdue = [];
-  let activeJobs = 0,
-    draftJobs = 0,
-    piecesOutside = 0;
-
-  for (const job of jobs) {
-    const items = summarizeJobItems(job);
-    const row = toJobRow(job, items);
-    if (row.status === "DRAFT") draftJobs++;
-    if (row.status === "IN_PROGRESS" || row.status === "PARTIALLY_RECEIVED") activeJobs++;
-    if (row.overdue) overdue.push(row);
-    piecesOutside = roundQty(piecesOutside + row.totals.pending);
-    if (row.totals.pending > 0) {
-      const c = clients.get(job.clientId) ?? { clientId: job.clientId, clientName: job.client.name, jobs: 0, pending: 0, pendingValuePaise: 0 };
-      c.jobs++;
-      c.pending = roundQty(c.pending + row.totals.pending);
-      c.pendingValuePaise += row.totals.pendingValuePaise;
-      clients.set(job.clientId, c);
-    }
-    for (const it of items) {
-      if (it.pending > 0) {
-        const d = designs.get(it.designId) ?? { designId: it.designId, designName: it.designName, jobs: 0, pending: 0, jobIds: new Set<string>() };
-        d.jobIds.add(job.id);
-        d.jobs = d.jobIds.size;
-        d.pending = roundQty(d.pending + it.pending);
-        designs.set(it.designId, d);
-      }
-    }
-    const w = toPay.get(job.clientId) ?? { clientId: job.clientId, clientName: job.client.name, qty: 0, valuePaise: 0, paid: 0, value: 0 };
-    w.value += row.money.valuePaise;
-    w.paid += row.money.paidPaise;
-    if (row.money.outstandingPaise > 0) w.qty++;
-    toPay.set(job.clientId, w);
+  for (const o of allOutside) {
+    const c = clients.get(o.clientId) ?? { clientId: o.clientId, clientName: o.clientName, jobs: 0, pending: 0, pendingValuePaise: 0 };
+    c.jobs++;
+    c.pending = roundQty(c.pending + o.pending);
+    c.pendingValuePaise += o.pendingValuePaise;
+    clients.set(o.clientId, c);
   }
+  const workers = workerMoney(jm);
+  const moneyTotals = {
+    completedValuePaise: jm.reduce((s, j) => s + j.valuePaise, 0),
+    paidPaise: jm.reduce((s, j) => s + j.paidPaise, 0),
+    toPayPaise: workers.reduce((s, w) => s + w.outstandingPaise, 0),
+  };
 
   const recentActivity: Dashboard["recentActivity"] = [
     ...recentReturns.map((r) => ({
       type: "return",
       at: r.createdAt.toISOString(),
       text: `${formatQty(roundQty(r.lines.reduce((s, l) => s + num(l.okQty) + num(l.damagedQty) + num(l.rejectedQty) + num(l.lostQty), 0)))} received on ${r.job.jobNumber} from ${r.job.client.name}`,
-      href: `/jobs/${r.job.id}`,
+      href: `/returns/${r.id}`,
     })),
     ...recentSubBills.map((b) => ({
       type: "payment",
       at: b.createdAt.toISOString(),
-      text: `₹${(b.amountPaise / 100).toLocaleString("en-IN")} paid to ${b.client.name} (${b.billNumber})`,
+      text: `${formatINR(b.amountPaise)} paid to ${b.client.name} (${b.billNumber})`,
       href: `/bills/sub/${b.id}`,
     })),
     ...recentJobs.map((j) => ({ type: "job", at: j.createdAt.toISOString(), text: `${j.jobNumber} created for ${j.client.name}`, href: `/jobs/${j.id}` })),
@@ -73,19 +122,245 @@ export async function getDashboard(): Promise<Dashboard> {
     .sort((a, b) => b.at.localeCompare(a.at))
     .slice(0, 8);
 
+  // Payment state per return.
+  const unpaid = await unpaidReturns(jm, now);
+  const overduePay = unpaid.filter((u) => u.overdueDays > 0);
+  const dueToday = unpaid.filter((u) => u.dueDate === now);
+
+  // Attention required.
+  const attention: AttentionItem[] = [];
+  const push = (a: AttentionItem) => a.count > 0 && attention.push(a);
+  push({
+    kind: "overdue-challans",
+    label: `${plural(overdue.length, "challan")} past expected return`,
+    hint: "Material still outside after the expected return date",
+    count: overdue.length,
+    tone: "danger",
+    href: overdue.length === 1 ? `/jobs/${overdue[0].id}` : "/jobs?status=overdue",
+    records: overdue.slice(0, 5).map((j) => ({ label: `${j.jobNumber} · ${j.client.name}`, sub: `Expected ${formatDate(j.expectedReturnDate)} · ${formatQty(j.totals.pending)} ${j.unit} pending`, href: `/jobs/${j.id}` })),
+  });
+  push({
+    kind: "overdue-payments",
+    label: `${formatINR(overduePay.reduce((s, u) => s + u.outstandingPaise, 0))} payments overdue`,
+    hint: "Returns not fully paid after their due date",
+    count: overduePay.length,
+    amountPaise: overduePay.reduce((s, u) => s + u.outstandingPaise, 0),
+    tone: "danger",
+    href: overduePay.length === 1 ? `/returns/${overduePay[0].returnId}` : "/reports?report=payment-aging",
+    records: overduePay.slice(0, 5).map((u) => ({ label: `${u.ret.returnNumber} · ${u.ret.job.client.name}`, sub: `${u.overdueDays} days overdue · due ${formatDate(u.dueDate)}`, href: `/returns/${u.returnId}`, amountPaise: u.outstandingPaise })),
+  });
+  const longHeld = holders.filter((h) => h.daysOutside >= LONG_HOLD_DAYS);
+  const longWorkers = [...new Map(longHeld.map((h) => [h.clientId, h])).values()];
+  push({
+    kind: "long-held-material",
+    label: `${plural(longWorkers.length, "worker")} holding material ${LONG_HOLD_DAYS}+ days`,
+    hint: `Material issued ${LONG_HOLD_DAYS} or more days ago and still outside`,
+    count: longWorkers.length,
+    tone: "attention",
+    href: longWorkers.length === 1 ? `/clients/${longWorkers[0].clientId}` : "/reports?report=material-outside",
+    records: longHeld.slice(0, 5).map((h) => ({ label: `${h.clientName} · ${h.materialName}`, sub: `${formatQty(h.qty)} ${h.unit} · ${h.daysOutside} days`, href: `/clients/${h.clientId}`, amountPaise: h.valuePaise })),
+  });
+  push({
+    kind: "payments-due-today",
+    label: `${formatINR(dueToday.reduce((s, u) => s + u.outstandingPaise, 0))} due today`,
+    hint: "Returns whose payment falls due today",
+    count: dueToday.length,
+    amountPaise: dueToday.reduce((s, u) => s + u.outstandingPaise, 0),
+    tone: "warning",
+    href: dueToday.length === 1 ? `/returns/${dueToday[0].returnId}` : "/reports?report=payment-aging",
+    records: dueToday.slice(0, 5).map((u) => ({ label: `${u.ret.returnNumber} · ${u.ret.job.client.name}`, sub: u.ret.job.jobNumber, href: `/returns/${u.returnId}`, amountPaise: u.outstandingPaise })),
+  });
+  const expectedToday = outside.filter((o) => o.expectedReturnDate === now && (o.status === "IN_PROGRESS" || o.status === "PARTIALLY_RECEIVED"));
+  push({
+    kind: "expected-today",
+    label: `${plural(expectedToday.length, "challan")} expected back today`,
+    hint: "Expected return date is today and material is still outside",
+    count: expectedToday.length,
+    tone: "warning",
+    href: expectedToday.length === 1 ? `/jobs/${expectedToday[0].jobId}` : "/reports?report=challan-aging",
+    records: expectedToday.slice(0, 5).map((o) => ({ label: `${o.jobNumber} · ${o.clientName}`, sub: `${formatQty(o.pending)} ${o.units > 1 ? "mixed units" : o.unit} pending`, href: `/jobs/${o.jobId}` })),
+  });
+  const mismatchJobs = [...new Map(mismatches.map((m) => [m.jobId, m])).values()];
+  push({
+    kind: "quantity-mismatch",
+    label: `${plural(mismatchJobs.length, "challan")} with more returned than issued`,
+    hint: "Returned + damaged + rejected + lost is more than was issued on a design line",
+    count: mismatchJobs.length,
+    tone: "attention",
+    href: mismatchJobs.length === 1 ? `/jobs/${mismatchJobs[0].jobId}` : `/jobs/${mismatchJobs[0]?.jobId ?? ""}`,
+    records: mismatches.slice(0, 5).map((m) => ({ label: `${m.jobNumber} · ${m.clientName}`, sub: `${m.designName}: ${formatQty(m.excess)} ${m.unit} over`, href: `/jobs/${m.jobId}` })),
+  });
+  const advances = jm.filter((j) => j.paidPaise > j.valuePaise).sort((a, b) => b.paidPaise - b.valuePaise - (a.paidPaise - a.valuePaise));
+  push({
+    kind: "advances",
+    label: `${formatINR(advances.reduce((s, j) => s + j.paidPaise - j.valuePaise, 0))} paid ahead of work`,
+    hint: "Challans where payments exceed the job work value received",
+    count: advances.length,
+    amountPaise: advances.reduce((s, j) => s + j.paidPaise - j.valuePaise, 0),
+    tone: "attention",
+    href: advances.length === 1 ? `/jobs/${advances[0].jobId}` : "/reports?report=payment-outstanding",
+    records: advances.slice(0, 5).map((j) => ({ label: `${j.jobNumber} · ${j.clientName}`, sub: `Paid ${formatINR(j.paidPaise)} for ${formatINR(j.valuePaise)} of work`, href: `/jobs/${j.jobId}`, amountPaise: j.paidPaise - j.valuePaise })),
+  });
+
+  const holderClients = new Set(holders.map((h) => h.clientId));
+  for (const c of activeClients) holderClients.add(c.clientId);
+
   return {
-    ops: { activeJobs, draftJobs, piecesOutside, overdueJobs: overdue.length, clientsWithPending: clients.size },
-    money,
+    ops: {
+      activeJobs,
+      draftJobs: count("DRAFT"),
+      piecesOutside: roundQty(allOutside.reduce((s, o) => s + o.pending, 0)),
+      overdueJobs: overdue.length,
+      clientsWithPending: clients.size,
+    },
+    money: moneyTotals,
     overdue: overdue.sort((a, b) => (a.expectedReturnDate ?? "").localeCompare(b.expectedReturnDate ?? "")),
     clientsPending: [...clients.values()].sort((a, b) => b.pending - a.pending),
-    designsPending: [...designs.values()].map(({ jobIds: _j, ...d }) => d).sort((a, b) => b.pending - a.pending),
-    toPay: [...toPay.values()]
-      .map(({ paid, value, ...w }) => ({ ...w, valuePaise: Math.max(0, value - paid) }))
-      .filter((w) => w.valuePaise > 0)
+    designsPending: designRows,
+    toPay: workers
+      .filter((w) => w.outstandingPaise > 0)
+      .map((w) => ({ clientId: w.clientId, clientName: w.clientName, qty: w.jobsOutstanding, valuePaise: w.outstandingPaise }))
       .sort((a, b) => b.valuePaise - a.valuePaise),
     recentActivity,
+    today: now,
+    range: { from: range.from ?? null, to: range.to ?? null },
+    kpis: {
+      activeWorkers: holderClients.size,
+      activeChallans: activeJobs,
+      materialOutside: qtyByUnit(holders, (h) => h.qty),
+      materialValueOutsidePaise: holders.reduce((s, h) => s + h.valuePaise, 0),
+      workValuePaise: period ? period.valuePaise : moneyTotals.completedValuePaise,
+      paidPaise: period ? period.paidPaise : moneyTotals.paidPaise,
+      outstandingPaise: moneyTotals.toPayPaise,
+      advancePaise: workers.reduce((s, w) => s + w.advancePaise, 0),
+      overduePayments: { amountPaise: overduePay.reduce((s, u) => s + u.outstandingPaise, 0), count: overduePay.length },
+      overdueChallans: overdue.length,
+    },
+    attention,
+    materialHolders: holders,
+    todayReturns: arrivals.rows,
+    recentPhotos: await toPhotoViews(prisma, photos),
   };
 }
+
+// ───────────────────────── Charts ─────────────────────────
+
+export async function getCharts(range: { from?: string; to?: string } = {}): Promise<DashboardCharts> {
+  const now = today();
+  const from = range.from ?? monthsBack(now, 12);
+  const to = range.to ?? now;
+  const f = { from, to };
+  const [issued, returned, holders, monthlyWork, monthlyPaid, jm, outside, completion, quality, byDesign, byType] = await Promise.all([
+    prisma.$queryRaw<{ unit: string; q: number }[]>`
+      SELECT ji.unit::text AS unit, SUM(dl.qty)::float8 AS q
+      FROM "DispatchLine" dl JOIN "Dispatch" d ON d.id = dl."dispatchId" JOIN "JobItem" ji ON ji.id = dl."jobItemId"
+      WHERE d."voidedAt" IS NULL AND d.date >= ${from}::date AND d.date <= ${to}::date
+      GROUP BY 1`,
+    prisma.$queryRaw<{ unit: string; ok: number; ex: number }[]>`
+      SELECT ji.unit::text AS unit, SUM(rl."okQty")::float8 AS ok, SUM(rl."damagedQty" + rl."rejectedQty" + rl."lostQty")::float8 AS ex
+      FROM "ReturnLine" rl JOIN "Return" r ON r.id = rl."returnId" JOIN "JobItem" ji ON ji.id = rl."jobItemId"
+      WHERE r."voidedAt" IS NULL AND r.date >= ${from}::date AND r.date <= ${to}::date
+      GROUP BY 1`,
+    materialHolders({}, now),
+    prisma.$queryRaw<{ month: string; value: number }[]>`
+      SELECT to_char(date_trunc('month', r.date), 'YYYY-MM') AS month, SUM(${VALUE_SQL})::float8 AS value
+      FROM "ReturnLine" rl JOIN "Return" r ON r.id = rl."returnId"
+      WHERE r."voidedAt" IS NULL AND r.date >= ${from}::date AND r.date <= ${to}::date
+      GROUP BY 1`,
+    prisma.$queryRaw<{ month: string; paid: number }[]>`
+      SELECT to_char(date_trunc('month', sb.date), 'YYYY-MM') AS month, SUM(sb."amountPaise")::float8 AS paid
+      FROM "SubBill" sb
+      WHERE sb."voidedAt" IS NULL AND sb.date >= ${from}::date AND sb.date <= ${to}::date
+      GROUP BY 1`,
+    jobMoney({}, now),
+    challansOutside({}, now),
+    completionRows(f, now),
+    workGrouped("worker", f, now),
+    prisma.$queryRaw<{ id: string | null; name: string; value: number }[]>`
+      SELECT ji."designId" AS id, COALESCE(d.name, MIN(ji."designName")) AS name, SUM(${VALUE_SQL})::float8 AS value
+      FROM "ReturnLine" rl JOIN "Return" r ON r.id = rl."returnId" JOIN "JobItem" ji ON ji.id = rl."jobItemId" LEFT JOIN "Design" d ON d.id = ji."designId"
+      WHERE r."voidedAt" IS NULL AND r.date >= ${from}::date AND r.date <= ${to}::date
+      GROUP BY ji."designId", d.name
+      ORDER BY value DESC`,
+    prisma.$queryRaw<{ id: string | null; name: string | null; value: number }[]>`
+      SELECT COALESCE(ji."jobWorkTypeId", j."jobWorkTypeId") AS id, MIN(t.name) AS name, SUM(${VALUE_SQL})::float8 AS value
+      FROM "ReturnLine" rl JOIN "Return" r ON r.id = rl."returnId" JOIN "JobItem" ji ON ji.id = rl."jobItemId" JOIN "Job" j ON j.id = r."jobId"
+        LEFT JOIN "JobWorkType" t ON t.id = COALESCE(ji."jobWorkTypeId", j."jobWorkTypeId")
+      WHERE r."voidedAt" IS NULL AND r.date >= ${from}::date AND r.date <= ${to}::date
+      GROUP BY 1
+      ORDER BY value DESC`,
+  ]);
+
+  const units = new Set<string>([...issued.map((r) => r.unit), ...returned.map((r) => r.unit), ...holders.map((h) => h.unit)]);
+  const materialFlow = [...units].map((unit) => ({
+    unit: unit as Unit,
+    issued: roundQty(issued.find((r) => r.unit === unit)?.q ?? 0),
+    returned: roundQty(returned.find((r) => r.unit === unit)?.ok ?? 0),
+    exceptions: roundQty(returned.find((r) => r.unit === unit)?.ex ?? 0),
+    pending: roundQty(holders.filter((h) => h.unit === unit).reduce((s, h) => s + h.qty, 0)),
+  }));
+
+  const months = monthSpan(from, to);
+  const workerPending = new Map<string, DashboardCharts["workerPending"][number]>();
+  for (const h of holders) {
+    const k = `${h.clientId}:${h.unit}`;
+    const w = workerPending.get(k) ?? { clientId: h.clientId, clientName: h.clientName, unit: h.unit, pending: 0 };
+    w.pending = roundQty(w.pending + h.qty);
+    workerPending.set(k, w);
+  }
+
+  const aging = AGING_BUCKETS.map((bucket) => ({ bucket, challans: 0, rows: [] as typeof outside, valuePaise: 0 }));
+  for (const o of outside) {
+    const b = aging.find((a) => a.bucket === agingBucket(Math.max(0, diffDays(now, o.jobDate))))!;
+    b.challans++;
+    b.rows.push(o);
+    b.valuePaise += o.pendingValuePaise;
+  }
+
+  const completionByWorker = new Map<string, { clientId: string; clientName: string; days: number[] }>();
+  for (const c of completion) {
+    if (c.daysToComplete === null) continue;
+    const w = completionByWorker.get(c.clientId) ?? { clientId: c.clientId, clientName: c.clientName, days: [] };
+    w.days.push(c.daysToComplete);
+    completionByWorker.set(c.clientId, w);
+  }
+
+  const qualityByWorker = new Map<string, { clientId: string; clientName: string; ok: number; dl: number; rej: number }>();
+  for (const g of quality) {
+    if (!g.key) continue;
+    const w = qualityByWorker.get(g.key) ?? { clientId: g.key, clientName: g.name, ok: 0, dl: 0, rej: 0 };
+    w.ok += g.ok;
+    w.dl += g.damaged + g.lost;
+    w.rej += g.rejected;
+    qualityByWorker.set(g.key, w);
+  }
+
+  return {
+    range: { from, to },
+    materialFlow: materialFlow.sort((a, b) => b.issued + b.pending - (a.issued + a.pending)),
+    monthlyWork: months.map((month) => ({ month, valuePaise: Math.round(monthlyWork.find((m) => m.month === month)?.value ?? 0) })),
+    monthlyPayments: months.map((month) => ({ month, paidPaise: Math.round(monthlyPaid.find((m) => m.month === month)?.paid ?? 0) })),
+    workerOutstanding: workerMoney(jm)
+      .filter((w) => w.outstandingPaise > 0)
+      .sort((a, b) => b.outstandingPaise - a.outstandingPaise)
+      .map((w) => ({ clientId: w.clientId, clientName: w.clientName, outstandingPaise: w.outstandingPaise })),
+    workerPending: [...workerPending.values()].sort((a, b) => b.pending - a.pending),
+    challanAging: aging.map((a) => ({ bucket: a.bucket, challans: a.challans, pending: qtyByUnit(a.rows, (r) => (r.units > 1 ? 0 : r.pending)), valuePaise: a.valuePaise })),
+    completionDays: [...completionByWorker.values()]
+      .map((w) => ({ clientId: w.clientId, clientName: w.clientName, avgDays: meanOf(w.days) ?? 0, challans: w.days.length }))
+      .sort((a, b) => b.avgDays - a.avgDays),
+    defects: [...qualityByWorker.values()]
+      .map((w) => {
+        const accounted = roundQty(w.ok + w.dl + w.rej);
+        return { clientId: w.clientId, clientName: w.clientName, defectPct: percent(w.dl, accounted) ?? 0, rejectionPct: percent(w.rej, accounted) ?? 0, accounted };
+      })
+      .filter((w) => w.accounted > 0)
+      .sort((a, b) => b.defectPct + b.rejectionPct - (a.defectPct + a.rejectionPct)),
+    byDesign: byDesign.map((d) => ({ designId: d.id, designName: d.name, valuePaise: Math.round(d.value) })).filter((d) => d.valuePaise > 0),
+    byJobWorkType: byType.map((t) => ({ jobWorkTypeId: t.id, name: t.name ?? "No job work type", valuePaise: Math.round(t.value) })).filter((t) => t.valuePaise > 0),
+  };
+}
+
 
 // ───────────────────────── Pending material ─────────────────────────
 
@@ -109,7 +384,8 @@ export interface PendingMaterialRow {
 }
 
 export async function pendingMaterial(filter: { clientId?: string; designId?: string; onlyPending?: boolean }) {
-  const jobs = await loadJobs(prisma, { clientId: filter.clientId });
+  // Completed challans have nothing pending, so only the rest are loaded.
+  const jobs = await loadJobs(prisma, { clientId: filter.clientId, status: { not: "COMPLETED" } });
   const today = todayUTC().getTime();
   const rows: PendingMaterialRow[] = [];
   for (const job of jobs) {
@@ -311,13 +587,39 @@ export async function clientProfile(clientId: string): Promise<ClientSummary> {
 
 // ───────────────────────── Search ─────────────────────────
 
-export async function search(q: string): Promise<SearchResults> {
+const emptySearch = (): SearchResultsV2 => ({ clients: [], jobs: [], bills: [], products: [], designs: [], returns: [], materials: [], matchedAmountPaise: null, matchedDate: null });
+
+/**
+ * Global search (spec §48): workers (name, code, phone, alternate phone), challans, return numbers, payment
+ * vouchers (number, reference), products, designs, materials (name, code, lot, roll), a date ("04 Oct",
+ * 04/10/2026) and an amount ("2000", "₹2,000") matching vouchers and returns of exactly that amount.
+ */
+export async function search(q: string): Promise<SearchResultsV2> {
   const term = q.trim();
-  if (!term) return { clients: [], jobs: [], bills: [], products: [], designs: [] };
+  if (!term) return emptySearch();
   const ci = { contains: term, mode: "insensitive" as const };
   const date = parseSearchDate(term);
-  const [clients, jobs, subBills, mainBills, products, designs] = await Promise.all([
-    prisma.client.findMany({ where: { OR: [{ name: ci }, { businessName: ci }, { phone: ci }, { alternatePhone: ci }, { workerCode: ci }, { gstin: ci }] }, take: 8, orderBy: { name: "asc" } }),
+  const amount = parseAmountQuery(term);
+  const digits = term.replace(/\D/g, "");
+  const phone = digits.length >= 5 && /^[\d\s+()-]+$/.test(term) ? { contains: digits } : null;
+
+  // Returns whose value is exactly the amount typed (value is derived, so it is matched in SQL).
+  const amountReturnIds = amount
+    ? (
+        await prisma.$queryRaw<{ id: string }[]>`
+          SELECT r.id FROM "Return" r JOIN "ReturnLine" rl ON rl."returnId" = r.id
+          WHERE r."voidedAt" IS NULL
+          GROUP BY r.id HAVING ROUND(SUM(${VALUE_SQL})) = ${amount}
+          ORDER BY MAX(r."receivedAt") DESC LIMIT 6`
+      ).map((r) => r.id)
+    : [];
+
+  const [clients, jobs, subBills, mainBills, products, designs, returns, materials] = await Promise.all([
+    prisma.client.findMany({
+      where: { OR: [{ name: ci }, { businessName: ci }, { phone: ci }, { alternatePhone: ci }, { workerCode: ci }, { gstin: ci }, ...(phone ? [{ phone }, { alternatePhone: phone }] : [])] },
+      take: 8,
+      orderBy: { name: "asc" },
+    }),
     prisma.job.findMany({
       where: {
         OR: [
@@ -334,22 +636,31 @@ export async function search(q: string): Promise<SearchResults> {
       take: 10,
     }),
     prisma.subBill.findMany({
-      where: { OR: [{ billNumber: ci }, { reference: ci }, { client: { name: ci } }, ...(date ? [{ date }] : [])] },
+      where: { OR: [{ billNumber: ci }, { reference: ci }, { client: { name: ci } }, ...(date ? [{ date }] : []), ...(amount ? [{ amountPaise: amount }] : [])] },
       include: { client: { select: { name: true } } },
       orderBy: { date: "desc" },
       take: 6,
     }),
     prisma.mainBill.findMany({
-      where: { OR: [{ billNumber: ci }, { client: { name: ci } }, { job: { jobNumber: ci } }, ...(date ? [{ date }] : [])] },
+      where: { OR: [{ billNumber: ci }, { client: { name: ci } }, { job: { jobNumber: ci } }, ...(date ? [{ date }] : []), ...(amount ? [{ totalPaise: amount }] : [])] },
       include: { client: { select: { name: true } } },
       orderBy: { date: "desc" },
       take: 4,
     }),
     prisma.product.findMany({ where: { OR: [{ name: ci }, { code: ci }] }, take: 5 }),
     prisma.design.findMany({ where: { OR: [{ name: ci }, { code: ci }] }, take: 5 }),
+    prisma.return.findMany({
+      where: { OR: [{ returnNumber: ci }, ...(date ? [{ date }] : []), ...(amountReturnIds.length ? [{ id: { in: amountReturnIds } }] : [])] },
+      select: { id: true },
+      orderBy: [{ date: "desc" }, { receivedAt: "desc" }],
+      take: 8,
+    }),
+    prisma.material.findMany({ where: { OR: [{ name: ci }, { code: ci }, { lotNumber: ci }, { rollNumber: ci }] }, take: 6, orderBy: { name: "asc" } }),
   ]);
+  const returnRows = returns.length ? await loadReturnRows(prisma, { id: { in: returns.map((r) => r.id) } }, today(), { orderBy: [{ date: "desc" }, { receivedAt: "desc" }] }) : [];
+
   return {
-    clients: clients.map((c) => ({ id: c.id, name: c.name, sub: c.businessName ?? c.phone })),
+    clients: clients.map((c) => ({ id: c.id, name: c.name, sub: [c.workerCode, c.businessName ?? c.phone].filter(Boolean).join(" · ") || null })),
     jobs: jobs.map((j) => ({ id: j.id, jobNumber: j.jobNumber, clientName: j.client.name, productName: j.product.name, status: j.status as JobStatus, jobDate: j.jobDate.toISOString() })),
     bills: [
       ...mainBills.map((m) => ({ id: m.id, kind: "main" as const, billNumber: m.billNumber, clientName: m.client.name, amountPaise: m.totalPaise, date: m.date.toISOString() })),
@@ -357,5 +668,10 @@ export async function search(q: string): Promise<SearchResults> {
     ],
     products: products.map((p) => ({ id: p.id, name: p.name, code: p.code })),
     designs: designs.map((d) => ({ id: d.id, name: d.name, code: d.code })),
+    returns: returnRows.map((r) => ({ id: r.id, returnNumber: r.returnNumber, clientName: r.client.name, jobNumber: r.job.jobNumber, date: r.date, receivedAt: r.receivedAt, valuePaise: r.valuePaise, voided: !!r.voidedAt })),
+    materials: materials.map((m) => ({ id: m.id, name: m.name, code: m.code, unit: m.unit as Unit, lotNumber: m.lotNumber, rollNumber: m.rollNumber })),
+    matchedAmountPaise: amount,
+    matchedDate: date ? date.toISOString().slice(0, 10) : null,
   };
 }
+

@@ -301,21 +301,22 @@ model DispatchLine {
 
 /// A job work return. `date` is the business date (editable for back entry); `receivedAt` is the exact server time it was recorded.
 model Return {
-  id           String        @id @default(cuid())
-  returnNumber String        @unique
-  jobId        String
-  job          Job           @relation(fields: [jobId], references: [id])
-  date         DateTime      @db.Date
-  receivedAt   DateTime      @default(now())
-  notes        String?
-  enteredById  String?
-  editedAt     DateTime?
-  voidedAt     DateTime?
-  voidReason   String?
-  createdAt    DateTime      @default(now())
-  lines        ReturnLine[]
-  photos       ReturnPhoto[]
-  subBills     SubBill[]
+  id             String        @id @default(cuid())
+  returnNumber   String        @unique
+  jobId          String
+  job            Job           @relation(fields: [jobId], references: [id])
+  date           DateTime      @db.Date
+  receivedAt     DateTime      @default(now())
+  idempotencyKey String?       @unique // one per Record Return form – a retried submit returns the same return
+  notes          String?
+  enteredById    String?
+  editedAt       DateTime?
+  voidedAt       DateTime?
+  voidReason     String?
+  createdAt      DateTime      @default(now())
+  lines          ReturnLine[]
+  photos         ReturnPhoto[]
+  subBills       SubBill[]
 
   @@index([jobId, voidedAt])
   @@index([receivedAt])

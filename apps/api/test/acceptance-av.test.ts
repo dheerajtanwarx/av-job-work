@@ -112,6 +112,41 @@ describe("§67 Ramesh / 190 PCS Floral, four returns at changing rates", () => {
     expect(j.mainBill).toMatchObject({ totalPaise: 1567000, qty: 190 });
     expect(j.money.outstandingPaise).toBe(0);
   });
+
+  it("photos: one per return, each showing its own rate and time; files served, originals unchanged", async () => {
+    const { mkdtempSync } = await import("node:fs");
+    const { tmpdir } = await import("node:os");
+    const { join } = await import("node:path");
+    const { default: sharp } = await import("sharp");
+    process.env.UPLOAD_DIR ??= mkdtempSync(join(tmpdir(), "av-acceptance-photos-"));
+    const originals = new Map<string, Buffer>();
+    for (const [i, r] of results.entries()) {
+      const buf = await sharp({ create: { width: 900, height: 600, channels: 3, background: { r: 40 * i, g: 120, b: 200 } } }).jpeg().toBuffer();
+      const [p] = (await api.post(`/returns/${r.id}/photos`).attach("photos", buf, { filename: `floral-${i + 1}.jpg`, contentType: "image/jpeg" }).expect(201)).body;
+      originals.set(p.id, buf);
+    }
+    const page: import("@av/shared").PhotoPage = (await api.get(`/photos?jobId=${job.id}`).expect(200)).body;
+    expect(page.rows).toHaveLength(4);
+    const byReturn = [...page.rows].sort((a, b) => a.returnNumber.localeCompare(b.returnNumber));
+    expect(byReturn.map((p) => p.returnId)).toEqual(results.map((r) => r.id));
+    expect(byReturn.map((p) => [p.qty, p.ratePaise, p.valuePaise])).toEqual([
+      [52, 8000, 416000],
+      [44, 8000, 352000],
+      [91, 8500, 773500],
+      [3, 8500, 25500],
+    ]);
+    expect(byReturn.map((p) => p.receivedAt)).toEqual(results.map((r) => r.receivedAt));
+    expect(byReturn.every((p) => p.client.name === "Ramesh" && p.design?.name === "Floral" && p.job.jobNumber === job.jobNumber)).toBe(true);
+    for (const p of page.rows) {
+      for (const v of ["thumb", "display", "share"]) {
+        const res = await api.get(`/photos/${p.id}/${v}`).buffer(true).expect(200);
+        expect(res.headers["content-type"]).toBe("image/jpeg");
+        expect((await sharp(res.body).metadata()).format).toBe("jpeg");
+      }
+      const original = await api.get(`/photos/${p.id}/original`).buffer(true).expect(200);
+      expect(Buffer.compare(original.body, originals.get(p.id)!)).toBe(0);
+    }
+  });
 });
 
 describe("§68 partial challan: 1,000 MTR, 300 + 250 back", () => {

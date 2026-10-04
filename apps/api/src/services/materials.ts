@@ -8,8 +8,8 @@ import { stockPositions } from "./stock.js";
 
 const ci = (q: string) => ({ contains: q, mode: "insensitive" as const });
 
-export async function materialRows(f: { q?: string; active?: boolean; simple?: boolean }): Promise<MaterialRow[]> {
-  const where: Prisma.MaterialWhereInput = { isActive: f.active };
+export async function materialRows(f: { id?: string; q?: string; active?: boolean; simple?: boolean }): Promise<MaterialRow[]> {
+  const where: Prisma.MaterialWhereInput = { id: f.id, isActive: f.active };
   if (f.q) where.OR = [{ name: ci(f.q) }, { code: ci(f.q) }, { lotNumber: ci(f.q) }, { rollNumber: ci(f.q) }, { color: ci(f.q) }, { fabricType: ci(f.q) }, { supplier: ci(f.q) }];
   const materials = await prisma.material.findMany({ where, include: { product: { select: { id: true, name: true } }, design: { select: { id: true, name: true } } }, orderBy: { name: "asc" } });
   const ids = materials.map((m) => m.id);
@@ -80,6 +80,7 @@ export async function materialLedger(f: { materialId?: string; clientId?: string
       client: null,
       designName: null,
       ref: null,
+      returnId: null,
       notes: m.voidedAt ? `Voided: ${m.voidReason}` : m.reason,
       enteredBy: who(m.enteredById),
       voided: !!m.voidedAt,
@@ -102,6 +103,7 @@ export async function materialLedger(f: { materialId?: string; clientId?: string
       client: d.dispatch.job.client,
       designName: d.jobItem.designName,
       ref: d.dispatch.job.jobNumber,
+      returnId: null,
       notes: d.dispatch.voidedAt ? `Voided: ${d.dispatch.voidReason}` : d.dispatch.notes,
       enteredBy: who(d.dispatch.enteredById),
       voided: !!d.dispatch.voidedAt,
@@ -131,6 +133,7 @@ export async function materialLedger(f: { materialId?: string; clientId?: string
         client: r.return.job.client,
         designName: r.jobItem.designName,
         ref: r.return.returnNumber,
+        returnId: r.returnId,
         notes: r.return.voidedAt ? `Voided: ${r.return.voidReason}` : (r.exceptionReason ?? r.return.notes),
         enteredBy: who(r.return.enteredById),
         voided: !!r.return.voidedAt,

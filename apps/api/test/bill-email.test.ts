@@ -63,7 +63,9 @@ describe("sub bills are emailed to the job worker", () => {
     const mail = sent[0];
     expect(mail.to).toBe("gupta@example.com");
     expect(mail.replyTo).toBe("owner@av.example");
-    expect(mail.subject).toBe(`Payment ${first.billNumber} – ₹60 for job ${job.jobNumber} – AV Textiles`);
+    expect(mail.subject).toBe(`Payment Voucher ${first.billNumber} – ₹60 for Challan ${job.jobNumber} – AV Textiles`);
+    expect(mail.text).not.toContain("pieces");
+    expect(mail.text).toContain("Outstanding: ₹0");
     expect(mail.html).toContain('src="cid:business-logo"');
     expect(mail.html).toContain("Dear Gupta Prints");
     expect(mail.html).toContain("Paisley");
@@ -77,7 +79,7 @@ describe("sub bills are emailed to the job worker", () => {
     expect(last.mainBill?.cancelled).toBe(false);
     expect(sent).toHaveLength(2);
     expect(sent[1].subject).toContain(`fully settled (${last.mainBill!.billNumber})`);
-    expect(sent[1].html).toContain(`Job ${job.jobNumber} is fully settled`);
+    expect(sent[1].html).toContain(`Challan ${job.jobNumber} is fully settled`);
     expect(sent[1].html).toContain(first.billNumber); // every payment on the job is listed
 
     const log = await prisma.auditLog.findMany({ where: { entity: "SubBill", action: "email" } });
