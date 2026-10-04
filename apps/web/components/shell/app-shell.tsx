@@ -71,6 +71,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const me = useQuery({ queryKey: ["me"], queryFn: () => api.get<{ user: { name: string; email: string } }>("/auth/me"), staleTime: Infinity, retry: false });
 
   useEffect(() => setDrawer(false), [path]);
+  useEffect(() => {
+    if (me.isError) router.replace(`/login?next=${encodeURIComponent(window.location.pathname + window.location.search)}`);
+  }, [me.isError, router]);
 
   async function logout() {
     await api.post("/auth/logout");
