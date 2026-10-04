@@ -2,7 +2,7 @@ import { expect, test, type Page } from "@playwright/test";
 
 /**
  * Brief §25 – critical acceptance scenario through the UI.
- * Needs: `pnpm setup` (seeded owner + Plain Blouse + Floral/Royal/Simple designs) and `pnpm dev` running.
+ * Needs: `pnpm db:setup` (seeded owner + Plain Blouse + Floral/Royal/Simple designs) and `pnpm dev` running.
  */
 const EMAIL = process.env.OWNER_EMAIL ?? "owner@example.com";
 const PASSWORD = process.env.OWNER_PASSWORD ?? "admin123";

@@ -13,7 +13,7 @@
     "db:deploy": "pnpm --filter @av/db deploy",
     "db:seed": "pnpm --filter @av/db seed",
     "db:studio": "pnpm --filter @av/db studio",
-    "setup": "pnpm db:up && pnpm db:deploy && pnpm db:seed"
+    "db:setup": "pnpm db:up && pnpm db:deploy && pnpm db:seed"
   },
   "devDependencies": {
     "turbo": "^2.11.7",
