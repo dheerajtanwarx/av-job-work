@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
 import { Field, Input } from "@/components/ui/input";
 import { api } from "@/lib/api";
-import { cn } from "@/lib/utils";
+import { Segmented } from "@/components/ui/segmented";
 
 export function DispatchDialog({ job, open, onOpenChange }: { job: JobDetail; open: boolean; onOpenChange: (o: boolean) => void }) {
   const qc = useQueryClient();
@@ -53,54 +53,64 @@ export function DispatchDialog({ job, open, onOpenChange }: { job: JobDetail; op
       wide
       footer={
         <>
-          <Button variant="secondary" onClick={() => onOpenChange(false)}>Cancel</Button>
+          <Button variant="secondary" onClick={() => onOpenChange(false)}>
+            Cancel
+          </Button>
           <Button onClick={() => m.mutate()} loading={m.isPending} disabled={total === 0}>
             Send {formatQty(total)} pieces
           </Button>
         </>
       }
     >
-      <div className="mb-4 inline-flex rounded-lg border border-line bg-paper p-1">
-        {(["INITIAL", "REWORK"] as const).map((k) => (
-          <button
-            key={k}
-            type="button"
-            onClick={() => setKind(k)}
-            className={cn("rounded-md px-3 py-1.5 text-sm font-semibold", kind === k ? "bg-card text-ink shadow-sm" : "text-muted")}
-          >
-            {k === "INITIAL" ? "Remaining pieces" : "Rework (rejected / damaged)"}
-          </button>
-        ))}
-      </div>
-      <table className="ledger mb-4">
-        <thead>
-          <tr><th>Design</th><th className="r">{kind === "INITIAL" ? "Not yet sent" : "Can rework"}</th><th className="r">Send now</th></tr>
-        </thead>
-        <tbody>
-          {job.items.map((i) => (
-            <tr key={i.id}>
-              <td className="font-medium">{i.designName}</td>
-              <td className="r num text-muted">{formatQty(max(i.id))}</td>
-              <td className="r">
-                <Input
-                  type="number"
-                  inputMode="numeric"
-                  min={0}
-                  max={max(i.id)}
-                  disabled={max(i.id) === 0}
-                  value={qty[i.id] ?? ""}
-                  onChange={(e) => setQty({ ...qty, [i.id]: e.target.value })}
-                  className="num ml-auto w-24 text-right"
-                  aria-label={`Send ${i.designName}`}
-                />
-              </td>
+      <Segmented
+        label="What to send"
+        className="mb-4"
+        value={kind}
+        onChange={setKind}
+        options={[
+          { value: "INITIAL", label: "Remaining pieces" },
+          { value: "REWORK", label: "Rework" },
+        ]}
+      />
+      <div className="mb-4 overflow-hidden rounded-lg border border-border">
+        <table className="ledger">
+          <thead>
+            <tr>
+              <th>Design</th>
+              <th className="r">{kind === "INITIAL" ? "Not yet sent" : "Can rework"}</th>
+              <th className="r">Send now</th>
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {job.items.map((i) => (
+              <tr key={i.id}>
+                <td className="font-medium">{i.designName}</td>
+                <td className="r text-fg-muted">{formatQty(max(i.id))}</td>
+                <td className="r">
+                  <Input
+                    type="number"
+                    inputMode="numeric"
+                    min={0}
+                    max={max(i.id)}
+                    disabled={max(i.id) === 0}
+                    value={qty[i.id] ?? ""}
+                    onChange={(e) => setQty({ ...qty, [i.id]: e.target.value })}
+                    className="num ml-auto w-20 text-right"
+                    aria-label={`Send ${i.designName}`}
+                  />
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
       <div className="grid gap-4 sm:grid-cols-2">
-        <Field label="Date sent"><Input type="date" value={date} onChange={(e) => setDate(e.target.value)} /></Field>
-        <Field label="Notes"><Input value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Optional" /></Field>
+        <Field label="Date sent">
+          <Input type="date" value={date} onChange={(e) => setDate(e.target.value)} />
+        </Field>
+        <Field label="Notes">
+          <Input value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Optional" />
+        </Field>
       </div>
     </Dialog>
   );

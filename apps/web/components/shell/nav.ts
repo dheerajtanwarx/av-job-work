@@ -10,7 +10,7 @@ export interface NavItem {
 export const mainNav: NavItem[] = [
   { href: "/", label: "Dashboard", icon: LayoutDashboard, match: (p) => p === "/" },
   { href: "/jobs", label: "Jobs", icon: Briefcase },
-  { href: "/returns/new", label: "Record Return", icon: PackageCheck, match: (p) => p.startsWith("/returns") },
+  { href: "/returns/new", label: "Record return", icon: PackageCheck, match: (p) => p.startsWith("/returns") },
   { href: "/invoices", label: "Invoices", icon: ReceiptText },
   { href: "/payments", label: "Payments", icon: Wallet },
   { href: "/clients", label: "Clients", icon: Users },

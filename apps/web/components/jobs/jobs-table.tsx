@@ -1,6 +1,7 @@
 "use client";
 
 import { formatDate, formatINR, formatQty, type JobListRow } from "@av/shared";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { JobStatusBadge } from "@/components/ui/badge";
 import { TableWrap } from "@/components/ui/card";
@@ -27,24 +28,39 @@ export function JobsTable({ rows, hideClient }: { rows: JobListRow[]; hideClient
           {rows.map((j) => (
             <tr key={j.id} className="row-link" onClick={() => router.push(`/jobs/${j.id}`)}>
               <td className="whitespace-nowrap">
-                <div className="font-semibold text-indigo">{j.jobNumber}</div>
-                <div className="text-sm text-muted">{formatDate(j.jobDate)}</div>
+                <Link href={`/jobs/${j.id}`} className="num font-medium text-fg hover:text-accent" onClick={(e) => e.stopPropagation()}>
+                  {j.jobNumber}
+                </Link>
+                <div className="num text-xs text-fg-muted">{formatDate(j.jobDate)}</div>
               </td>
               {!hideClient && (
-                <td>
-                  <div className="font-medium">{j.client.name}</div>
-                  <div className="text-sm text-muted">{j.product.name}</div>
+                <td className="max-w-56">
+                  <div className="truncate">{j.client.name}</div>
+                  <div className="truncate text-xs text-fg-muted">{j.product.name}</div>
                 </td>
               )}
-              <td className="max-w-56">
-                <div className="truncate text-sm">{j.designs.join(", ")}</div>
-                <FlowBar className="mt-1.5 max-w-40" sent={j.totals.sent} ok={j.totals.ok} exceptions={j.totals.exceptions} pending={j.totals.pending} />
+              <td className="max-w-56 min-w-36">
+                <div className="truncate text-fg-2">{j.designs.join(", ")}</div>
+                <FlowBar className="mt-1.5 max-w-32" sent={j.totals.sent} ok={j.totals.ok} exceptions={j.totals.exceptions} pending={j.totals.pending} />
               </td>
-              <td className="r num">{formatQty(j.totals.sent)}</td>
-              <td className="r num">{formatQty(j.totals.ok)}{j.totals.exceptions > 0 && <div className="text-xs text-madder">+{j.totals.exceptions} issue</div>}</td>
-              <td className="r num">{j.totals.pending > 0 ? <span className="font-bold text-marigold-700">{formatQty(j.totals.pending)}</span> : <span className="text-leaf">✓</span>}</td>
-              <td className="r num">{formatINR(j.totals.expectedValuePaise)}</td>
-              <td><JobStatusBadge status={j.status} overdue={j.overdue} /></td>
+              <td className="r">{formatQty(j.totals.sent)}</td>
+              <td className="r">
+                {formatQty(j.totals.ok)}
+                {j.totals.exceptions > 0 && <div className="text-xs text-danger">+{j.totals.exceptions} issue</div>}
+              </td>
+              <td className="r">
+                {j.totals.pending > 0 ? (
+                  <span className="font-medium text-warning">{formatQty(j.totals.pending)}</span>
+                ) : (
+                  <span className="text-fg-faint">
+                    —<span className="sr-only">none pending</span>
+                  </span>
+                )}
+              </td>
+              <td className="r">{formatINR(j.totals.expectedValuePaise)}</td>
+              <td className="whitespace-nowrap">
+                <JobStatusBadge status={j.status} overdue={j.overdue} />
+              </td>
             </tr>
           ))}
         </tbody>

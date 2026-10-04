@@ -1,20 +1,24 @@
 "use client";
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { LogOut, Menu, PackageCheck, Plus, Search, X } from "lucide-react";
+import { LogOut, Menu, Plus, Search } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
+import { Dialog as D } from "radix-ui";
 import { useEffect, useState } from "react";
-import { Button } from "@/components/ui/button";
 import { Kbd } from "@/components/ui/misc";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { isActive, mainNav, setupNav, type NavItem } from "./nav";
 import { SearchPalette } from "./search-palette";
 
+function Mark({ className }: { className?: string }) {
+  return <span className={cn("grid size-5 place-items-center rounded bg-accent-solid text-[11px] leading-none font-semibold text-on-accent", className)}>J</span>;
+}
+
 function NavLinks({ items, path, onNavigate }: { items: NavItem[]; path: string; onNavigate?: () => void }) {
   return (
-    <ul className="space-y-0.5">
+    <ul className="space-y-px">
       {items.map((item) => {
         const active = isActive(item, path);
         return (
@@ -22,12 +26,13 @@ function NavLinks({ items, path, onNavigate }: { items: NavItem[]; path: string;
             <Link
               href={item.href}
               onClick={onNavigate}
+              aria-current={active ? "page" : undefined}
               className={cn(
-                "group flex items-center gap-3 rounded-lg px-3 py-2 text-[0.95rem] font-medium transition-colors",
-                active ? "bg-white/12 text-white" : "text-white/70 hover:bg-white/6 hover:text-white",
+                "group flex h-[30px] items-center gap-2.5 rounded-md px-2 text-[13px] font-medium transition-colors duration-100 pointer-coarse:h-10",
+                active ? "bg-surface text-fg shadow-[0_0_0_1px_var(--border),var(--shadow-xs-value)]" : "text-fg-2 hover:bg-surface-3/70 hover:text-fg",
               )}
             >
-              <item.icon className={cn("size-[1.15rem]", active ? "text-marigold" : "text-white/55 group-hover:text-white/80")} strokeWidth={2} />
+              <item.icon className={cn("size-4 shrink-0", active ? "text-fg" : "text-fg-muted group-hover:text-fg-2")} strokeWidth={1.75} />
               {item.label}
             </Link>
           </li>
@@ -37,25 +42,63 @@ function NavLinks({ items, path, onNavigate }: { items: NavItem[]; path: string;
   );
 }
 
-function Sidebar({ path, onNavigate, onLogout, userName }: { path: string; onNavigate?: () => void; onLogout: () => void; userName?: string }) {
+function Sidebar({
+  path,
+  onNavigate,
+  onLogout,
+  onSearch,
+  user,
+}: {
+  path: string;
+  onNavigate?: () => void;
+  onLogout: () => void;
+  onSearch: () => void;
+  user?: { name: string; email: string };
+}) {
+  const initials = user?.name
+    .split(/\s+/)
+    .map((w) => w[0])
+    .slice(0, 2)
+    .join("")
+    .toUpperCase();
   return (
-    <div className="flex h-full flex-col bg-indigo-600 text-white">
-      <Link href="/" onClick={onNavigate} className="flex items-center gap-2.5 px-5 pt-5 pb-6">
-        <span className="grid size-9 place-items-center rounded-xl bg-marigold font-display text-lg font-bold text-ink">J</span>
-        <span className="leading-tight">
-          <span className="block font-display text-[1.05rem] font-semibold">Job Work Ledger</span>
-          <span className="block text-xs text-white/55">Sent · Received · Paid</span>
-        </span>
+    <div className="flex h-full flex-col border-r border-border bg-sidebar">
+      <Link href="/" onClick={onNavigate} className="mx-3 mt-3 flex h-8 items-center gap-2 rounded-md px-1.5 text-[13px] font-semibold text-fg">
+        <Mark />
+        Job Work Ledger
       </Link>
-      <nav className="flex-1 overflow-y-auto px-3">
+      <div className="mx-3 mt-3 flex gap-1.5">
+        <button
+          onClick={onSearch}
+          className="flex h-8 min-w-0 flex-1 items-center gap-2 rounded-md border border-border bg-surface px-2 text-left text-[13px] text-fg-faint shadow-xs transition-colors hover:border-border-strong hover:text-fg-muted pointer-coarse:h-10"
+        >
+          <Search className="size-3.5 shrink-0" />
+          <span className="flex-1 truncate">Search</span>
+          <Kbd>⌘K</Kbd>
+        </button>
+        <Link
+          href="/jobs/new"
+          onClick={onNavigate}
+          aria-label="New job"
+          title="New job"
+          className="grid size-8 shrink-0 place-items-center rounded-md bg-accent-solid text-on-accent shadow-xs transition-colors hover:bg-accent-solid-hover pointer-coarse:size-10"
+        >
+          <Plus className="size-4" />
+        </Link>
+      </div>
+      <nav className="mt-4 flex-1 overflow-y-auto px-3" aria-label="Main">
         <NavLinks items={mainNav} path={path} onNavigate={onNavigate} />
-        <div className="mt-6 mb-2 px-3 text-[0.7rem] font-semibold tracking-[0.14em] text-white/40 uppercase">Setup</div>
+        <div className="mt-5 mb-1 px-2 text-[11px] font-medium text-fg-faint">Setup</div>
         <NavLinks items={setupNav} path={path} onNavigate={onNavigate} />
       </nav>
-      <div className="border-t border-white/10 p-3">
-        <button onClick={onLogout} className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm text-white/65 hover:bg-white/6 hover:text-white">
-          <LogOut className="size-4" />
-          <span className="flex-1 truncate text-left">Log out{userName ? ` (${userName})` : ""}</span>
+      <div className="flex items-center gap-2 border-t border-border px-3 py-2.5">
+        <span className="grid size-6 shrink-0 place-items-center rounded-full bg-surface-3 text-[10px] font-semibold text-fg-2">{initials || "?"}</span>
+        <div className="min-w-0 flex-1 leading-tight">
+          <div className="truncate text-[13px] font-medium text-fg">{user?.name}</div>
+          <div className="truncate text-[11px] text-fg-muted">{user?.email}</div>
+        </div>
+        <button onClick={onLogout} aria-label="Log out" title="Log out" className="grid size-7 shrink-0 place-items-center rounded-md text-fg-muted transition-colors hover:bg-surface-3 hover:text-fg">
+          <LogOut className="size-3.5" />
         </button>
       </div>
     </div>
@@ -83,74 +126,72 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   if (me.isPending || me.isError) {
     return (
-      <div className="grid min-h-dvh place-items-center">
-        <span className="size-6 animate-spin rounded-full border-2 border-indigo border-r-transparent" />
+      <div className="grid min-h-dvh place-items-center" aria-busy aria-label="Loading">
+        <span className="size-4 animate-spin rounded-full border-[1.5px] border-fg-faint border-r-transparent" />
       </div>
     );
   }
 
+  const user = me.data?.user;
+  const current = [...mainNav, ...setupNav].find((i) => isActive(i, path));
+
   return (
-    <div className="min-h-dvh lg:pl-64">
-      <aside className="no-print fixed inset-y-0 left-0 z-30 hidden w-64 lg:block">
-        <Sidebar path={path} onLogout={logout} userName={me.data?.user.name} />
+    <div className="min-h-dvh lg:pl-[232px]">
+      <aside className="no-print fixed inset-y-0 left-0 z-30 hidden w-[232px] lg:block">
+        <Sidebar path={path} onLogout={logout} onSearch={() => setSearch(true)} user={user} />
       </aside>
 
-      {drawer && (
-        <div className="fixed inset-0 z-40 lg:hidden">
-          <div className="absolute inset-0 bg-ink/40" onClick={() => setDrawer(false)} />
-          <div className="absolute inset-y-0 left-0 w-72 animate-[rise_0.2s_ease] shadow-[var(--shadow-pop)]">
-            <button className="absolute top-5 right-3 z-10 rounded-md p-1 text-white/70" onClick={() => setDrawer(false)} aria-label="Close menu">
-              <X className="size-5" />
-            </button>
-            <Sidebar path={path} onNavigate={() => setDrawer(false)} onLogout={logout} userName={me.data?.user.name} />
-          </div>
-        </div>
-      )}
+      {/* Mobile drawer */}
+      <D.Root open={drawer} onOpenChange={setDrawer}>
+        <D.Portal>
+          <D.Overlay className="fixed inset-0 z-40 bg-black/40 data-[state=open]:animate-[overlay-in_150ms_ease-out] lg:hidden" />
+          <D.Content className="fixed inset-y-0 left-0 z-50 w-[272px] max-w-[85vw] shadow-overlay data-[state=open]:animate-[drawer-in_180ms_cubic-bezier(0.2,0.8,0.2,1)] focus:outline-none lg:hidden">
+            <D.Title className="sr-only">Menu</D.Title>
+            <D.Description className="sr-only">Navigation</D.Description>
+            <Sidebar
+              path={path}
+              onNavigate={() => setDrawer(false)}
+              onLogout={logout}
+              onSearch={() => {
+                setDrawer(false);
+                setSearch(true);
+              }}
+              user={user}
+            />
+          </D.Content>
+        </D.Portal>
+      </D.Root>
 
-      <header className="no-print sticky top-0 z-20 border-b border-line bg-paper/85 backdrop-blur-md">
-        <div className="mx-auto flex h-16 max-w-7xl items-center gap-3 px-4 sm:px-6 lg:px-8">
-          <button className="-ml-1 rounded-lg p-2 text-ink lg:hidden" onClick={() => setDrawer(true)} aria-label="Open menu">
-            <Menu className="size-5" />
-          </button>
-          <button
-            onClick={() => setSearch(true)}
-            className="flex h-10 min-w-0 flex-1 items-center gap-2 rounded-lg border border-line-strong bg-card px-3 text-left text-faint transition-colors hover:border-indigo/40 sm:max-w-md"
-          >
-            <Search className="size-4 shrink-0 text-muted" />
-            <span className="flex-1 truncate">Search jobs, clients, invoices…</span>
-            <span className="hidden sm:inline">
-              <Kbd>⌘K</Kbd>
-            </span>
-          </button>
-          <div className="ml-auto flex gap-2">
-            <Button asChild variant="secondary" className="hidden sm:inline-flex">
-              <Link href="/returns/new">
-                <PackageCheck /> Record Return
-              </Link>
-            </Button>
-            <Button asChild>
-              <Link href="/jobs/new">
-                <Plus /> <span className="hidden sm:inline">New Job</span>
-              </Link>
-            </Button>
-          </div>
-        </div>
+      {/* Mobile top bar */}
+      <header className="no-print sticky top-0 z-20 flex h-12 items-center gap-1 border-b border-border bg-bg/90 px-2 backdrop-blur-md lg:hidden">
+        <button className="grid size-10 place-items-center rounded-md text-fg-2 hover:bg-surface-2" onClick={() => setDrawer(true)} aria-label="Open menu">
+          <Menu className="size-[18px]" />
+        </button>
+        <span className="min-w-0 flex-1 truncate text-sm font-semibold">{current?.label ?? "Job Work Ledger"}</span>
+        <button className="grid size-10 place-items-center rounded-md text-fg-2 hover:bg-surface-2" onClick={() => setSearch(true)} aria-label="Search">
+          <Search className="size-[18px]" />
+        </button>
+        <Link href="/jobs/new" aria-label="New job" className="grid size-10 place-items-center rounded-md text-accent hover:bg-surface-2">
+          <Plus className="size-5" />
+        </Link>
       </header>
 
-      <main className="mx-auto max-w-7xl px-4 pt-6 pb-28 sm:px-6 lg:px-8 lg:pb-12">{children}</main>
+      <main className="mx-auto w-full max-w-[1200px] px-4 pt-5 pb-24 sm:px-6 sm:pt-8 lg:px-10 lg:pb-16 min-[1800px]:max-w-[1400px]">{children}</main>
 
       {/* Mobile bottom bar */}
-      <nav className="no-print fixed inset-x-0 bottom-0 z-20 border-t border-line bg-card/95 pb-[env(safe-area-inset-bottom)] backdrop-blur-md lg:hidden">
-        <ul className="grid grid-cols-5">
+      <nav aria-label="Quick" className="no-print fixed inset-x-0 bottom-0 z-20 border-t border-border bg-bg/95 pb-[env(safe-area-inset-bottom)] backdrop-blur-md lg:hidden">
+        <ul className="grid h-14 grid-cols-5">
           {[mainNav[0], mainNav[1], mainNav[2], mainNav[3], mainNav[5]].map((item) => {
             const active = isActive(item, path);
             const isReturn = item.href === "/returns/new";
             return (
               <li key={item.href}>
-                <Link href={item.href} className={cn("flex flex-col items-center gap-0.5 py-2 text-[0.68rem] font-semibold", active ? "text-indigo" : "text-muted")}>
-                  <span className={cn("grid place-items-center rounded-full", isReturn ? "-mt-5 size-11 bg-marigold text-ink shadow-[var(--shadow-pop)]" : "size-6")}>
-                    <item.icon className="size-5" />
-                  </span>
+                <Link
+                  href={item.href}
+                  aria-current={active ? "page" : undefined}
+                  className={cn("flex h-full flex-col items-center justify-center gap-1 text-[11px] font-medium transition-colors", active ? "text-fg" : "text-fg-muted")}
+                >
+                  <item.icon className={cn("size-[18px]", isReturn && !active && "text-accent")} strokeWidth={active ? 2 : 1.75} />
                   {isReturn ? "Return" : item.label}
                 </Link>
               </li>

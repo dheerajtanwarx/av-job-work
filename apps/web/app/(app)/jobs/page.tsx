@@ -41,55 +41,114 @@ function JobsList() {
   const design = designs.data?.find((d) => d.id === filters.designId);
   const product = products.data?.find((p) => p.id === filters.productId);
 
+  const clear = () => {
+    setQ("");
+    router.replace(path);
+  };
+
   return (
     <>
-      <PageHeader title="Jobs" subtitle="Every lot of material sent out for work." actions={<Button asChild><Link href="/jobs/new"><Plus /> New job</Link></Button>} />
-      <div className="mb-4 flex flex-wrap gap-2">
-        <div className="relative min-w-56 flex-1 sm:max-w-xs">
-          <Search className="absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted" />
-          <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Job no., client, design…" className="pl-9" />
+      <PageHeader
+        title="Jobs"
+        subtitle="Every lot of material sent out for work."
+        actions={
+          <Button asChild>
+            <Link href="/jobs/new">
+              <Plus /> New job
+            </Link>
+          </Button>
+        }
+      />
+      <div className="mb-3 flex flex-wrap items-center gap-2">
+        <div className="relative w-full sm:w-64">
+          <Search className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-fg-muted" />
+          <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Job no., client, design…" className="pl-8" aria-label="Search jobs" />
         </div>
-        <Select value={filters.status} onChange={(e) => setFilter({ status: e.target.value })} className="w-48" aria-label="Status">
+        <Select value={filters.status} onChange={(e) => setFilter({ status: e.target.value })} className="w-[calc(50%-4px)] sm:w-44" aria-label="Status">
           <option value="">All statuses</option>
           <option value="open">Open (not completed)</option>
           <option value="active">Active (sent, not complete)</option>
           <option value="overdue">Overdue</option>
           {JOB_STATUSES.map((s) => (
-            <option key={s} value={s}>{JOB_STATUS_LABEL[s]}</option>
+            <option key={s} value={s}>
+              {JOB_STATUS_LABEL[s]}
+            </option>
           ))}
         </Select>
-        <Select value={filters.clientId} onChange={(e) => setFilter({ clientId: e.target.value })} className="w-48" aria-label="Client">
+        <Select value={filters.clientId} onChange={(e) => setFilter({ clientId: e.target.value })} className="w-[calc(50%-4px)] sm:w-44" aria-label="Client">
           <option value="">All clients</option>
-          {clients.data?.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+          {clients.data?.map((c) => (
+            <option key={c.id} value={c.id}>
+              {c.name}
+            </option>
+          ))}
         </Select>
-        <Input type="date" value={filters.from} onChange={(e) => setFilter({ from: e.target.value })} className="w-40" aria-label="From date" title="From" />
-        <Input type="date" value={filters.to} onChange={(e) => setFilter({ to: e.target.value })} className="w-40" aria-label="To date" title="To" />
+        <div className="flex w-full items-center rounded-md border border-border-strong bg-surface shadow-xs sm:w-auto focus-within:border-accent focus-within:ring-[3px] focus-within:ring-accent/15 [&_input]:border-0 [&_input]:shadow-none [&_input]:focus:ring-0">
+          <Input type="date" value={filters.from} onChange={(e) => setFilter({ from: e.target.value })} className="h-[30px] w-full sm:w-[132px]" aria-label="From date" title="From" />
+          <span className="text-xs text-fg-faint" aria-hidden>
+            –
+          </span>
+          <Input type="date" value={filters.to} onChange={(e) => setFilter({ to: e.target.value })} className="h-[30px] w-full sm:w-[132px]" aria-label="To date" title="To" />
+        </div>
         {anyFilter && (
-          <Button variant="ghost" onClick={() => { setQ(""); router.replace(path); }}>
+          <Button variant="ghost" onClick={clear}>
             <X /> Clear
           </Button>
         )}
+        {list.data && list.data.length > 0 && <span className="num ml-auto hidden text-xs text-fg-muted sm:inline">{list.data.length} jobs</span>}
       </div>
       {(design || product) && (
-        <p className="mb-3 text-sm text-muted">
-          Showing jobs with {design ? <b className="text-ink">{design.name}</b> : <b className="text-ink">{product!.name}</b>}
-        </p>
+        <div className="mb-3 flex items-center gap-2 text-[13px] text-fg-muted">
+          Showing jobs with
+          <span className="inline-flex h-6 items-center gap-1 rounded-md border border-border bg-surface pr-1 pl-2 font-medium text-fg">
+            {design ? design.name : product!.name}
+            <button
+              className="grid size-4 place-items-center rounded text-fg-muted hover:bg-surface-2 hover:text-fg"
+              aria-label="Remove filter"
+              onClick={() => setFilter(design ? { designId: "" } : { productId: "" })}
+            >
+              <X className="size-3" />
+            </button>
+          </span>
+        </div>
       )}
-      <Card>
+      <Card className="overflow-hidden">
         {list.isPending ? (
-          <LoadingBlock rows={6} />
+          <LoadingBlock rows={8} />
         ) : list.isError ? (
-          <div className="p-5"><ErrorBlock error={list.error} onRetry={() => list.refetch()} /></div>
+          <div className="p-4">
+            <ErrorBlock error={list.error} onRetry={() => list.refetch()} />
+          </div>
         ) : list.data.length === 0 ? (
           anyFilter ? (
-            <EmptyState icon={Search} title="No jobs match these filters" action={<Button variant="secondary" onClick={() => { setQ(""); router.replace(path); }}>Clear filters</Button>} />
+            <EmptyState
+              icon={Search}
+              title="No matching jobs"
+              action={
+                <Button variant="secondary" onClick={clear}>
+                  Clear filters
+                </Button>
+              }
+            />
           ) : (
-            <EmptyState icon={Briefcase} title="No jobs yet" action={<Button asChild><Link href="/jobs/new"><Plus /> Create your first job</Link></Button>}>
-              A job is one lot of material you send to a client, split into designs with their own quantity and rate.
+            <EmptyState
+              icon={Briefcase}
+              title="No jobs yet"
+              action={
+                <Button asChild>
+                  <Link href="/jobs/new">
+                    <Plus /> New job
+                  </Link>
+                </Button>
+              }
+            >
+              A job is one lot of material sent to a client, split into designs with their own quantity and rate.
             </EmptyState>
           )
         ) : (
-          <JobsTable rows={list.data} />
+          <div className={list.isPlaceholderData ? "opacity-60 transition-opacity" : "transition-opacity"}>
+            <JobsTable rows={list.data} />
+          </div>
         )}
       </Card>
     </>
