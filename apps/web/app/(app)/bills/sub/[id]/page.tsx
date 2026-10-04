@@ -19,13 +19,18 @@ import { api } from "@/lib/api";
 export default function SubBillPage() {
   const { id } = useParams<{ id: string }>();
   const qc = useQueryClient();
-  const q = useQuery({ queryKey: ["sub-bill", id], queryFn: () => api.get<SubBillDetail>(`/sub-bills/${id}`) });
+  const q = useQuery({
+    queryKey: ["sub-bill", id],
+    queryFn: () => api.get<SubBillDetail>(`/sub-bills/${id}`),
+  });
   const [voidOpen, setVoidOpen] = useState(false);
   const voidBill = useMutation({
     mutationFn: (reason: string) => api.post<SubBillDetail>(`/sub-bills/${id}/void`, { reason }),
     onSuccess: (b) => {
       qc.invalidateQueries();
-      toast.success(b.mainBill?.cancelled ? `Sub bill voided. Main bill ${b.mainBill.billNumber} is cancelled until the job is fully paid again.` : "Sub bill voided. Its pieces can be paid for again.");
+      toast.success(
+        b.mainBill?.cancelled ? `Sub bill voided. Main bill ${b.mainBill.billNumber} is cancelled until the job is fully paid again.` : "Sub bill voided. Its pieces can be paid for again.",
+      );
       setVoidOpen(false);
     },
     onError: (e) => toast.error(e.message),
@@ -106,7 +111,14 @@ export default function SubBillPage() {
             { label: "Job", value: b.job.jobNumber },
             { label: "Product", value: b.job.productName },
             { label: "Paid by", value: PAYMENT_METHOD_LABEL[b.method] },
-            ...(b.reference ? [{ label: "Reference", value: <span className="num">{b.reference}</span> }] : []),
+            ...(b.reference
+              ? [
+                  {
+                    label: "Reference",
+                    value: <span className="num">{b.reference}</span>,
+                  },
+                ]
+              : []),
             ...(b.mainBill && !b.mainBill.cancelled ? [{ label: "Main bill", value: b.mainBill.billNumber }] : []),
           ]}
         >

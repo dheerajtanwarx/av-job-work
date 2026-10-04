@@ -75,27 +75,29 @@ export function BillSheet({
         <div className="mt-8 space-y-8">{children}</div>
 
         {/* Signatures */}
-        <footer className="mt-12 grid break-inside-avoid grid-cols-2 items-end gap-10 text-xs text-fg-muted print:mt-16">
-          <div>
-            <div className="border-t border-border-strong pt-1.5">Received by</div>
-            <div className="text-[11px] text-fg-faint">{paidTo.name}</div>
-          </div>
-          <div className="text-right">
-            {stamp && (
-              <div
-                className={cn(
-                  "mb-3 inline-block rotate-[-4deg] rounded border-2 px-3 py-1 text-xs font-bold tracking-[0.18em] uppercase",
-                  stamp.tone === "danger" ? "border-danger/50 text-danger" : "border-success/50 text-success",
-                )}
-              >
-                {stamp.label}
-              </div>
-            )}
-            <div className="border-t border-border-strong pt-1.5">Authorised signatory</div>
-            <div className="text-[11px] text-fg-faint">For {business.businessName}</div>
-          </div>
-        </footer>
-        <p className="mt-6 text-center text-[10px] text-fg-faint">This is a payment record for internal use, not a tax invoice.</p>
+        <div className="break-inside-avoid">
+          <footer className="mt-12 grid grid-cols-2 items-end gap-10 text-xs text-fg-muted print:mt-10">
+            <div>
+              <div className="border-t border-border-strong pt-1.5">Received by</div>
+              <div className="text-[11px] text-fg-faint">{paidTo.name}</div>
+            </div>
+            <div className="text-right">
+              {stamp && (
+                <div
+                  className={cn(
+                    "mb-3 inline-block rotate-[-4deg] rounded border-2 px-3 py-1 text-xs font-bold tracking-[0.18em] uppercase",
+                    stamp.tone === "danger" ? "border-danger/50 text-danger" : "border-success/50 text-success",
+                  )}
+                >
+                  {stamp.label}
+                </div>
+              )}
+              <div className="border-t border-border-strong pt-1.5">Authorised signatory</div>
+              <div className="text-[11px] text-fg-faint">For {business.businessName}</div>
+            </div>
+          </footer>
+          <p className="mt-6 text-center text-[10px] text-fg-faint">This is a payment record for internal use, not a tax invoice.</p>
+        </div>
       </div>
     </article>
   );

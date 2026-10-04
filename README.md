@@ -1,8 +1,8 @@
 # Job Work Ledger
 
-Job-work management and billing for a business that sends products to job workers (embroidery, printing, stitching, finishing…).
+Job-work management for a business that sends products to job workers (embroidery, printing, stitching, finishing…) and keeps a record of what it pays them. Money flows **from you to the job worker**. The app keeps your own payment records. It does not issue invoices.
 
-**Client → Job → Product → Designs (each with its own qty & rate) → Material sent → Partial returns → Billing → Payments**
+**Client (job worker) → Job → Product → Designs (each with its own qty & rate) → Material sent → Partial returns → Sub bills (payments) → Main bill**
 
 ## Stack
 
@@ -48,10 +48,10 @@ Per design line:
 
 - **Sent** = non-voided dispatches (initial + rework)
 - **Received** = good pieces returned
-- **Damaged / Rejected / Lost** = tracked separately, never billed
+- **Damaged / Rejected / Lost** = tracked separately, never paid for
 - **Pending** = Sent − Received − (Damaged + Rejected + Lost)
 - **Completed value** = Received × Rate, **Pending value** = Pending × Rate
-- **Unbilled** = Received − already billed (on non-cancelled invoices)
+- **To pay** = Received − already paid (on non-voided sub bills)
 
 **Job status** is derived automatically:
 - Draft: nothing has been sent yet
@@ -64,15 +64,16 @@ Per design line:
 
 - Each job line copies the design's rate when the job is created. Changing a design's default rate never touches existing jobs.
 - A return larger than the pending quantity is refused unless a reason is given. Overrides are logged in the job history.
-- Invoices can only bill completed, not-yet-billed pieces, so nothing can be billed twice.
-- A payment can't exceed what is outstanding on the invoice. Partial payments are kept as separate records.
+- A **sub bill** (`SB-001`) records one payment to a job worker for returned, not-yet-paid pieces of **one job**, so nothing can be paid twice.
+- A **main bill** (`MB-001`) is issued automatically once a job is completed and every returned piece is paid. It lists the product, the design-wise breakdown and every sub bill. If a sub bill or return is voided later, the main bill is cancelled. It is re-issued under the same number once the job is fully paid again.
+- Both bills print as A4 payment vouchers (Print / Save PDF). There is no tax, GSTIN or due date.
 - Nothing is deleted:
-  - Dispatches, returns and payments are **voided** with a reason.
-  - Jobs and invoices are **cancelled** with a reason.
+  - Dispatches, returns and sub bills are **voided** with a reason.
+  - Jobs are **cancelled** with a reason. Main bills are cancelled automatically, as described above.
   - All of these stay visible in history.
-- The billing policy is set in **Settings** and controls what the app suggests after a return:
-  - Bill after each return
-  - Bill when the job completes
+- The payment policy is set in **Settings** and controls what the app suggests after a return:
+  - Pay after each return
+  - Pay when the job completes
   - Manual
 - Every create, void, cancel, and quantity or rate change is written to `AuditLog`.
 
@@ -86,7 +87,7 @@ apps/api/test   acceptance + edge-case integration tests
 apps/web/app/(app)
   page.tsx                dashboard
   jobs/, returns/new/     job creation, job detail + history, return entry
-  invoices/, payments/    billing
+  bills/                  sub bills (new, sub/[id]) and main bills (main/[id])
   clients/, products/, designs/, reports/, settings/
 apps/web/e2e    Playwright acceptance scenario
 packages/db/prisma        schema.prisma, migrations, seed.ts

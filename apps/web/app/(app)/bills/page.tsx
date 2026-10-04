@@ -38,8 +38,16 @@ function BillList() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [q]);
 
-  const subBills = useQuery({ queryKey: ["sub-bills", filters], queryFn: () => api.get<SubBillRow[]>(`/sub-bills${qs(filters)}`), placeholderData: (p) => p });
-  const mainBills = useQuery({ queryKey: ["main-bills", filters], queryFn: () => api.get<MainBillRow[]>(`/main-bills${qs(filters)}`), placeholderData: (p) => p });
+  const subBills = useQuery({
+    queryKey: ["sub-bills", filters],
+    queryFn: () => api.get<SubBillRow[]>(`/sub-bills${qs(filters)}`),
+    placeholderData: (p) => p,
+  });
+  const mainBills = useQuery({
+    queryKey: ["main-bills", filters],
+    queryFn: () => api.get<MainBillRow[]>(`/main-bills${qs(filters)}`),
+    placeholderData: (p) => p,
+  });
   const money = useQuery({
     queryKey: ["money", filters.clientId],
     queryFn: () => (filters.clientId ? api.get<MoneySummary>(`/clients/${filters.clientId}/money`) : api.get<{ money: MoneySummary }>("/dashboard").then((d) => d.money)),

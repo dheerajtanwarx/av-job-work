@@ -61,16 +61,33 @@ function NewSubBill() {
     setQty(Object.fromEntries(lines.map((u) => [u.jobItemId, String(u.unbilledQty)])));
   }, [lines]);
 
-  const chosen = lines.map((u) => ({ ...u, qty: clampQty(qty[u.jobItemId] ?? "", u.unbilledQty) })).filter((u) => u.qty > 0);
+  const chosen = lines
+    .map((u) => ({
+      ...u,
+      qty: clampQty(qty[u.jobItemId] ?? "", u.unbilledQty),
+    }))
+    .filter((u) => u.qty > 0);
   const pieces = chosen.reduce((s, c) => s + c.qty, 0);
   const totalPaise = chosen.reduce((s, c) => s + c.qty * c.ratePaise, 0);
   const allSelected = lines.length > 0 && lines.every((u) => clampQty(qty[u.jobItemId] ?? "", u.unbilledQty) === u.unbilledQty);
 
   const create = useMutation({
-    mutationFn: () => api.post<SubBillDetail>("/sub-bills", { jobId, date, method, reference, notes, lines: chosen.map((c) => ({ jobItemId: c.jobItemId, qty: c.qty })) }),
+    mutationFn: () =>
+      api.post<SubBillDetail>("/sub-bills", {
+        jobId,
+        date,
+        method,
+        reference,
+        notes,
+        lines: chosen.map((c) => ({ jobItemId: c.jobItemId, qty: c.qty })),
+      }),
     onSuccess: (b) => {
       qc.invalidateQueries();
-      toast.success(b.mainBill && !b.mainBill.cancelled ? `${b.billNumber} saved. ${b.job.jobNumber} is fully paid, main bill ${b.mainBill.billNumber} issued.` : `${b.billNumber} saved: ${formatINR(b.amountPaise)} paid to ${b.client.name}`);
+      toast.success(
+        b.mainBill && !b.mainBill.cancelled
+          ? `${b.billNumber} saved. ${b.job.jobNumber} is fully paid, main bill ${b.mainBill.billNumber} issued.`
+          : `${b.billNumber} saved: ${formatINR(b.amountPaise)} paid to ${b.client.name}`,
+      );
       router.push(`/bills/sub/${b.id}`);
     },
     onError: (e) => toast.error(e.message),
@@ -83,12 +100,29 @@ function NewSubBill() {
 
   return (
     <>
-      <PageHeader eyebrow={<Link href="/bills" className="hover:text-fg">Bills</Link>} title="New sub bill" subtitle="Record what you paid a job worker for pieces that came back from one job." />
+      <PageHeader
+        eyebrow={
+          <Link href="/bills" className="hover:text-fg">
+            Bills
+          </Link>
+        }
+        title="New sub bill"
+        subtitle="Record what you paid a job worker for pieces that came back from one job."
+      />
       <div className="grid gap-x-10 gap-y-8 lg:grid-cols-[minmax(0,1fr)_18rem]">
         <div className="min-w-0 space-y-8">
           <div className="grid gap-4 sm:grid-cols-2">
             <Field label="Job worker">
-              <Combobox options={(clients.data ?? []).map((c) => ({ value: c.id, label: c.name, sub: c.businessName }))} value={clientId} onChange={pickClient} placeholder="Choose job worker" />
+              <Combobox
+                options={(clients.data ?? []).map((c) => ({
+                  value: c.id,
+                  label: c.name,
+                  sub: c.businessName,
+                }))}
+                value={clientId}
+                onChange={pickClient}
+                placeholder="Choose job worker"
+              />
             </Field>
             <Field label="Job" hint={clientId && jobs.length > 1 ? `${jobs.length} jobs have pieces to pay for` : undefined}>
               <Combobox
@@ -182,7 +216,12 @@ function NewSubBill() {
                                 min={0}
                                 max={u.unbilledQty}
                                 value={qty[u.jobItemId] ?? ""}
-                                onChange={(e) => setQty({ ...qty, [u.jobItemId]: e.target.value })}
+                                onChange={(e) =>
+                                  setQty({
+                                    ...qty,
+                                    [u.jobItemId]: e.target.value,
+                                  })
+                                }
                                 className="num ml-auto w-20 text-right"
                                 aria-label={`${u.designName} pieces to pay for`}
                               />

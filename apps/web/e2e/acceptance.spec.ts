@@ -31,7 +31,10 @@ const row = (page: Page, design: string) => page.locator("tbody tr", { hasText: 
 
 /** From the job page: pay for everything that came back, then return to the job. */
 async function payAll(page: Page, amount: string) {
-  await page.getByRole("link", { name: `Pay ${amount}` }).first().click();
+  await page
+    .getByRole("link", { name: `Pay ${amount}` })
+    .first()
+    .click();
   await expect(page.getByRole("heading", { name: "New sub bill" })).toBeVisible();
   await expect(page.getByText(amount).last()).toBeVisible();
   await page.getByRole("radio", { name: "UPI" }).click();
@@ -50,14 +53,20 @@ test("acceptance: 100 plain blouses, 3 designs, 3 partial returns, a sub bill af
   await page.getByLabel("Password").fill(PASSWORD);
   await page.getByRole("button", { name: "Log in" }).click();
   await expect(page.getByText(/Good (morning|afternoon|evening)/)).toBeVisible();
-  await page.request.post("/api/clients", { data: { name: client, phone: "9800000000" } });
+  await page.request.post("/api/clients", {
+    data: { name: client, phone: "9800000000" },
+  });
   await shot(page, "01-dashboard");
 
   // ── Create job ──
   await page.goto("/jobs/new");
   await pick(page, /^Client/, client);
   await pick(page, /^Product/, "Plain Blouse");
-  const lines: [string, number][] = [["Floral Design", 20], ["Royal Design", 50], ["Simple Design", 30]];
+  const lines: [string, number][] = [
+    ["Floral Design", 20],
+    ["Royal Design", 50],
+    ["Simple Design", 30],
+  ];
   for (let i = 0; i < lines.length; i++) {
     if (i > 0) await page.getByRole("button", { name: "Add another design" }).click();
     await pick(page, "Choose design", lines[i][0]);
@@ -73,7 +82,11 @@ test("acceptance: 100 plain blouses, 3 designs, 3 partial returns, a sub bill af
   await expect(page.locator("tfoot")).toContainText("₹2,100");
 
   // ── First return ──
-  await recordReturn(page, { "Floral Design": 15, "Royal Design": 30, "Simple Design": 20 });
+  await recordReturn(page, {
+    "Floral Design": 15,
+    "Royal Design": 30,
+    "Simple Design": 20,
+  });
   await expect(page.getByText("Partially Received").first()).toBeVisible();
   await expect(row(page, "Floral Design")).toContainText("5");
   await expect(row(page, "Royal Design")).toContainText("20");
@@ -92,7 +105,11 @@ test("acceptance: 100 plain blouses, 3 designs, 3 partial returns, a sub bill af
   await backToJob(page);
 
   // ── Second return ──
-  await recordReturn(page, { "Floral Design": 5, "Royal Design": 15, "Simple Design": 10 });
+  await recordReturn(page, {
+    "Floral Design": 5,
+    "Royal Design": 15,
+    "Simple Design": 10,
+  });
   await expect(page.locator("tfoot")).toContainText("95");
   await expect(row(page, "Royal Design")).toContainText("5");
   await expect(row(page, "Floral Design")).toContainText("0 ✓");

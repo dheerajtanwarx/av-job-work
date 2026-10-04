@@ -17,7 +17,10 @@ const qtyOrDash = (n: number) => (n ? formatQty(n) : dash);
 
 export default function MainBillPage() {
   const { id } = useParams<{ id: string }>();
-  const q = useQuery({ queryKey: ["main-bill", id], queryFn: () => api.get<MainBillDetail>(`/main-bills/${id}`) });
+  const q = useQuery({
+    queryKey: ["main-bill", id],
+    queryFn: () => api.get<MainBillDetail>(`/main-bills/${id}`),
+  });
 
   if (q.isPending)
     return (
@@ -80,9 +83,19 @@ export default function MainBillPage() {
           details={[
             { label: "Job", value: m.job.jobNumber },
             { label: "Job date", value: formatDate(m.job.jobDate) },
-            ...(m.job.expectedReturnDate ? [{ label: "Expected back", value: formatDate(m.job.expectedReturnDate) }] : []),
+            ...(m.job.expectedReturnDate
+              ? [
+                  {
+                    label: "Expected back",
+                    value: formatDate(m.job.expectedReturnDate),
+                  },
+                ]
+              : []),
             { label: "Completed", value: formatDate(m.job.completedAt) },
-            { label: "Payments", value: `${m.subBills.length} sub bill${m.subBills.length === 1 ? "" : "s"}` },
+            {
+              label: "Payments",
+              value: `${m.subBills.length} sub bill${m.subBills.length === 1 ? "" : "s"}`,
+            },
           ]}
         >
           <SheetSection title="Product">
