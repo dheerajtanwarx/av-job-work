@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { computeInvoiceTotals, deriveJobStatus, exceedsPending, paymentStatus, summarizeItem, sumTotals, type ItemTotalsInput } from "./calc";
-import { formatINR } from "./format";
+import { deriveJobStatus, exceedsPending, isFullyPaid, summarizeItem, sumTotals, type ItemTotalsInput } from "./calc";
+import { amountInWords, formatINR } from "./format";
 
 const base = (o: Partial<ItemTotalsInput>): ItemTotalsInput => ({
   quantity: 0, ratePaise: 0, initialSent: 0, reworkSent: 0, ok: 0, damaged: 0, rejected: 0, lost: 0, billedQty: 0, ...o,
@@ -55,7 +55,7 @@ describe("acceptance scenario", () => {
 });
 
 describe("summarizeItem", () => {
-  it("keeps damaged/rejected/lost separate from received and out of billing", () => {
+  it("keeps damaged/rejected/lost separate from received and out of payment", () => {
     const s = summarizeItem(base({ quantity: 50, ratePaise: 2500, initialSent: 50, ok: 40, damaged: 3, rejected: 2, lost: 1 }));
     expect(s.exceptions).toBe(6);
     expect(s.pending).toBe(4);
@@ -89,7 +89,7 @@ describe("summarizeItem", () => {
     expect(s.excess).toBe(2);
   });
 
-  it("billed qty reduces unbilled", () => {
+  it("paid qty reduces what is left to pay", () => {
     const s = summarizeItem(base({ quantity: 50, ratePaise: 2500, initialSent: 50, ok: 30, billedQty: 20 }));
     expect(s.unbilledQty).toBe(10);
     expect(s.unbilledValuePaise).toBe(25000);
@@ -112,19 +112,27 @@ describe("exceedsPending", () => {
   });
 });
 
-describe("invoice + payments", () => {
-  it("totals with tax and payment status", () => {
-    const t = computeInvoiceTotals([{ qty: 20, ratePaise: 2000 }, { qty: 50, ratePaise: 2500 }, { qty: 30, ratePaise: 1500 }], 0);
-    expect(t.totalPaise).toBe(210000);
-    expect(computeInvoiceTotals([{ qty: 1, ratePaise: 1000 }], 5).totalPaise).toBe(1050);
-    expect(paymentStatus(210000, 0)).toBe("UNPAID");
-    expect(paymentStatus(210000, 150000)).toBe("PARTIAL");
-    expect(paymentStatus(210000, 210000)).toBe("PAID");
+describe("sub bills + main bill", () => {
+  it("a job is fully paid only when complete and every OK piece is paid", () => {
+    const paidAll = sumTotals(scenario([20, 50, 30]).items.map((i) => summarizeItem(base({ ...i, billedQty: i.ok }))));
+    expect(isFullyPaid("COMPLETED", paidAll)).toBe(true);
+    expect(isFullyPaid("PARTIALLY_RECEIVED", paidAll)).toBe(false);
+    expect(isFullyPaid("COMPLETED", { billedQty: 95, unbilledQty: 5 })).toBe(false);
+    // Nothing returned OK means nothing to settle.
+    expect(isFullyPaid("COMPLETED", { billedQty: 0, unbilledQty: 0 })).toBe(false);
   });
 
   it("formats rupees", () => {
     expect(formatINR(210000)).toBe("₹2,100");
     expect(formatINR(12345600)).toBe("₹1,23,456");
     expect(formatINR(1250)).toBe("₹12.50");
+  });
+
+  it("writes amounts in Indian words", () => {
+    expect(amountInWords(210000)).toBe("Rupees Two Thousand One Hundred Only");
+    expect(amountInWords(12345600)).toBe("Rupees One Lakh Twenty Three Thousand Four Hundred Fifty Six Only");
+    expect(amountInWords(1250)).toBe("Rupees Twelve and Fifty Paise Only");
+    expect(amountInWords(25_00_00_000_00)).toBe("Rupees Twenty Five Crore Only");
+    expect(amountInWords(0)).toBe("Rupees Zero Only");
   });
 });

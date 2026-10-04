@@ -51,10 +51,7 @@ model Settings {
   address          String?
   phone            String?
   email            String?
-  gstin            String?
   billingPolicy    BillingPolicy @default(MANUAL)
-  defaultTaxPercent Decimal      @default(0) @db.Decimal(5, 2)
-  invoiceFooter    String?
   updatedAt        DateTime      @updatedAt
 }
 
@@ -76,8 +73,8 @@ model Client {
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
   jobs         Job[]
-  invoices     Invoice[]
-  payments     Payment[]
+  subBills     SubBill[]
+  mainBills    MainBill[]
 
   @@index([name])
 }
@@ -125,6 +122,8 @@ model Job {
   items              JobItem[]
   dispatches         Dispatch[]
   returns            Return[]
+  subBills           SubBill[]
+  mainBill           MainBill?
 
   @@index([clientId])
   @@index([status])
@@ -143,7 +142,7 @@ model JobItem {
   sortOrder     Int            @default(0)
   dispatchLines DispatchLine[]
   returnLines   ReturnLine[]
-  invoiceLines  InvoiceLine[]
+  subBillLines  SubBillLine[]
 
   @@index([jobId])
   @@index([designId])
@@ -201,48 +200,14 @@ model ReturnLine {
   exceptionReason String?
 }
 
-model Invoice {
-  id            String        @id @default(cuid())
-  invoiceNumber String        @unique
-  clientId      String
-  client        Client        @relation(fields: [clientId], references: [id])
-  date          DateTime      @db.Date
-  dueDate       DateTime?     @db.Date
-  subtotalPaise Int
-  taxPercent    Decimal       @default(0) @db.Decimal(5, 2)
-  taxPaise      Int           @default(0)
-  totalPaise    Int
-  notes         String?
-  cancelledAt   DateTime?
-  cancelReason  String?
-  createdAt     DateTime      @default(now())
-  lines         InvoiceLine[]
-  payments      Payment[]
-
-  @@index([clientId])
-  @@index([date])
-}
-
-model InvoiceLine {
-  id          String  @id @default(cuid())
-  invoiceId   String
-  invoice     Invoice @relation(fields: [invoiceId], references: [id])
-  jobItemId   String
-  jobItem     JobItem @relation(fields: [jobItemId], references: [id])
-  jobNumber   String
-  designName  String
-  productName String
-  qty         Int
-  ratePaise   Int
-  amountPaise Int
-}
-
-model Payment {
+// A sub bill is a payment made to the job worker for returned (OK) pieces of one job.
+model SubBill {
   id          String        @id @default(cuid())
+  billNumber  String        @unique
   clientId    String
   client      Client        @relation(fields: [clientId], references: [id])
-  invoiceId   String
-  invoice     Invoice       @relation(fields: [invoiceId], references: [id])
+  jobId       String
+  job         Job           @relation(fields: [jobId], references: [id])
   date        DateTime      @db.Date
   amountPaise Int
   method      PaymentMethod @default(CASH)
@@ -251,9 +216,47 @@ model Payment {
   voidedAt    DateTime?
   voidReason  String?
   createdAt   DateTime      @default(now())
+  lines       SubBillLine[]
 
-  @@index([invoiceId])
   @@index([clientId])
+  @@index([jobId])
+  @@index([date])
+}
+
+model SubBillLine {
+  id          String  @id @default(cuid())
+  subBillId   String
+  subBill     SubBill @relation(fields: [subBillId], references: [id])
+  jobItemId   String
+  jobItem     JobItem @relation(fields: [jobItemId], references: [id])
+  designName  String // snapshot
+  qty         Int
+  ratePaise   Int
+  amountPaise Int
+
+  @@index([subBillId])
+  @@index([jobItemId])
+}
+
+// The main bill settles a job: created automatically once the job is completed and every OK piece is paid.
+// Its content is built live from the job and its sub bills; the row holds the number, date and status.
+model MainBill {
+  id           String    @id @default(cuid())
+  billNumber   String    @unique
+  jobId        String    @unique
+  job          Job       @relation(fields: [jobId], references: [id])
+  clientId     String
+  client       Client    @relation(fields: [clientId], references: [id])
+  date         DateTime  @db.Date
+  qty          Int
+  totalPaise   Int
+  cancelledAt  DateTime?
+  cancelReason String?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  @@index([clientId])
+  @@index([date])
 }
 
 model AuditLog {

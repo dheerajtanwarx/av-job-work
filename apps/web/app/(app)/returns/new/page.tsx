@@ -2,7 +2,7 @@
 
 import { exceedsPending, formatDate, formatINR, formatQty, todayISO, type JobDetail, type JobListRow, type ReturnResult } from "@av/shared";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, CheckCircle2, ChevronDown, PackageCheck, ReceiptText } from "lucide-react";
+import { AlertTriangle, CheckCircle2, ChevronDown, PackageCheck, Wallet } from "lucide-react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useMemo, useState } from "react";
@@ -129,8 +129,8 @@ function RecordReturn() {
             {result.job.totals.unbilledQty > 0 &&
               (result.billingPolicy === "AFTER_EACH_RETURN" || (result.billingPolicy === "ON_COMPLETION" && result.justCompleted) || result.billingPolicy === "MANUAL") && (
                 <Button asChild variant={result.billingPolicy === "MANUAL" ? "secondary" : "primary"}>
-                  <Link href={`/invoices/new?clientId=${result.job.client.id}&jobId=${result.job.id}`}>
-                    <ReceiptText /> Bill {formatINR(result.job.totals.unbilledValuePaise)} now
+                  <Link href={`/bills/new?jobId=${result.job.id}`}>
+                    <Wallet /> Pay {formatINR(result.job.totals.unbilledValuePaise)} now
                   </Link>
                 </Button>
               )}
@@ -173,7 +173,7 @@ function RecordReturn() {
                       <button onClick={() => router.replace(`/returns/new?job=${j.id}`, { scroll: false })} className="flex min-h-12 w-full items-center gap-4 px-4 py-2 text-left transition-colors duration-100 hover:bg-surface-2">
                         <div className="min-w-0 flex-1">
                           <div className="truncate text-[13px]">
-                            <span className="num font-medium">{j.jobNumber}</span>
+                            <span className="font-medium">{j.jobNumber}</span>
                             <span className="text-fg-muted"> · {j.client.name}</span>
                           </div>
                           <div className="num truncate text-xs text-fg-muted">
@@ -212,7 +212,7 @@ function RecordReturn() {
               <div className="min-w-0">
                 <div className="flex flex-wrap items-center gap-x-3">
                   <h2 className="text-[13px] font-semibold">
-                    <span className="num">{job.data.jobNumber}</span> · {job.data.client.name}
+                    {job.data.jobNumber} · {job.data.client.name}
                   </h2>
                   <JobStatusBadge status={job.data.status} />
                 </div>
@@ -303,7 +303,7 @@ function RecordReturn() {
                               <Input type="number" inputMode="numeric" min={0} value={l[k]} onChange={(e) => set(it.id, { [k]: e.target.value })} className="num text-right" placeholder="0" />
                             </Field>
                           ))}
-                          <p className="col-span-3 text-xs text-fg-muted">Kept separate from good pieces and not billed.</p>
+                          <p className="col-span-3 text-xs text-fg-muted">Kept separate from good pieces and not paid for.</p>
                         </div>
                       )}
                       {over && (

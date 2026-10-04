@@ -1,4 +1,4 @@
-import { BarChart3, Briefcase, LayoutDashboard, Package, PackageCheck, Palette, ReceiptText, Settings, Users, Wallet, type LucideIcon } from "lucide-react";
+import { BarChart3, Briefcase, LayoutDashboard, Package, PackageCheck, Palette, ReceiptText, Settings, Users, type LucideIcon } from "lucide-react";
 
 export interface NavItem {
   href: string;
@@ -11,8 +11,7 @@ export const mainNav: NavItem[] = [
   { href: "/", label: "Dashboard", icon: LayoutDashboard, match: (p) => p === "/" },
   { href: "/jobs", label: "Jobs", icon: Briefcase },
   { href: "/returns/new", label: "Record return", icon: PackageCheck, match: (p) => p.startsWith("/returns") },
-  { href: "/invoices", label: "Invoices", icon: ReceiptText },
-  { href: "/payments", label: "Payments", icon: Wallet },
+  { href: "/bills", label: "Bills", icon: ReceiptText },
   { href: "/clients", label: "Clients", icon: Users },
   { href: "/reports", label: "Reports", icon: BarChart3 },
 ];

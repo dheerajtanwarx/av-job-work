@@ -13,9 +13,9 @@ import { useSettings } from "@/lib/queries";
 import { cn } from "@/lib/utils";
 
 const policyHelp: Record<BillingPolicy, string> = {
-  AFTER_EACH_RETURN: "After every return we offer to bill the pieces that just came back.",
-  ON_COMPLETION: "We offer to bill once all pieces of a job are back.",
-  MANUAL: "We keep a running “ready to bill” amount. You create invoices whenever you like.",
+  AFTER_EACH_RETURN: "After every return we offer to pay for the pieces that just came back.",
+  ON_COMPLETION: "We offer to pay once all pieces of a job are back.",
+  MANUAL: "We keep a running “to pay” amount. You record sub bills whenever you pay.",
 };
 
 export default function SettingsPage() {
@@ -61,7 +61,7 @@ export default function SettingsPage() {
         }
       />
       <div className="divide-y divide-border border-t border-border">
-        <SettingsGroup title="Billing" description="How you usually raise invoices. You can always bill manually too.">
+        <SettingsGroup title="Paying job workers" description="When you usually pay for returned work. You can always record a sub bill manually too.">
           <div role="radiogroup" aria-label="Billing policy" className="overflow-hidden rounded-lg border border-border bg-surface">
             {BILLING_POLICIES.map((p, i) => (
               <label
@@ -77,7 +77,7 @@ export default function SettingsPage() {
             ))}
           </div>
         </SettingsGroup>
-        <SettingsGroup title="Invoice details" description="Printed at the top of every invoice.">
+        <SettingsGroup title="Business details" description="Printed at the top of every sub bill and main bill.">
           <div className="grid gap-4 sm:grid-cols-2">
             <Field label="Business name" required className="sm:col-span-2">
               <Input value={form.businessName} onChange={set("businessName")} />
@@ -90,15 +90,6 @@ export default function SettingsPage() {
             </Field>
             <Field label="Email">
               <Input value={form.email ?? ""} onChange={set("email")} />
-            </Field>
-            <Field label="GSTIN">
-              <Input value={form.gstin ?? ""} onChange={set("gstin")} className="num uppercase" />
-            </Field>
-            <Field label="Default tax %" hint="Pre-filled on new invoices. 0 for none.">
-              <Input type="number" min={0} max={100} step="0.01" value={form.defaultTaxPercent} onChange={set("defaultTaxPercent")} className="num" />
-            </Field>
-            <Field label="Invoice footer" className="sm:col-span-2" hint="Bank details or a thank-you note">
-              <Textarea rows={2} value={form.invoiceFooter ?? ""} onChange={set("invoiceFooter")} />
             </Field>
           </div>
         </SettingsGroup>

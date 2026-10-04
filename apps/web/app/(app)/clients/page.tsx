@@ -77,7 +77,7 @@ export default function ClientsPage() {
                   <th>Phone</th>
                   <th className="r">Active jobs</th>
                   <th className="r">Pieces outside</th>
-                  <th className="r">Outstanding</th>
+                  <th className="r">To pay</th>
                 </tr>
               </thead>
               <tbody>
@@ -95,7 +95,7 @@ export default function ClientsPage() {
                     <td className="num text-fg-muted">{c.phone ?? "—"}</td>
                     <td className="r">{c.activeJobs || <span className="text-fg-faint">0</span>}</td>
                     <td className="r">{c.pendingPieces > 0 ? <span className="font-medium text-warning">{formatQty(c.pendingPieces)}</span> : <span className="text-fg-faint">0</span>}</td>
-                    <td className="r">{c.outstandingPaise > 0 ? <span className="font-medium text-danger">{formatINR(c.outstandingPaise)}</span> : <span className="text-fg-faint">—</span>}</td>
+                    <td className="r">{c.toPayPaise > 0 ? <span className="font-medium text-danger">{formatINR(c.toPayPaise)}</span> : <span className="text-fg-faint">—</span>}</td>
                   </tr>
                 ))}
               </tbody>

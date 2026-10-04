@@ -1,6 +1,6 @@
 import type { DB } from "@av/db";
 
-/** Atomic sequential document numbers: JOB-001, INV-001, RET-001 … */
+/** Atomic sequential document numbers: JOB-001, SB-001, MB-001, RET-001 … */
 export async function nextNumber(db: DB, name: string, prefix: string) {
   const row = await db.counter.upsert({
     where: { name },

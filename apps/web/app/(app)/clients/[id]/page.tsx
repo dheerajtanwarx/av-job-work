@@ -2,11 +2,12 @@
 
 import { formatDate, formatINR, formatQty, type ClientSummary } from "@av/shared";
 import { useQuery } from "@tanstack/react-query";
-import { Briefcase, Pencil, Plus, ReceiptText, StickyNote } from "lucide-react";
+import { Briefcase, Pencil, Plus, ReceiptText, StickyNote, Wallet } from "lucide-react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useState } from "react";
-import { InvoicesTable } from "@/components/billing/invoices-table";
+import { MainBillsTable } from "@/components/billing/main-bills-table";
+import { SubBillsTable } from "@/components/billing/sub-bills-table";
 import { ClientDialog } from "@/components/forms/master-dialogs";
 import { JobsTable } from "@/components/jobs/jobs-table";
 import { Badge } from "@/components/ui/badge";
@@ -17,7 +18,7 @@ import { Tabs } from "@/components/ui/tabs";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
-const tabs = ["Jobs", "Invoices", "History"] as const;
+const tabs = ["Jobs", "Sub bills", "Main bills", "History"] as const;
 
 export default function ClientPage() {
   const { id } = useParams<{ id: string }>();
@@ -74,10 +75,10 @@ export default function ClientPage() {
           <Button variant="ghost" onClick={() => setEdit(true)}>
             <Pencil /> Edit
           </Button>
-          {t.unbilledPaise > 0 && (
+          {t.toPayPaise > 0 && (
             <Button asChild variant="secondary">
-              <Link href={`/invoices/new?clientId=${c.id}`}>
-                <ReceiptText /> Bill {formatINR(t.unbilledPaise)}
+              <Link href={`/bills/new?clientId=${c.id}`}>
+                <Wallet /> Pay {formatINR(t.toPayPaise)}
               </Link>
             </Button>
           )}
@@ -89,13 +90,12 @@ export default function ClientPage() {
         </div>
       </div>
 
-      <MetricStrip className="grid-cols-2 sm:grid-cols-3 lg:grid-cols-6">
+      <MetricStrip className="grid-cols-2 sm:grid-cols-3 lg:grid-cols-5">
         <Metric label="Active jobs" value={formatQty(t.activeJobs)} sub={`${t.completedJobs} completed`} />
         <Metric label="Pieces sent" value={formatQty(t.sent)} sub={`${formatQty(t.received)} back${t.exceptions ? `, ${t.exceptions} issues` : ""}`} />
         <Metric label="Pending" value={formatQty(t.pending)} tone={t.pending ? "warning" : "fg"} sub="With this client" />
-        <Metric label="Billed" value={formatINR(t.billedPaise)} sub={t.unbilledPaise ? `${formatINR(t.unbilledPaise)} unbilled` : undefined} />
-        <Metric label="Paid" value={formatINR(t.paidPaise)} />
-        <Metric label="Outstanding" value={formatINR(t.outstandingPaise)} tone={t.outstandingPaise ? "danger" : "fg"} />
+        <Metric label="Paid" value={formatINR(t.paidPaise)} sub={`of ${formatINR(t.completedValuePaise)} work done`} />
+        <Metric label="To pay" value={formatINR(t.toPayPaise)} tone={t.toPayPaise ? "danger" : "fg"} sub="Returned, not yet paid" />
       </MetricStrip>
       {c.notes && (
         <Notice icon={StickyNote}>
@@ -108,18 +108,19 @@ export default function ClientPage() {
           className="mb-3"
           value={tab}
           onChange={setTab}
-          items={tabs.map((x) => ({ value: x, label: x, count: x === "Jobs" ? q.data.jobs.length : x === "Invoices" ? q.data.invoices.length : undefined }))}
+          items={tabs.map((x) => ({ value: x, label: x, count: x === "Jobs" ? q.data.jobs.length : x === "Sub bills" ? q.data.subBills.length : x === "Main bills" ? q.data.mainBills.length : undefined }))}
         />
         <Card className="overflow-hidden">
           {tab === "Jobs" && (q.data.jobs.length ? <JobsTable rows={q.data.jobs} hideClient /> : <EmptyState icon={Briefcase} title="No jobs yet" />)}
-          {tab === "Invoices" && (q.data.invoices.length ? <InvoicesTable rows={q.data.invoices} hideClient /> : <EmptyState icon={ReceiptText} title="No invoices yet" />)}
+          {tab === "Sub bills" && (q.data.subBills.length ? <SubBillsTable rows={q.data.subBills} hideClient /> : <EmptyState icon={ReceiptText} title="No sub bills yet" />)}
+          {tab === "Main bills" && (q.data.mainBills.length ? <MainBillsTable rows={q.data.mainBills} hideClient /> : <EmptyState icon={ReceiptText} title="No main bills yet">Issued when a job is complete and fully paid.</EmptyState>)}
           {tab === "History" && (
             <ul className="divide-y divide-border">
               {q.data.timeline.map((e, i) => (
                 <li key={i}>
                   <Link href={e.href} className="flex min-h-10 items-center gap-3 px-4 py-2 text-[13px] transition-colors duration-100 hover:bg-surface-2">
                     <span className="num w-14 shrink-0 text-xs text-fg-muted">{formatDate(e.date).slice(0, 6)}</span>
-                    <span className={cn("size-1.5 shrink-0 rounded-full", { job: "bg-accent", return: "bg-success", invoice: "bg-fg-muted", payment: "bg-success", completed: "bg-success", cancelled: "bg-danger", void: "bg-fg-faint" }[e.type] ?? "bg-fg-faint")} />
+                    <span className={cn("size-1.5 shrink-0 rounded-full", { job: "bg-accent", return: "bg-success", payment: "bg-success", main_bill: "bg-success", completed: "bg-success", cancelled: "bg-danger", void: "bg-fg-faint" }[e.type] ?? "bg-fg-faint")} />
                     <span className={cn("min-w-0 flex-1 text-fg-2", e.type === "void" && "text-fg-muted line-through")}>{e.text}</span>
                     {e.amountPaise !== undefined && <span className="num font-medium">{formatINR(e.amountPaise)}</span>}
                   </Link>

@@ -1,4 +1,4 @@
-import type { JobStatus, PaymentStatus } from "./enums";
+import type { JobStatus } from "./enums";
 
 /**
  * The single source of truth for every quantity and money figure in the app.
@@ -14,7 +14,7 @@ export interface ItemTotalsInput {
   damaged: number;
   rejected: number;
   lost: number;
-  billedQty: number; // Σ qty on non-cancelled invoice lines
+  billedQty: number; // Σ qty on non-voided sub bill lines (pieces already paid for)
 }
 
 export interface ItemSummary extends ItemTotalsInput {
@@ -26,6 +26,7 @@ export interface ItemSummary extends ItemTotalsInput {
   pending: number;
   /** Pieces accounted for beyond what was sent (only via an approved exception). */
   excess: number;
+  /** OK pieces not yet paid for. */
   unbilledQty: number;
   completedValuePaise: number;
   pendingValuePaise: number;
@@ -114,16 +115,9 @@ export function lineAmount(qty: number, ratePaise: number) {
   return qty * ratePaise;
 }
 
-export function computeInvoiceTotals(lines: { qty: number; ratePaise: number }[], taxPercent: number) {
-  const subtotalPaise = lines.reduce((s, l) => s + l.qty * l.ratePaise, 0);
-  const taxPaise = Math.round((subtotalPaise * taxPercent) / 100);
-  return { subtotalPaise, taxPaise, totalPaise: subtotalPaise + taxPaise };
-}
-
-export function paymentStatus(totalPaise: number, paidPaise: number, cancelled = false): PaymentStatus {
-  if (cancelled) return "CANCELLED";
-  if (paidPaise <= 0) return totalPaise === 0 ? "PAID" : "UNPAID";
-  return paidPaise >= totalPaise ? "PAID" : "PARTIAL";
+/** A job is settled (and gets its main bill) once it is complete and every OK piece has been paid. */
+export function isFullyPaid(status: JobStatus, totals: Pick<JobTotals, "billedQty" | "unbilledQty">) {
+  return status === "COMPLETED" && totals.unbilledQty === 0 && totals.billedQty > 0;
 }
 
 export function isOverdue(expectedReturnDate: Date | string | null | undefined, status: JobStatus, today = new Date()) {

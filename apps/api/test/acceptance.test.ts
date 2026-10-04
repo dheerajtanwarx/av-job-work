@@ -1,5 +1,5 @@
 import { prisma } from "@av/db";
-import type { ClientSummary, Dashboard, InvoiceDetail, JobDetail, ReturnResult } from "@av/shared";
+import type { ClientSummary, Dashboard, JobDetail, MainBillDetail, ReturnResult, SubBillDetail, UnpaidLine } from "@av/shared";
 import type TestAgent from "supertest/lib/agent.js";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { loggedInAgent, resetDb } from "./helpers.js";
@@ -9,7 +9,7 @@ describe("acceptance: Sharma Embroidery / 100 plain blouses", () => {
   let api: TestAgent;
   let clientId: string;
   let job: JobDetail;
-  let invoice: InvoiceDetail;
+  const subBills: SubBillDetail[] = [];
   const design: Record<string, string> = {};
   const item: Record<string, string> = {};
 
@@ -48,6 +48,16 @@ describe("acceptance: Sharma Embroidery / 100 plain blouses", () => {
   const ret = (date: string, lines: [string, number][], extra: Record<string, unknown> = {}) =>
     api.post(`/jobs/${job.id}/returns`).send({ date, lines: lines.map(([n, okQty]) => ({ jobItemId: item[n], okQty, ...extra })) });
 
+  /** Pays for everything returned and not yet paid on the job – one sub bill. */
+  const payAll = async (date: string, method = "CASH") => {
+    const unpaid: UnpaidLine[] = (await api.get(`/bills/unpaid?jobId=${job.id}`).expect(200)).body;
+    const b: SubBillDetail = (
+      await api.post("/sub-bills").send({ jobId: job.id, date, method, lines: unpaid.map((u) => ({ jobItemId: u.jobItemId, qty: u.unbilledQty })) }).expect(201)
+    ).body;
+    subBills.push(b);
+    return b;
+  };
+
   it("creates the job: 100 pieces, ₹2,100, sent", () => {
     expect(job.jobNumber).toBe("JOB-001");
     expect(job.status).toBe("IN_PROGRESS");
@@ -68,6 +78,20 @@ describe("acceptance: Sharma Embroidery / 100 plain blouses", () => {
     expect(j.status).toBe("PARTIALLY_RECEIVED");
   });
 
+  it("pays for the first 65 pieces with sub bill SB-001", async () => {
+    const b = await payAll("2026-10-05", "UPI");
+    expect(b.billNumber).toBe("SB-001");
+    expect(b.lines.map((l) => [l.designName, l.qty, l.ratePaise, l.amountPaise])).toEqual([
+      ["Floral", 15, 2000, 30000],
+      ["Royal", 30, 2500, 75000],
+      ["Simple", 20, 1500, 30000],
+    ]);
+    expect(b.amountPaise).toBe(135000);
+    expect(b.mainBill).toBeNull();
+    // Paying for more than came back is refused
+    await api.post("/sub-bills").send({ jobId: job.id, date: "2026-10-05", lines: [{ jobItemId: item.Royal, qty: 1 }] }).expect(422);
+  });
+
   it("rejects an over-return without a reason (rule 6)", async () => {
     const res = await ret("2026-10-06", [["Floral", 6]]).expect(422);
     expect(res.body.message).toMatch(/only 5 pending/);
@@ -79,6 +103,9 @@ describe("acceptance: Sharma Embroidery / 100 plain blouses", () => {
     expect(j.items.map((i) => i.pending)).toEqual([0, 5, 0]);
     expect(j.totals.pending).toBe(5);
     expect(j.status).toBe("PARTIALLY_RECEIVED");
+    const b = await payAll("2026-10-07");
+    expect(b.billNumber).toBe("SB-002");
+    expect(b.amountPaise).toBe(62500); // 100 + 375 + 150
   });
 
   it("final return: Royal 5 completes the job", async () => {
@@ -91,34 +118,30 @@ describe("acceptance: Sharma Embroidery / 100 plain blouses", () => {
     job = r.job;
   });
 
-  it("generates the invoice from unbilled work", async () => {
-    const unbilled = (await api.get(`/billing/unbilled?clientId=${clientId}`).expect(200)).body as { jobItemId: string; unbilledQty: number }[];
-    expect(unbilled.map((u) => u.unbilledQty)).toEqual([20, 50, 30]);
-    invoice = (
-      await api
-        .post("/invoices")
-        .send({ clientId, date: "2026-10-09", taxPercent: 0, lines: unbilled.map((u) => ({ jobItemId: u.jobItemId, qty: u.unbilledQty })) })
-        .expect(201)
-    ).body;
-    expect(invoice.invoiceNumber).toBe("INV-001");
-    expect(invoice.lines.map((l) => [l.designName, l.qty, l.ratePaise, l.amountPaise])).toEqual([
-      ["Floral", 20, 2000, 40000],
-      ["Royal", 50, 2500, 125000],
-      ["Simple", 30, 1500, 45000],
-    ]);
-    expect(invoice.totalPaise).toBe(210000);
-    expect(invoice.status).toBe("UNPAID");
-    // Nothing left to bill and double billing is refused
-    expect((await api.get(`/billing/unbilled?clientId=${clientId}`).expect(200)).body).toEqual([]);
-    await api.post("/invoices").send({ clientId, date: "2026-10-09", lines: [{ jobItemId: item.Royal, qty: 1 }] }).expect(422);
+  it("no main bill until every returned piece is paid", async () => {
+    expect(job.mainBill).toBeNull();
+    expect(job.totals.unbilledQty).toBe(5);
+    expect((await api.get("/main-bills").expect(200)).body).toEqual([]);
   });
 
-  it("records a partial payment and shows outstanding", async () => {
-    await api.post("/payments").send({ invoiceId: invoice.id, date: "2026-10-10", amountPaise: 300000, method: "CASH" }).expect(422);
-    invoice = (await api.post("/payments").send({ invoiceId: invoice.id, date: "2026-10-10", amountPaise: 100000, method: "UPI" }).expect(201)).body;
-    expect(invoice.paidPaise).toBe(100000);
-    expect(invoice.outstandingPaise).toBe(110000);
-    expect(invoice.status).toBe("PARTIAL");
+  it("the last sub bill settles the job and issues main bill MB-001", async () => {
+    const b = await payAll("2026-10-10", "BANK");
+    expect(b.billNumber).toBe("SB-003");
+    expect(b.amountPaise).toBe(12500);
+    expect(b.mainBill).toMatchObject({ billNumber: "MB-001", cancelled: false });
+    expect((await api.get(`/bills/unpaid?jobId=${job.id}`).expect(200)).body).toEqual([]);
+
+    const mb: MainBillDetail = (await api.get(`/main-bills/${b.mainBill!.id}`).expect(200)).body;
+    expect(mb).toMatchObject({ billNumber: "MB-001", qty: 100, totalPaise: 210000, subBillCount: 3, cancelledAt: null });
+    expect(mb.date.slice(0, 10)).toBe("2026-10-10");
+    expect(mb.product.name).toBe("Plain Blouse");
+    expect(mb.job.jobNumber).toBe("JOB-001");
+    expect(mb.designs.map((d) => [d.designName, d.quantity, d.ok, d.paidQty, d.paidValuePaise])).toEqual([
+      ["Floral", 20, 20, 20, 40000],
+      ["Royal", 50, 50, 50, 125000],
+      ["Simple", 30, 30, 30, 45000],
+    ]);
+    expect(mb.subBills.map((s) => s.billNumber)).toEqual(["SB-001", "SB-002", "SB-003"]);
   });
 
   it("shows the complete transaction history", async () => {
@@ -127,13 +150,14 @@ describe("acceptance: Sharma Embroidery / 100 plain blouses", () => {
     expect(types.filter((t) => t === "dispatch")).toHaveLength(1);
     expect(types.filter((t) => t === "return")).toHaveLength(3);
     expect(types).toContain("completed");
-    expect(types).toContain("invoice");
-    expect(types).toContain("payment");
+    expect(types.filter((t) => t === "sub_bill")).toHaveLength(3);
+    expect(types).toContain("main_bill");
     const returns = j.timeline.filter((e) => e.type === "return");
     expect(returns.map((r) => r.type === "return" && r.total)).toEqual([65, 30, 5]);
     // Completion comes right after the last return
     expect(types.indexOf("completed")).toBeGreaterThan(types.lastIndexOf("return"));
-    expect(j.invoices[0].status).toBe("PARTIAL");
+    expect(j.subBills.map((b) => b.amountPaise)).toEqual([135000, 62500, 12500]);
+    expect(j.mainBill).toMatchObject({ billNumber: "MB-001", totalPaise: 210000 });
   });
 
   it("reports and dashboard agree", async () => {
@@ -142,24 +166,26 @@ describe("acceptance: Sharma Embroidery / 100 plain blouses", () => {
 
     const cs = (await api.get("/reports/client-summary").expect(200)).body;
     const row = cs.rows.find((r: { clientId: string }) => r.clientId === clientId);
-    expect(row).toMatchObject({ jobs: 1, sent: 100, received: 100, pending: 0, billedPaise: 210000, paidPaise: 100000, outstandingPaise: 110000 });
+    expect(row).toMatchObject({ jobs: 1, sent: 100, received: 100, pending: 0, completedValuePaise: 210000, paidPaise: 210000, toPayPaise: 0 });
 
-    const billing = (await api.get(`/reports/billing?from=2026-10-01&to=2026-10-31&clientId=${clientId}`).expect(200)).body;
-    expect(billing.summary).toMatchObject({ completedPieces: 100, invoiceCount: 1, billedPaise: 210000, outstandingPaise: 110000 });
+    const payments = (await api.get(`/reports/payments?from=2026-10-01&to=2026-10-31&clientId=${clientId}`).expect(200)).body;
+    expect(payments.summary).toMatchObject({ completedPieces: 100, subBillCount: 3, paidPieces: 100, paidPaise: 210000 });
 
-    const out = (await api.get("/reports/outstanding").expect(200)).body;
-    expect(out.totals).toMatchObject({ invoices: 1, partial: 1, outstandingPaise: 110000 });
+    const toPay = (await api.get("/reports/to-pay").expect(200)).body;
+    expect(toPay.totals).toMatchObject({ qty: 0, valuePaise: 0 });
 
     const dash: Dashboard = (await api.get("/dashboard").expect(200)).body;
     expect(dash.ops.piecesOutside).toBe(0);
     expect(dash.ops.activeJobs).toBe(0);
-    expect(dash.money).toMatchObject({ completedValuePaise: 210000, billedPaise: 210000, paidPaise: 100000, outstandingPaise: 110000, unbilledPaise: 0 });
+    expect(dash.money).toEqual({ completedValuePaise: 210000, paidPaise: 210000, toPayPaise: 0 });
 
     const profile: ClientSummary = (await api.get(`/clients/${clientId}`).expect(200)).body;
-    expect(profile.totals).toMatchObject({ completedJobs: 1, pending: 0, billedPaise: 210000, paidPaise: 100000, outstandingPaise: 110000 });
+    expect(profile.totals).toMatchObject({ completedJobs: 1, pending: 0, paidPaise: 210000, toPayPaise: 0 });
+    expect(profile.subBills).toHaveLength(3);
+    expect(profile.mainBills).toHaveLength(1);
 
-    const csv = await api.get("/reports/outstanding?format=csv").expect(200);
-    expect(csv.text).toContain("INV-001");
+    const csv = await api.get("/reports/payments?format=csv").expect(200);
+    expect(csv.text).toContain("SB-003");
   });
 
   it("changing a design's default rate never changes the job", async () => {
@@ -169,11 +195,11 @@ describe("acceptance: Sharma Embroidery / 100 plain blouses", () => {
     expect(j.totals.expectedValuePaise).toBe(210000);
   });
 
-  it("search finds job, invoice and client", async () => {
+  it("search finds job, bills and job worker", async () => {
     const s = (await api.get("/search?q=sharma").expect(200)).body;
     expect(s.clients).toHaveLength(1);
     expect(s.jobs).toHaveLength(1);
-    expect(s.invoices).toHaveLength(1);
+    expect(s.bills.map((b: { billNumber: string }) => b.billNumber)).toEqual(["MB-001", "SB-003", "SB-002", "SB-001"]);
     const byDate = (await api.get("/search?q=04/10/2026").expect(200)).body;
     expect(byDate.jobs).toHaveLength(1);
   });
@@ -196,7 +222,7 @@ describe("edge cases", () => {
   const newJob = async (qty: number, dispatchNow = true) =>
     (await api.post("/jobs").send({ clientId, productId, jobDate: "2026-10-01", dispatchNow, items: [{ designId, quantity: qty, ratePaise: 5000 }] }).expect(201)).body as JobDetail;
 
-  it("damaged/rejected/lost are kept separate, not billable, and close the job", async () => {
+  it("damaged/rejected/lost are kept separate, not payable, and close the job", async () => {
     const j = await newJob(10);
     const r: ReturnResult = (
       await api.post(`/jobs/${j.id}/returns`).send({ date: "2026-10-02", lines: [{ jobItemId: j.items[0].id, okQty: 6, damagedQty: 2, rejectedQty: 1, lostQty: 1 }] }).expect(201)
@@ -242,22 +268,41 @@ describe("edge cases", () => {
     expect(cancelled.totals.pending).toBe(6); // still visible – nothing disappears
   });
 
-  it("billing after each return + rate locked once billed + cancel invoice blocked by payment", async () => {
+  it("sub bills: one job only, rate locked once paid, voiding cancels and re-issues the main bill", async () => {
     const j = await newJob(10);
-    await api.post(`/jobs/${j.id}/returns`).send({ date: "2026-10-02", lines: [{ jobItemId: j.items[0].id, okQty: 4 }] }).expect(201);
-    const inv: InvoiceDetail = (await api.post("/invoices").send({ clientId, date: "2026-10-02", taxPercent: 5, lines: [{ jobItemId: j.items[0].id, qty: 4 }] }).expect(201)).body;
-    expect(inv).toMatchObject({ subtotalPaise: 20000, taxPaise: 1000, totalPaise: 21000 });
-    await api.patch(`/jobs/${j.id}`).send({ items: [{ id: j.items[0].id, designId, quantity: 10, ratePaise: 6000 }] }).expect(422);
+    const other = await newJob(5);
+    const line = j.items[0].id;
+    await api.post(`/jobs/${j.id}/returns`).send({ date: "2026-10-02", lines: [{ jobItemId: line, okQty: 4 }] }).expect(201);
+    await api.post(`/jobs/${other.id}/returns`).send({ date: "2026-10-02", lines: [{ jobItemId: other.items[0].id, okQty: 5 }] }).expect(201);
 
-    const paid: InvoiceDetail = (await api.post("/payments").send({ invoiceId: inv.id, date: "2026-10-03", amountPaise: 21000 }).expect(201)).body;
-    expect(paid.status).toBe("PAID");
-    await api.post(`/invoices/${inv.id}/cancel`).send({ reason: "Wrong" }).expect(422);
-    const unpaid: InvoiceDetail = (await api.post(`/payments/${paid.payments[0].id}/void`).send({ reason: "Cheque bounced" }).expect(200)).body;
-    expect(unpaid.status).toBe("UNPAID");
-    expect(unpaid.payments[0].voidedAt).toBeTruthy(); // kept, never deleted
-    await api.post(`/invoices/${inv.id}/cancel`).send({ reason: "Wrong" }).expect(200);
-    const unbilled = (await api.get(`/billing/unbilled?jobId=${j.id}`).expect(200)).body;
-    expect(unbilled[0].unbilledQty).toBe(4);
+    // Lines from another job are refused
+    await api.post("/sub-bills").send({ jobId: j.id, date: "2026-10-02", lines: [{ jobItemId: other.items[0].id, qty: 1 }] }).expect(422);
+    // More than returned is refused
+    await api.post("/sub-bills").send({ jobId: j.id, date: "2026-10-02", lines: [{ jobItemId: line, qty: 5 }] }).expect(422);
+
+    const first: SubBillDetail = (await api.post("/sub-bills").send({ jobId: j.id, date: "2026-10-02", lines: [{ jobItemId: line, qty: 4 }] }).expect(201)).body;
+    expect(first.amountPaise).toBe(20000);
+    await api.patch(`/jobs/${j.id}`).send({ items: [{ id: line, designId, quantity: 10, ratePaise: 6000 }] }).expect(422);
+
+    // Can't void a return whose pieces are paid for
+    const r: ReturnResult = (await api.post(`/jobs/${j.id}/returns`).send({ date: "2026-10-03", lines: [{ jobItemId: line, okQty: 6 }] }).expect(201)).body;
+    expect(r.job.status).toBe("COMPLETED");
+    expect(r.job.mainBill).toBeNull(); // completed but 6 still unpaid
+    const second: SubBillDetail = (await api.post("/sub-bills").send({ jobId: j.id, date: "2026-10-04", lines: [{ jobItemId: line, qty: 6 }] }).expect(201)).body;
+    expect(second.mainBill?.cancelled).toBe(false);
+    await api.post(`/returns/${r.id}/void`).send({ reason: "Oops" }).expect(422);
+
+    // Voiding a sub bill cancels the main bill; paying again re-issues the same number
+    const voided: SubBillDetail = (await api.post(`/sub-bills/${second.id}/void`).send({ reason: "Paid twice by mistake" }).expect(200)).body;
+    expect(voided.voidedAt).toBeTruthy(); // kept, never deleted
+    expect(voided.mainBill).toMatchObject({ billNumber: second.mainBill!.billNumber, cancelled: true });
+    await api.post(`/sub-bills/${second.id}/void`).send({ reason: "Again" }).expect(422);
+
+    const third: SubBillDetail = (await api.post("/sub-bills").send({ jobId: j.id, date: "2026-10-05", lines: [{ jobItemId: line, qty: 6 }] }).expect(201)).body;
+    expect(third.mainBill).toMatchObject({ billNumber: second.mainBill!.billNumber, cancelled: false });
+    const mb: MainBillDetail = (await api.get(`/main-bills/${third.mainBill!.id}`).expect(200)).body;
+    expect(mb).toMatchObject({ totalPaise: 50000, qty: 10, subBillCount: 2 });
+    expect(mb.subBills.map((b) => b.billNumber)).toEqual([first.billNumber, third.billNumber]);
   });
 
   it("requires login", async () => {

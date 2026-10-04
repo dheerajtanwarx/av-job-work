@@ -1,54 +1,50 @@
 import { prisma } from "@av/db";
-import { invoiceCreateSchema, paymentCreateSchema, PAYMENT_STATUSES, reasonSchema, settingsSchema, type PaymentStatus } from "@av/shared";
+import { reasonSchema, settingsSchema, subBillCreateSchema } from "@av/shared";
 import { Router } from "express";
 import { audit } from "../lib/audit.js";
 import { toDate } from "../lib/dates.js";
 import { param, parse, str } from "../lib/http.js";
-import { cancelInvoice, createInvoice, createPayment, getInvoice, getSettings, getUnbilled, listInvoices, listPayments, voidPayment } from "../services/billing.js";
+import { createSubBill, getMainBill, getSettings, getSubBill, getUnpaid, listMainBills, listSubBills, voidSubBill } from "../services/billing.js";
 
 const dateQ = (v: unknown) => (str(v) ? toDate(str(v)!) : undefined);
 
 export const billingRouter = Router();
 
-billingRouter.get("/billing/unbilled", async (req, res) => {
-  res.json(await getUnbilled(prisma, { clientId: str(req.query.clientId), jobId: str(req.query.jobId) }));
+billingRouter.get("/bills/unpaid", async (req, res) => {
+  res.json(await getUnpaid(prisma, { clientId: str(req.query.clientId), jobId: str(req.query.jobId) }));
 });
 
-billingRouter.get("/invoices", async (req, res) => {
-  const status = str(req.query.status);
+billingRouter.get("/sub-bills", async (req, res) => {
   res.json(
-    await listInvoices({
+    await listSubBills({
       clientId: str(req.query.clientId),
+      jobId: str(req.query.jobId),
       from: dateQ(req.query.from),
       to: dateQ(req.query.to),
       q: str(req.query.q),
-      status: status === "OPEN" || (PAYMENT_STATUSES as readonly string[]).includes(status ?? "") ? (status as PaymentStatus | "OPEN") : undefined,
+      includeVoided: req.query.voided === "false" ? false : undefined,
     }),
   );
 });
 
-billingRouter.post("/invoices", async (req, res) => {
-  res.status(201).json(await createInvoice(parse(invoiceCreateSchema, req.body), req.user?.id));
+billingRouter.post("/sub-bills", async (req, res) => {
+  res.status(201).json(await createSubBill(parse(subBillCreateSchema, req.body), req.user?.id));
 });
 
-billingRouter.get("/invoices/:id", async (req, res) => {
-  res.json(await getInvoice(param(req.params.id)));
+billingRouter.get("/sub-bills/:id", async (req, res) => {
+  res.json(await getSubBill(param(req.params.id)));
 });
 
-billingRouter.post("/invoices/:id/cancel", async (req, res) => {
-  res.json(await cancelInvoice(param(req.params.id), parse(reasonSchema, req.body).reason, req.user?.id));
+billingRouter.post("/sub-bills/:id/void", async (req, res) => {
+  res.json(await voidSubBill(param(req.params.id), parse(reasonSchema, req.body).reason, req.user?.id));
 });
 
-billingRouter.get("/payments", async (req, res) => {
-  res.json(await listPayments({ clientId: str(req.query.clientId), invoiceId: str(req.query.invoiceId), from: dateQ(req.query.from), to: dateQ(req.query.to) }));
+billingRouter.get("/main-bills", async (req, res) => {
+  res.json(await listMainBills({ clientId: str(req.query.clientId), from: dateQ(req.query.from), to: dateQ(req.query.to), q: str(req.query.q) }));
 });
 
-billingRouter.post("/payments", async (req, res) => {
-  res.status(201).json(await createPayment(parse(paymentCreateSchema, req.body), req.user?.id));
-});
-
-billingRouter.post("/payments/:id/void", async (req, res) => {
-  res.json(await voidPayment(param(req.params.id), parse(reasonSchema, req.body).reason, req.user?.id));
+billingRouter.get("/main-bills/:id", async (req, res) => {
+  res.json(await getMainBill(param(req.params.id)));
 });
 
 billingRouter.get("/settings", async (_req, res) => {
