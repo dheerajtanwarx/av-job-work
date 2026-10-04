@@ -16,7 +16,7 @@ Job-work management for a business that sends products to job workers (embroider
 
 ## Getting started
 
-Requirements: Node 22+, pnpm, and Docker.
+Requirements: Node 22.12+ or 24+ (Prisma 7 refuses older versions; run `nvm use` to pick up `.nvmrc`), pnpm, and Docker.
 
 ```bash
 cp .env.example .env        # then set JWT_SECRET (and the owner login if you like)
