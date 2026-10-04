@@ -77,7 +77,7 @@ export default function JobPage() {
             </Link>
           </div>
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-            <h1 className="num text-xl leading-7 font-semibold tracking-[-0.01em]">{job.jobNumber}</h1>
+            <h1 className="text-xl leading-7 font-semibold tracking-[-0.01em]">{job.jobNumber}</h1>
             <JobStatusBadge status={job.status} overdue={job.overdue} />
           </div>
           <div className="mt-0.5 flex flex-wrap items-center gap-x-1.5 text-[13px] text-fg-muted">
@@ -303,7 +303,7 @@ export default function JobPage() {
                     <li key={inv.id}>
                       <Link href={`/invoices/${inv.id}`} className="flex items-center justify-between gap-3 px-4 py-2.5 transition-colors duration-100 hover:bg-surface-2">
                         <div>
-                          <div className="num text-[13px] font-medium">{inv.invoiceNumber}</div>
+                          <div className="text-[13px] font-medium">{inv.invoiceNumber}</div>
                           <div className="num text-xs text-fg-muted">{formatDate(inv.date)}</div>
                         </div>
                         <div className="text-right">

@@ -257,6 +257,18 @@
     font-feature-settings: "tnum", "lnum", "zero", "cv11";
   }
 
+  /* Identifier column stays put while the rest scrolls on narrow screens. */
+  @media (max-width: 1023px) {
+    .ledger-sticky th:first-child,
+    .ledger-sticky td:first-child {
+      position: sticky;
+      left: 0;
+      z-index: 2;
+      background: var(--surface);
+      box-shadow: inset -1px 0 0 var(--border);
+    }
+  }
+
   @media (pointer: coarse) {
     .ledger td {
       height: 44px;

@@ -242,25 +242,23 @@ export function JobForm({ job, defaultClientId }: { job?: JobDetail; defaultClie
           </Card>
         </FormSection>
 
-        <FormSection title="Notes">
-          <div className="space-y-4">
-            <Field label="Notes" hint="Anything to remember about this job">
-              <Textarea rows={2} value={notes} onChange={(e) => setNotes(e.target.value)} />
+        <div className="space-y-4">
+          <Field label="Notes" hint="Anything to remember about this job">
+            <Textarea rows={2} value={notes} onChange={(e) => setNotes(e.target.value)} />
+          </Field>
+          {started && (
+            <Field label="Reason for change" hint="Quantity and rate changes are recorded in the job history.">
+              <Input value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Client agreed to a new rate" />
             </Field>
-            {started && (
-              <Field label="Reason for change" hint="Quantity and rate changes are recorded in the job history.">
-                <Input value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Client agreed to a new rate" />
-              </Field>
-            )}
-          </div>
-        </FormSection>
+          )}
+        </div>
       </div>
 
       {/* Summary rail */}
       <aside className="lg:sticky lg:top-8 lg:self-start">
         <Card>
           <div className="border-b border-border px-4 py-3">
-            <div className="num text-xs text-fg-muted">{editing ? job!.jobNumber : "New job"}</div>
+            <div className="text-xs text-fg-muted">{editing ? job!.jobNumber : "New job"}</div>
             <div className={cn("mt-0.5 truncate text-[13px] font-medium", !clientName && "text-fg-faint")}>{clientName ?? "No client yet"}</div>
             <div className={cn("truncate text-xs", product ? "text-fg-muted" : "text-fg-faint")}>{product?.name ?? "No product yet"}</div>
           </div>

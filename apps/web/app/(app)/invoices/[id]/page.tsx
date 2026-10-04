@@ -65,7 +65,7 @@ export default function InvoicePage() {
             </Link>
           </div>
           <div className="flex flex-wrap items-center gap-x-3">
-            <h1 className="num text-xl leading-7 font-semibold tracking-[-0.01em]">{inv.invoiceNumber}</h1>
+            <h1 className="text-xl leading-7 font-semibold tracking-[-0.01em]">{inv.invoiceNumber}</h1>
             <PaymentStatusBadge status={inv.status} />
           </div>
           <div className="num mt-0.5 text-[13px] text-fg-muted">
@@ -115,7 +115,7 @@ export default function InvoicePage() {
             </div>
             <div className="sm:text-right">
               <div className="text-[11px] font-semibold tracking-[0.14em] text-fg-muted">INVOICE</div>
-              <div className="num mt-1 text-xl leading-7 font-semibold">{inv.invoiceNumber}</div>
+              <div className="mt-1 text-xl leading-7 font-semibold">{inv.invoiceNumber}</div>
               <dl className="num mt-1 text-xs text-fg-muted">
                 <div>
                   <dt className="inline">Date </dt>
@@ -159,7 +159,7 @@ export default function InvoicePage() {
                       <div className="text-xs text-fg-muted">{l.productName}</div>
                     </td>
                     <td>
-                      <Link href={`/jobs/${l.jobId}`} className="num text-fg-2 hover:text-accent">
+                      <Link href={`/jobs/${l.jobId}`} className="text-fg-2 hover:text-accent">
                         {l.jobNumber}
                       </Link>
                     </td>

@@ -11,7 +11,7 @@ export function JobsTable({ rows, hideClient }: { rows: JobListRow[]; hideClient
   const router = useRouter();
   return (
     <TableWrap>
-      <table className="ledger">
+      <table className="ledger ledger-sticky">
         <thead>
           <tr>
             <th>Job</th>
@@ -28,7 +28,7 @@ export function JobsTable({ rows, hideClient }: { rows: JobListRow[]; hideClient
           {rows.map((j) => (
             <tr key={j.id} className="row-link" onClick={() => router.push(`/jobs/${j.id}`)}>
               <td className="whitespace-nowrap">
-                <Link href={`/jobs/${j.id}`} className="num font-medium text-fg hover:text-accent" onClick={(e) => e.stopPropagation()}>
+                <Link href={`/jobs/${j.id}`} className="font-medium text-fg hover:text-accent" onClick={(e) => e.stopPropagation()}>
                   {j.jobNumber}
                 </Link>
                 <div className="num text-xs text-fg-muted">{formatDate(j.jobDate)}</div>

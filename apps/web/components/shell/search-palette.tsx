@@ -9,6 +9,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState, type ReactNode } from "react";
 import { Kbd } from "@/components/ui/misc";
 import { api } from "@/lib/api";
+import { cn } from "@/lib/utils";
 
 function useDebounced<T>(value: T, ms = 200) {
   const [v, setV] = useState(value);
@@ -134,7 +135,7 @@ function Row({ onSelect, icon, title, sub, meta }: { onSelect: () => void; icon:
         <div className="truncate text-[13px] font-medium text-fg">{title}</div>
         {sub && <div className="truncate text-xs text-fg-muted">{sub}</div>}
       </div>
-      {meta && <span className="num shrink-0 text-xs text-fg-muted">{meta}</span>}
+      {meta && <span className={cn("shrink-0 text-xs text-fg-muted", meta.startsWith("₹") && "num")}>{meta}</span>}
     </Command.Item>
   );
 }

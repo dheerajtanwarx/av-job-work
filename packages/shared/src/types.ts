@@ -1,5 +1,5 @@
 import type { ItemSummary, JobTotals } from "./calc";
-import type { BillingPolicy, DispatchKind, JobStatus, PaymentMethod, PaymentStatus } from "./enums";
+import type { BillingPolicy, DispatchKind, JobStatus, PaymentMethod } from "./enums";
 
 /** API response shapes shared by the web app. Dates are ISO strings. */
 
@@ -19,7 +19,8 @@ export interface Client {
 export interface ClientListRow extends Client {
   activeJobs: number;
   pendingPieces: number;
-  outstandingPaise: number;
+  /** Value of OK pieces returned but not yet paid for. */
+  toPayPaise: number;
 }
 
 export interface Product {
@@ -88,8 +89,18 @@ export type TimelineEvent =
       notes: string | null;
       voided: { at: string; reason: string | null } | null;
     }
-  | { type: "invoice"; at: string; date: string; id: string; invoiceNumber: string; qty: number; amountPaise: number; cancelled: boolean }
-  | { type: "payment"; at: string; date: string; id: string; invoiceNumber: string; amountPaise: number; method: PaymentMethod; voided: boolean }
+  | {
+      type: "sub_bill";
+      at: string;
+      date: string;
+      id: string;
+      billNumber: string;
+      qty: number;
+      amountPaise: number;
+      method: PaymentMethod;
+      voided: { at: string; reason: string | null } | null;
+    }
+  | { type: "main_bill"; at: string; date: string; id: string; billNumber: string; totalPaise: number; cancelled: boolean }
   | { type: "completed"; at: string; date: string; text: string }
   | { type: "cancelled"; at: string; date: string; text: string }
   | { type: "audit"; at: string; date: string; text: string };
@@ -102,53 +113,85 @@ export interface JobDetail extends Omit<JobListRow, "designs"> {
   createdAt: string;
   items: JobItemView[];
   timeline: TimelineEvent[];
-  invoices: { id: string; invoiceNumber: string; date: string; totalPaise: number; paidPaise: number; status: PaymentStatus }[];
+  subBills: SubBillRow[];
+  mainBill: MainBillRow | null;
 }
 
-export interface InvoiceListRow {
+/** A sub bill: a payment made to a job worker for OK pieces of one job. */
+export interface SubBillRow {
   id: string;
-  invoiceNumber: string;
+  billNumber: string;
   date: string;
-  dueDate: string | null;
   client: { id: string; name: string };
+  job: { id: string; jobNumber: string; productName: string };
   qty: number;
-  subtotalPaise: number;
-  taxPaise: number;
-  totalPaise: number;
-  paidPaise: number;
-  outstandingPaise: number;
-  status: PaymentStatus;
-  jobNumbers: string[];
-}
-
-export interface PaymentRow {
-  id: string;
-  date: string;
   amountPaise: number;
   method: PaymentMethod;
   reference: string | null;
-  notes: string | null;
   voidedAt: string | null;
   voidReason: string | null;
-  invoice: { id: string; invoiceNumber: string };
-  client: { id: string; name: string };
 }
 
-export interface InvoiceDetail extends InvoiceListRow {
-  taxPercent: number;
+export interface SubBillDetail extends SubBillRow {
   notes: string | null;
-  cancelledAt: string | null;
-  cancelReason: string | null;
+  createdAt: string;
   client: Client;
-  lines: { id: string; jobItemId: string; jobId: string; jobNumber: string; designName: string; productName: string; qty: number; ratePaise: number; amountPaise: number }[];
-  payments: PaymentRow[];
+  lines: { id: string; jobItemId: string; designName: string; qty: number; ratePaise: number; amountPaise: number }[];
+  mainBill: { id: string; billNumber: string; cancelled: boolean } | null;
   business: Settings;
 }
 
-export interface UnbilledLine {
+/** A main bill: the settlement of a whole job once every OK piece is paid. */
+export interface MainBillRow {
+  id: string;
+  billNumber: string;
+  date: string;
+  client: { id: string; name: string };
+  job: { id: string; jobNumber: string; productName: string };
+  qty: number;
+  totalPaise: number;
+  subBillCount: number;
+  cancelledAt: string | null;
+  cancelReason: string | null;
+}
+
+export interface MainBillDetail extends MainBillRow {
+  client: Client;
+  job: {
+    id: string;
+    jobNumber: string;
+    productName: string;
+    jobDate: string;
+    expectedReturnDate: string | null;
+    completedAt: string | null;
+    notes: string | null;
+  };
+  product: { id: string; name: string; code: string | null; unit: string; description: string | null };
+  designs: {
+    jobItemId: string;
+    designName: string;
+    designCode: string | null;
+    ratePaise: number;
+    quantity: number;
+    sent: number;
+    ok: number;
+    damaged: number;
+    rejected: number;
+    lost: number;
+    paidQty: number;
+    paidValuePaise: number;
+  }[];
+  subBills: SubBillRow[];
+  totals: JobTotals;
+  business: Settings;
+}
+
+export interface UnpaidLine {
   jobItemId: string;
   jobId: string;
   jobNumber: string;
+  clientId: string;
+  clientName: string;
   jobStatus: JobStatus;
   productName: string;
   designName: string;
@@ -164,18 +207,16 @@ export interface Settings {
   address: string | null;
   phone: string | null;
   email: string | null;
-  gstin: string | null;
   billingPolicy: BillingPolicy;
-  defaultTaxPercent: number;
-  invoiceFooter: string | null;
 }
 
 export interface MoneySummary {
+  /** Value of all OK pieces returned. */
   completedValuePaise: number;
-  billedPaise: number;
+  /** Σ non-voided sub bills. */
   paidPaise: number;
-  outstandingPaise: number;
-  unbilledPaise: number;
+  /** OK pieces returned but not yet paid for. */
+  toPayPaise: number;
 }
 
 export interface Dashboard {
@@ -184,7 +225,7 @@ export interface Dashboard {
   overdue: JobListRow[];
   clientsPending: { clientId: string; clientName: string; jobs: number; pending: number; pendingValuePaise: number }[];
   designsPending: { designId: string; designName: string; jobs: number; pending: number }[];
-  readyToBill: { clientId: string; clientName: string; qty: number; valuePaise: number }[];
+  toPay: { clientId: string; clientName: string; qty: number; valuePaise: number }[];
   recentActivity: { type: string; at: string; text: string; href: string }[];
 }
 
@@ -200,15 +241,15 @@ export interface ClientSummary {
     pending: number;
   } & MoneySummary;
   jobs: JobListRow[];
-  invoices: InvoiceListRow[];
-  payments: PaymentRow[];
+  subBills: SubBillRow[];
+  mainBills: MainBillRow[];
   timeline: { at: string; date: string; type: string; text: string; href: string; amountPaise?: number }[];
 }
 
 export interface SearchResults {
   clients: { id: string; name: string; sub: string | null }[];
   jobs: { id: string; jobNumber: string; clientName: string; productName: string; status: JobStatus; jobDate: string }[];
-  invoices: { id: string; invoiceNumber: string; clientName: string; totalPaise: number; date: string }[];
+  bills: { id: string; kind: "sub" | "main"; billNumber: string; clientName: string; amountPaise: number; date: string }[];
   products: { id: string; name: string; code: string | null }[];
   designs: { id: string; name: string; code: string | null }[];
 }

@@ -148,7 +148,7 @@ export default function DashboardPage() {
                   <Link href={`/jobs/${j.id}`} className={rowCls}>
                     <div className="min-w-0 flex-1">
                       <div className="truncate text-[13px]">
-                        <span className="num font-medium text-fg">{j.jobNumber}</span>
+                        <span className="font-medium text-fg">{j.jobNumber}</span>
                         <span className="text-fg-muted"> · {j.client.name}</span>
                       </div>
                       <div className="num text-xs text-danger">Due {formatDate(j.expectedReturnDate)}</div>

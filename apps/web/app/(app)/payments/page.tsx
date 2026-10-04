@@ -88,7 +88,7 @@ export default function PaymentsPage() {
                         <td className="num whitespace-nowrap text-fg-2">{formatDate(p.date)}</td>
                         <td className="max-w-48 truncate">{p.client.name}</td>
                         <td>
-                          <Link className="num font-medium hover:text-accent" href={`/invoices/${p.invoice.id}`}>
+                          <Link className="font-medium hover:text-accent" href={`/invoices/${p.invoice.id}`}>
                             {p.invoice.invoiceNumber}
                           </Link>
                         </td>
@@ -119,18 +119,16 @@ export default function PaymentsPage() {
                 {open.data?.map((i) => (
                   <li key={i.id} className="flex items-center justify-between gap-3 px-4 py-2.5">
                     <div className="min-w-0">
-                      <Link href={`/invoices/${i.id}`} className="num text-[13px] font-medium hover:text-accent">
-                        {i.invoiceNumber}
-                      </Link>
-                      <div className="num truncate text-xs text-fg-muted">
-                        {i.client.name} · {formatDate(i.date)}
-                      </div>
-                    </div>
-                    <div className="flex shrink-0 items-center gap-3">
-                      <div className="text-right">
-                        <div className="num text-[13px] font-medium text-danger">{formatINR(i.outstandingPaise)}</div>
+                      <div className="flex items-center gap-2">
+                        <Link href={`/invoices/${i.id}`} className="text-[13px] font-medium whitespace-nowrap hover:text-accent">
+                          {i.invoiceNumber}
+                        </Link>
                         <PaymentStatusBadge status={i.status} />
                       </div>
+                      <div className="num truncate text-xs text-fg-muted">{i.client.name} · {formatDate(i.date)}</div>
+                    </div>
+                    <div className="flex shrink-0 items-center gap-3">
+                      <div className="num text-[13px] font-medium text-danger">{formatINR(i.outstandingPaise)}</div>
                       <Button size="sm" variant="secondary" onClick={() => setPaying(i)}>
                         Receive
                       </Button>

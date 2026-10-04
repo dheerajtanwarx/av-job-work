@@ -129,37 +129,24 @@ export const returnCreateSchema = z.object({
 });
 export type ReturnCreateInput = z.input<typeof returnCreateSchema>;
 
-export const invoiceCreateSchema = z.object({
-  clientId: z.string().min(1, "Choose a client"),
+export const subBillCreateSchema = z.object({
+  jobId: z.string().min(1, "Choose a job"),
   date: isoDate,
-  dueDate: optDate,
-  taxPercent: z.coerce.number().min(0).max(100).default(0),
+  method: z.enum(PAYMENT_METHODS).default("CASH"),
+  reference: optText,
   notes: optText,
   lines: z
     .array(z.object({ jobItemId: z.string().min(1), qty: qty() }))
     .transform((ls) => ls.filter((l) => l.qty > 0))
-    .refine((ls) => ls.length > 0, "Select at least one line to bill"),
+    .refine((ls) => ls.length > 0, "Enter at least one quantity to pay for"),
 });
-export type InvoiceCreateInput = z.input<typeof invoiceCreateSchema>;
-
-export const paymentCreateSchema = z.object({
-  invoiceId: z.string().min(1, "Choose an invoice"),
-  date: isoDate,
-  amountPaise: paise.refine((n) => n > 0, "Amount must be more than zero"),
-  method: z.enum(PAYMENT_METHODS).default("CASH"),
-  reference: optText,
-  notes: optText,
-});
-export type PaymentCreateInput = z.input<typeof paymentCreateSchema>;
+export type SubBillCreateInput = z.input<typeof subBillCreateSchema>;
 
 export const settingsSchema = z.object({
   businessName: z.string().trim().min(1, "Business name is required"),
   address: optText,
   phone: optText,
   email: optText,
-  gstin: optText,
   billingPolicy: z.enum(BILLING_POLICIES),
-  defaultTaxPercent: z.coerce.number().min(0).max(100),
-  invoiceFooter: optText,
 });
 export type SettingsInput = z.input<typeof settingsSchema>;

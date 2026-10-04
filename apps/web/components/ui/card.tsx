@@ -36,5 +36,5 @@ export function Section({ title, description, action, children, className }: { t
 
 /** Horizontally scrollable table wrapper. */
 export function TableWrap({ children, className }: { children: ReactNode; className?: string }) {
-  return <div className={cn("overflow-x-auto overscroll-x-contain", className)}>{children}</div>;
+  return <div className={cn("relative overflow-x-auto overscroll-x-contain", className)}>{children}</div>;
 }

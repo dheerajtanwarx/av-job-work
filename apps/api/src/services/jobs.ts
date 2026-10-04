@@ -2,15 +2,17 @@ import { prisma, type DB, type Prisma } from "@av/db";
 import {
   deriveJobStatus,
   exceedsPending,
+  isFullyPaid,
   isOverdue,
-  paymentStatus,
   sumTotals,
   summarizeItem,
   type JobDetail,
   type JobItemView,
   type JobListRow,
   type JobStatus,
+  type MainBillRow,
   type ReturnResult,
+  type SubBillRow,
   type TimelineEvent,
   dispatchCreateSchema,
   jobCreateSchema,
@@ -34,7 +36,7 @@ export const jobInclude = {
       returnLines: {
         select: { okQty: true, damagedQty: true, rejectedQty: true, lostQty: true, return: { select: { voidedAt: true } } },
       },
-      invoiceLines: { select: { qty: true, invoice: { select: { cancelledAt: true } } } },
+      subBillLines: { select: { qty: true, subBill: { select: { voidedAt: true } } } },
     },
   },
   returns: { where: { voidedAt: null }, select: { id: true }, take: 1 },
@@ -62,7 +64,7 @@ export function summarizeJobItems(job: JobWithLedger): JobItemView[] {
       rejected += rl.rejectedQty;
       lost += rl.lostQty;
     }
-    const billedQty = it.invoiceLines.filter((l) => !l.invoice.cancelledAt).reduce((s, l) => s + l.qty, 0);
+    const billedQty = it.subBillLines.filter((l) => !l.subBill.voidedAt).reduce((s, l) => s + l.qty, 0);
     return {
       id: it.id,
       designId: it.designId,
@@ -99,7 +101,10 @@ async function loadJob(db: DB, id: string) {
   return job;
 }
 
-/** Re-derives and persists the job status. Must be called after every quantity mutation. */
+/**
+ * Re-derives and persists the job status, then keeps the main bill in step with it.
+ * Must be called after every quantity or payment mutation.
+ */
 export async function recomputeJobStatus(db: DB, jobId: string, userId?: string | null) {
   const job = await loadJob(db, jobId);
   const items = summarizeJobItems(job);
@@ -120,7 +125,44 @@ export async function recomputeJobStatus(db: DB, jobId: string, userId?: string 
       });
     }
   }
+  await syncMainBill(db, job, isFullyPaid(status, sumTotals(items)), userId);
   return { status, previous: job.status as JobStatus };
+}
+
+/**
+ * A job gets one main bill once it is complete and every OK piece is paid through sub bills.
+ * If that stops being true (a sub bill or return is voided) the main bill is cancelled, and it
+ * is re-activated under the same number when the job is settled again.
+ */
+async function syncMainBill(db: DB, job: JobWithLedger, settled: boolean, userId?: string | null) {
+  const existing = await db.mainBill.findUnique({ where: { jobId: job.id } });
+  const active = existing && !existing.cancelledAt;
+  if (!settled) {
+    if (active) {
+      await db.mainBill.update({ where: { id: existing.id }, data: { cancelledAt: new Date(), cancelReason: "Job is no longer fully paid" } });
+      await audit(db, { entity: "Job", entityId: job.id, action: "update", summary: `Main bill ${existing.billNumber} cancelled – job is no longer fully paid`, userId });
+    }
+    return;
+  }
+
+  const subBills = await db.subBill.findMany({ where: { jobId: job.id, voidedAt: null }, select: { date: true, amountPaise: true, lines: { select: { qty: true } } } });
+  const totalPaise = subBills.reduce((s, b) => s + b.amountPaise, 0);
+  const qty = subBills.reduce((s, b) => s + b.lines.reduce((t, l) => t + l.qty, 0), 0);
+  // Settled on the day of the last payment.
+  const date = new Date(Math.max(...subBills.map((b) => b.date.getTime())));
+
+  if (active) {
+    if (existing.totalPaise !== totalPaise || existing.qty !== qty) await db.mainBill.update({ where: { id: existing.id }, data: { totalPaise, qty, date } });
+    return;
+  }
+  if (existing) {
+    await db.mainBill.update({ where: { id: existing.id }, data: { cancelledAt: null, cancelReason: null, totalPaise, qty, date } });
+    await audit(db, { entity: "Job", entityId: job.id, action: "update", summary: `Main bill ${existing.billNumber} re-issued for ₹${totalPaise / 100}`, userId });
+    return;
+  }
+  const billNumber = await nextNumber(db, "mainBill", "MB");
+  await db.mainBill.create({ data: { billNumber, jobId: job.id, clientId: job.clientId, date, qty, totalPaise } });
+  await audit(db, { entity: "Job", entityId: job.id, action: "update", summary: `Job fully paid – main bill ${billNumber} issued for ₹${totalPaise / 100}`, userId });
 }
 
 // ───────────────────────── Create / update ─────────────────────────
@@ -190,7 +232,7 @@ export async function updateJob(jobId: string, input: z.output<typeof jobUpdateS
 
     const header: Prisma.JobUncheckedUpdateInput = {};
     if (input.clientId && input.clientId !== job.clientId) {
-      if (items.some((i) => i.billedQty > 0)) throw unprocessable("This job has been billed – the client can't be changed");
+      if (items.some((i) => i.billedQty > 0)) throw unprocessable("This job has payments – the job worker can't be changed");
       header.clientId = input.clientId;
     }
     if (input.productId) header.productId = input.productId;
@@ -252,7 +294,7 @@ export async function updateJob(jobId: string, input: z.output<typeof jobUpdateS
         changes.push(`${cur.designName}: quantity ${cur.quantity} → ${it.quantity}`);
       }
       if (it.ratePaise !== cur.ratePaise) {
-        if (cur.billedQty > 0) throw unprocessable(`${cur.designName} is already billed at ₹${cur.ratePaise / 100}. Cancel that invoice first to change the rate.`);
+        if (cur.billedQty > 0) throw unprocessable(`${cur.designName} is already paid at ₹${cur.ratePaise / 100}. Void those sub bills first to change the rate.`);
         data.ratePaise = it.ratePaise;
         changes.push(`${cur.designName}: rate ₹${cur.ratePaise / 100} → ₹${it.ratePaise / 100}`);
       }
@@ -397,7 +439,7 @@ export async function voidReturn(returnId: string, reason: string, userId?: stri
     await tx.return.update({ where: { id: returnId }, data: { voidedAt: new Date(), voidReason: reason } });
     const job = await loadJob(tx, r.jobId);
     for (const it of summarizeJobItems(job)) {
-      if (it.billedQty > it.ok) throw unprocessable(`${it.designName}: these pieces are already billed. Cancel the invoice first.`);
+      if (it.billedQty > it.ok) throw unprocessable(`${it.designName}: these pieces are already paid for. Void the sub bill first.`);
     }
     await audit(tx, { entity: "Return", entityId: returnId, action: "void", summary: `${r.returnNumber} voided: ${reason}`, userId });
     await recomputeJobStatus(tx, r.jobId, userId);
@@ -413,7 +455,7 @@ export async function getJobDetail(jobId: string): Promise<JobDetail> {
   const row = toJobRow(job, items);
   const itemName = new Map(job.items.map((i) => [i.id, i.designName]));
 
-  const [full, invoiceLines, audits] = await Promise.all([
+  const [full, subBills, mainBill, audits] = await Promise.all([
     prisma.job.findUniqueOrThrow({
       where: { id: jobId },
       include: {
@@ -421,10 +463,8 @@ export async function getJobDetail(jobId: string): Promise<JobDetail> {
         returns: { include: { lines: true }, orderBy: { createdAt: "asc" } },
       },
     }),
-    prisma.invoiceLine.findMany({
-      where: { jobItem: { jobId } },
-      include: { invoice: { include: { payments: true, lines: { select: { qty: true, amountPaise: true, jobItem: { select: { jobId: true } } } } } } },
-    }),
+    prisma.subBill.findMany({ where: { jobId }, include: subBillRowInclude, orderBy: [{ date: "asc" }, { createdAt: "asc" }] }),
+    prisma.mainBill.findUnique({ where: { jobId }, include: mainBillRowInclude }),
     prisma.auditLog.findMany({ where: { entity: "Job", entityId: jobId, action: { in: ["update", "exception", "reopened", "void"] } }, orderBy: { createdAt: "asc" } }),
   ]);
 
@@ -470,42 +510,22 @@ export async function getJobDetail(jobId: string): Promise<JobDetail> {
     });
   }
 
-  const invoices = new Map<string, (typeof invoiceLines)[number]["invoice"]>();
-  for (const l of invoiceLines) invoices.set(l.invoiceId, l.invoice);
-  const invoiceSummaries: JobDetail["invoices"] = [];
-  for (const inv of invoices.values()) {
-    const forJob = inv.lines.filter((l) => l.jobItem.jobId === jobId);
-    const paidPaise = inv.payments.filter((p) => !p.voidedAt).reduce((s, p) => s + p.amountPaise, 0);
-    invoiceSummaries.push({
-      id: inv.id,
-      invoiceNumber: inv.invoiceNumber,
-      date: at(inv.date),
-      totalPaise: inv.totalPaise,
-      paidPaise,
-      status: paymentStatus(inv.totalPaise, paidPaise, !!inv.cancelledAt),
-    });
+  for (const b of subBills) {
+    const row = toSubBillRow(b);
     timeline.push({
-      type: "invoice",
-      at: at(inv.createdAt),
-      date: at(inv.date),
-      id: inv.id,
-      invoiceNumber: inv.invoiceNumber,
-      qty: forJob.reduce((s, l) => s + l.qty, 0),
-      amountPaise: inv.totalPaise,
-      cancelled: !!inv.cancelledAt,
+      type: "sub_bill",
+      at: at(b.createdAt),
+      date: row.date,
+      id: b.id,
+      billNumber: b.billNumber,
+      qty: row.qty,
+      amountPaise: b.amountPaise,
+      method: b.method,
+      voided: b.voidedAt ? { at: at(b.voidedAt), reason: b.voidReason } : null,
     });
-    for (const p of inv.payments) {
-      timeline.push({
-        type: "payment",
-        at: at(p.createdAt),
-        date: at(p.date),
-        id: p.id,
-        invoiceNumber: inv.invoiceNumber,
-        amountPaise: p.amountPaise,
-        method: p.method,
-        voided: !!p.voidedAt,
-      });
-    }
+  }
+  if (mainBill && !mainBill.cancelledAt) {
+    timeline.push({ type: "main_bill", at: at(mainBill.updatedAt), date: at(mainBill.date), id: mainBill.id, billNumber: mainBill.billNumber, totalPaise: mainBill.totalPaise, cancelled: false });
   }
   if (job.completedAt && job.status === "COMPLETED") {
     timeline.push({ type: "completed", at: at(job.completedAt), date: lastActivityDate(full.returns, full.dispatches) ?? at(job.completedAt), text: "Job completed – all pieces accounted for" });
@@ -519,7 +539,6 @@ export async function getJobDetail(jobId: string): Promise<JobDetail> {
   }
   timeline.sort((a, b) => a.date.slice(0, 10).localeCompare(b.date.slice(0, 10)) || a.at.localeCompare(b.at));
 
-  invoiceSummaries.sort((a, b) => a.date.localeCompare(b.date));
   return {
     ...row,
     notes: job.notes,
@@ -529,7 +548,8 @@ export async function getJobDetail(jobId: string): Promise<JobDetail> {
     createdAt: at(job.createdAt),
     items,
     timeline,
-    invoices: invoiceSummaries,
+    subBills: subBills.map(toSubBillRow),
+    mainBill: mainBill ? toMainBillRow(mainBill) : null,
   };
 }
 
@@ -538,3 +558,48 @@ function lastActivityDate(returns: { date: Date; voidedAt: Date | null }[], disp
   return dates.length ? new Date(Math.max(...dates)).toISOString() : null;
 }
 
+
+// ───────────────────────── Bill rows ─────────────────────────
+// Live here (not in billing.ts) so job detail can use them without a circular import.
+
+export const subBillRowInclude = {
+  client: { select: { id: true, name: true } },
+  job: { select: { id: true, jobNumber: true, product: { select: { name: true } } } },
+  lines: { select: { qty: true } },
+} satisfies Prisma.SubBillInclude;
+
+export function toSubBillRow(b: Prisma.SubBillGetPayload<{ include: typeof subBillRowInclude }>): SubBillRow {
+  return {
+    id: b.id,
+    billNumber: b.billNumber,
+    date: b.date.toISOString(),
+    client: b.client,
+    job: { id: b.job.id, jobNumber: b.job.jobNumber, productName: b.job.product.name },
+    qty: b.lines.reduce((s, l) => s + l.qty, 0),
+    amountPaise: b.amountPaise,
+    method: b.method,
+    reference: b.reference,
+    voidedAt: iso(b.voidedAt),
+    voidReason: b.voidReason,
+  };
+}
+
+export const mainBillRowInclude = {
+  client: { select: { id: true, name: true } },
+  job: { select: { id: true, jobNumber: true, product: { select: { name: true } }, _count: { select: { subBills: { where: { voidedAt: null } } } } } },
+} satisfies Prisma.MainBillInclude;
+
+export function toMainBillRow(m: Prisma.MainBillGetPayload<{ include: typeof mainBillRowInclude }>): MainBillRow {
+  return {
+    id: m.id,
+    billNumber: m.billNumber,
+    date: m.date.toISOString(),
+    client: m.client,
+    job: { id: m.job.id, jobNumber: m.job.jobNumber, productName: m.job.product.name },
+    qty: m.qty,
+    totalPaise: m.totalPaise,
+    subBillCount: m.job._count.subBills,
+    cancelledAt: iso(m.cancelledAt),
+    cancelReason: m.cancelReason,
+  };
+}

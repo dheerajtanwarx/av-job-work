@@ -2,23 +2,23 @@ import { prisma } from "@av/db";
 import { OPEN_JOB_STATUSES, sumTotals, type ClientSummary, type Dashboard, type JobStatus, type SearchResults } from "@av/shared";
 import { parseSearchDate, todayUTC } from "../lib/dates.js";
 import { notFound } from "../lib/http.js";
-import { invoiceInclude, listInvoices, listPayments, moneySummary, toInvoiceRow } from "./billing.js";
+import { getUnpaid, listMainBills, listSubBills, moneySummary } from "./billing.js";
 import { loadJobs, summarizeJobItems, toJobRow } from "./jobs.js";
 
 // ───────────────────────── Dashboard ─────────────────────────
 
 export async function getDashboard(): Promise<Dashboard> {
-  const [jobs, money, recentReturns, recentPayments, recentJobs] = await Promise.all([
+  const [jobs, money, recentReturns, recentSubBills, recentJobs] = await Promise.all([
     loadJobs(prisma),
     moneySummary(prisma),
     prisma.return.findMany({ where: { voidedAt: null }, orderBy: { createdAt: "desc" }, take: 5, include: { lines: true, job: { select: { id: true, jobNumber: true, client: { select: { name: true } } } } } }),
-    prisma.payment.findMany({ where: { voidedAt: null }, orderBy: { createdAt: "desc" }, take: 5, include: { invoice: { select: { id: true, invoiceNumber: true } }, client: { select: { name: true } } } }),
+    prisma.subBill.findMany({ where: { voidedAt: null }, orderBy: { createdAt: "desc" }, take: 5, include: { client: { select: { name: true } } } }),
     prisma.job.findMany({ orderBy: { createdAt: "desc" }, take: 5, include: { client: { select: { name: true } } } }),
   ]);
 
   const clients = new Map<string, Dashboard["clientsPending"][number]>();
   const designs = new Map<string, Dashboard["designsPending"][number] & { jobIds: Set<string> }>();
-  const ready = new Map<string, Dashboard["readyToBill"][number]>();
+  const toPay = new Map<string, Dashboard["toPay"][number]>();
   const overdue = [];
   let activeJobs = 0,
     draftJobs = 0,
@@ -47,10 +47,10 @@ export async function getDashboard(): Promise<Dashboard> {
         designs.set(it.designId, d);
       }
       if (it.unbilledQty > 0) {
-        const r = ready.get(job.clientId) ?? { clientId: job.clientId, clientName: job.client.name, qty: 0, valuePaise: 0 };
+        const r = toPay.get(job.clientId) ?? { clientId: job.clientId, clientName: job.client.name, qty: 0, valuePaise: 0 };
         r.qty += it.unbilledQty;
         r.valuePaise += it.unbilledValuePaise;
-        ready.set(job.clientId, r);
+        toPay.set(job.clientId, r);
       }
     }
   }
@@ -62,11 +62,11 @@ export async function getDashboard(): Promise<Dashboard> {
       text: `${r.lines.reduce((s, l) => s + l.okQty + l.damagedQty + l.rejectedQty + l.lostQty, 0)} pcs received on ${r.job.jobNumber} from ${r.job.client.name}`,
       href: `/jobs/${r.job.id}`,
     })),
-    ...recentPayments.map((p) => ({
+    ...recentSubBills.map((b) => ({
       type: "payment",
-      at: p.createdAt.toISOString(),
-      text: `₹${(p.amountPaise / 100).toLocaleString("en-IN")} received from ${p.client.name} (${p.invoice.invoiceNumber})`,
-      href: `/invoices/${p.invoice.id}`,
+      at: b.createdAt.toISOString(),
+      text: `₹${(b.amountPaise / 100).toLocaleString("en-IN")} paid to ${b.client.name} (${b.billNumber})`,
+      href: `/bills/sub/${b.id}`,
     })),
     ...recentJobs.map((j) => ({ type: "job", at: j.createdAt.toISOString(), text: `${j.jobNumber} created for ${j.client.name}`, href: `/jobs/${j.id}` })),
   ]
@@ -79,7 +79,7 @@ export async function getDashboard(): Promise<Dashboard> {
     overdue: overdue.sort((a, b) => (a.expectedReturnDate ?? "").localeCompare(b.expectedReturnDate ?? "")),
     clientsPending: [...clients.values()].sort((a, b) => b.pending - a.pending),
     designsPending: [...designs.values()].map(({ jobIds: _j, ...d }) => d).sort((a, b) => b.pending - a.pending),
-    readyToBill: [...ready.values()].sort((a, b) => b.valuePaise - a.valuePaise),
+    toPay: [...toPay.values()].sort((a, b) => b.valuePaise - a.valuePaise),
     recentActivity,
   };
 }
@@ -160,22 +160,20 @@ export interface ClientSummaryRow {
   exceptions: number;
   pending: number;
   completedValuePaise: number;
-  unbilledPaise: number;
-  billedPaise: number;
   paidPaise: number;
-  outstandingPaise: number;
+  toPayPaise: number;
 }
 
 export async function clientSummaryReport(filter: { includeInactive?: boolean } = {}) {
-  const [clients, jobs, invoices] = await Promise.all([
+  const [clients, jobs, paid] = await Promise.all([
     prisma.client.findMany({ where: filter.includeInactive ? {} : { isActive: true }, orderBy: { name: "asc" } }),
     loadJobs(prisma),
-    prisma.invoice.findMany({ where: { cancelledAt: null }, select: { clientId: true, totalPaise: true, payments: { select: { amountPaise: true, voidedAt: true } } } }),
+    prisma.subBill.groupBy({ by: ["clientId"], where: { voidedAt: null }, _sum: { amountPaise: true } }),
   ]);
   const map = new Map<string, ClientSummaryRow>(
     clients.map((c) => [
       c.id,
-      { clientId: c.id, clientName: c.name, isActive: c.isActive, jobs: 0, activeJobs: 0, sent: 0, received: 0, exceptions: 0, pending: 0, completedValuePaise: 0, unbilledPaise: 0, billedPaise: 0, paidPaise: 0, outstandingPaise: 0 },
+      { clientId: c.id, clientName: c.name, isActive: c.isActive, jobs: 0, activeJobs: 0, sent: 0, received: 0, exceptions: 0, pending: 0, completedValuePaise: 0, paidPaise: 0, toPayPaise: 0 },
     ]),
   );
   for (const job of jobs) {
@@ -189,80 +187,65 @@ export async function clientSummaryReport(filter: { includeInactive?: boolean } 
     r.exceptions += t.exceptions;
     r.pending += t.pending;
     r.completedValuePaise += t.completedValuePaise;
-    r.unbilledPaise += t.unbilledValuePaise;
+    r.toPayPaise += t.unbilledValuePaise;
   }
-  for (const inv of invoices) {
-    const r = map.get(inv.clientId);
-    if (!r) continue;
-    const paid = inv.payments.filter((p) => !p.voidedAt).reduce((s, p) => s + p.amountPaise, 0);
-    r.billedPaise += inv.totalPaise;
-    r.paidPaise += paid;
-    r.outstandingPaise += inv.totalPaise - paid;
+  for (const p of paid) {
+    const r = map.get(p.clientId);
+    if (r) r.paidPaise += p._sum.amountPaise ?? 0;
   }
   const rows = [...map.values()];
   const totals = rows.reduce(
     (t, r) => {
-      for (const k of ["jobs", "activeJobs", "sent", "received", "exceptions", "pending", "completedValuePaise", "unbilledPaise", "billedPaise", "paidPaise", "outstandingPaise"] as const) t[k] += r[k];
+      for (const k of ["jobs", "activeJobs", "sent", "received", "exceptions", "pending", "completedValuePaise", "paidPaise", "toPayPaise"] as const) t[k] += r[k];
       return t;
     },
-    { jobs: 0, activeJobs: 0, sent: 0, received: 0, exceptions: 0, pending: 0, completedValuePaise: 0, unbilledPaise: 0, billedPaise: 0, paidPaise: 0, outstandingPaise: 0 },
+    { jobs: 0, activeJobs: 0, sent: 0, received: 0, exceptions: 0, pending: 0, completedValuePaise: 0, paidPaise: 0, toPayPaise: 0 },
   );
   return { rows, totals };
 }
 
-// ───────────────────────── Billing report ─────────────────────────
+// ───────────────────────── Payments report ─────────────────────────
 
-export async function billingReport(filter: { from?: Date; to?: Date; clientId?: string }) {
+export async function paymentsReport(filter: { from?: Date; to?: Date; clientId?: string }) {
   const dateWhere = filter.from || filter.to ? { gte: filter.from, lte: filter.to } : undefined;
-  const [invoices, returnLines] = await Promise.all([
-    listInvoices({ clientId: filter.clientId, from: filter.from, to: filter.to }),
+  const [subBills, returnLines] = await Promise.all([
+    listSubBills({ clientId: filter.clientId, from: filter.from, to: filter.to }),
     prisma.returnLine.findMany({
       where: { return: { voidedAt: null, date: dateWhere, job: { clientId: filter.clientId } } },
       select: { okQty: true, jobItem: { select: { ratePaise: true } } },
     }),
   ]);
-  const active = invoices.filter((i) => i.status !== "CANCELLED");
+  const active = subBills.filter((b) => !b.voidedAt);
   return {
-    rows: invoices,
+    rows: subBills,
     summary: {
       completedPieces: returnLines.reduce((s, l) => s + l.okQty, 0),
       completedValuePaise: returnLines.reduce((s, l) => s + l.okQty * l.jobItem.ratePaise, 0),
-      invoiceCount: active.length,
-      cancelledCount: invoices.length - active.length,
-      billedPieces: active.reduce((s, i) => s + i.qty, 0),
-      billedPaise: active.reduce((s, i) => s + i.totalPaise, 0),
-      paidPaise: active.reduce((s, i) => s + i.paidPaise, 0),
-      outstandingPaise: active.reduce((s, i) => s + i.outstandingPaise, 0),
+      subBillCount: active.length,
+      voidedCount: subBills.length - active.length,
+      paidPieces: active.reduce((s, b) => s + b.qty, 0),
+      paidPaise: active.reduce((s, b) => s + b.amountPaise, 0),
     },
   };
 }
 
-// ───────────────────────── Outstanding ─────────────────────────
+// ───────────────────────── To pay ─────────────────────────
 
-export async function outstandingReport(filter: { clientId?: string }) {
-  const rows = (await listInvoices({ clientId: filter.clientId, status: "OPEN" })).sort((a, b) => a.date.localeCompare(b.date));
-  const today = todayUTC().getTime();
-  const withAge = rows.map((r) => ({ ...r, ageDays: Math.max(0, Math.floor((today - new Date(r.date).getTime()) / 86400000)) }));
-  const byClient = new Map<string, { clientId: string; clientName: string; invoices: number; totalPaise: number; paidPaise: number; outstandingPaise: number }>();
+/** Returned OK pieces that haven't been paid for yet, line by line and per job worker. */
+export async function toPayReport(filter: { clientId?: string }) {
+  const rows = await getUnpaid(prisma, { clientId: filter.clientId });
+  const byClient = new Map<string, { clientId: string; clientName: string; jobs: Set<string>; qty: number; valuePaise: number }>();
   for (const r of rows) {
-    const c = byClient.get(r.client.id) ?? { clientId: r.client.id, clientName: r.client.name, invoices: 0, totalPaise: 0, paidPaise: 0, outstandingPaise: 0 };
-    c.invoices++;
-    c.totalPaise += r.totalPaise;
-    c.paidPaise += r.paidPaise;
-    c.outstandingPaise += r.outstandingPaise;
-    byClient.set(r.client.id, c);
+    const c = byClient.get(r.clientId) ?? { clientId: r.clientId, clientName: r.clientName, jobs: new Set<string>(), qty: 0, valuePaise: 0 };
+    c.jobs.add(r.jobId);
+    c.qty += r.unbilledQty;
+    c.valuePaise += r.unbilledValuePaise;
+    byClient.set(r.clientId, c);
   }
   return {
-    rows: withAge,
-    byClient: [...byClient.values()].sort((a, b) => b.outstandingPaise - a.outstandingPaise),
-    totals: {
-      invoices: rows.length,
-      unpaid: rows.filter((r) => r.status === "UNPAID").length,
-      partial: rows.filter((r) => r.status === "PARTIAL").length,
-      totalPaise: rows.reduce((s, r) => s + r.totalPaise, 0),
-      paidPaise: rows.reduce((s, r) => s + r.paidPaise, 0),
-      outstandingPaise: rows.reduce((s, r) => s + r.outstandingPaise, 0),
-    },
+    rows,
+    byClient: [...byClient.values()].map(({ jobs, ...c }) => ({ ...c, jobs: jobs.size })).sort((a, b) => b.valuePaise - a.valuePaise),
+    totals: { jobs: new Set(rows.map((r) => r.jobId)).size, qty: rows.reduce((s, r) => s + r.unbilledQty, 0), valuePaise: rows.reduce((s, r) => s + r.unbilledValuePaise, 0) },
   };
 }
 
@@ -271,16 +254,15 @@ export async function outstandingReport(filter: { clientId?: string }) {
 export async function clientProfile(clientId: string): Promise<ClientSummary> {
   const client = await prisma.client.findUnique({ where: { id: clientId } });
   if (!client) throw notFound("Client");
-  const [jobs, invoices, payments, money, returns] = await Promise.all([
+  const [jobs, subBills, mainBills, money, returns] = await Promise.all([
     loadJobs(prisma, { clientId }),
-    prisma.invoice.findMany({ where: { clientId }, include: invoiceInclude, orderBy: [{ date: "desc" }, { createdAt: "desc" }] }),
-    listPayments({ clientId }),
+    listSubBills({ clientId }),
+    listMainBills({ clientId }),
     moneySummary(prisma, clientId),
     prisma.return.findMany({ where: { job: { clientId } }, include: { lines: true, job: { select: { id: true, jobNumber: true } } } }),
   ]);
   const jobRows = jobs.map((j) => toJobRow(j));
   const all = sumTotals(jobRows.map((r) => r.totals));
-  const invoiceRows = invoices.map(toInvoiceRow);
 
   const timeline: ClientSummary["timeline"] = [];
   for (const j of jobs) {
@@ -293,11 +275,12 @@ export async function clientProfile(clientId: string): Promise<ClientSummary> {
     const qty = r.lines.reduce((s, l) => s + l.okQty + l.damagedQty + l.rejectedQty + l.lostQty, 0);
     timeline.push({ at: r.createdAt.toISOString(), date: r.date.toISOString(), type: r.voidedAt ? "void" : "return", text: `${qty} pcs received on ${r.job.jobNumber}${r.voidedAt ? " (voided)" : ""}`, href: `/jobs/${r.job.id}` });
   }
-  for (const i of invoiceRows) {
-    timeline.push({ at: i.date, date: i.date, type: i.status === "CANCELLED" ? "void" : "invoice", text: `Invoice ${i.invoiceNumber}${i.status === "CANCELLED" ? " (cancelled)" : ""}`, href: `/invoices/${i.id}`, amountPaise: i.totalPaise });
+  for (const b of subBills) {
+    timeline.push({ at: b.date, date: b.date, type: b.voidedAt ? "void" : "payment", text: `Paid ${b.billNumber} on ${b.job.jobNumber}${b.voidedAt ? " (voided)" : ""}`, href: `/bills/sub/${b.id}`, amountPaise: b.amountPaise });
   }
-  for (const p of payments) {
-    timeline.push({ at: p.date, date: p.date, type: p.voidedAt ? "void" : "payment", text: `Payment on ${p.invoice.invoiceNumber}${p.voidedAt ? " (voided)" : ""}`, href: `/invoices/${p.invoice.id}`, amountPaise: p.amountPaise });
+  for (const m of mainBills) {
+    if (m.cancelledAt) continue;
+    timeline.push({ at: m.date, date: m.date, type: "main_bill", text: `Main bill ${m.billNumber} – ${m.job.jobNumber} fully paid`, href: `/bills/main/${m.id}`, amountPaise: m.totalPaise });
   }
   timeline.sort((a, b) => b.date.slice(0, 10).localeCompare(a.date.slice(0, 10)) || b.at.localeCompare(a.at));
 
@@ -314,8 +297,8 @@ export async function clientProfile(clientId: string): Promise<ClientSummary> {
       ...money,
     },
     jobs: jobRows,
-    invoices: invoiceRows,
-    payments,
+    subBills,
+    mainBills,
     timeline,
   };
 }
@@ -324,10 +307,10 @@ export async function clientProfile(clientId: string): Promise<ClientSummary> {
 
 export async function search(q: string): Promise<SearchResults> {
   const term = q.trim();
-  if (!term) return { clients: [], jobs: [], invoices: [], products: [], designs: [] };
+  if (!term) return { clients: [], jobs: [], bills: [], products: [], designs: [] };
   const ci = { contains: term, mode: "insensitive" as const };
   const date = parseSearchDate(term);
-  const [clients, jobs, invoices, products, designs] = await Promise.all([
+  const [clients, jobs, subBills, mainBills, products, designs] = await Promise.all([
     prisma.client.findMany({ where: { OR: [{ name: ci }, { businessName: ci }, { phone: ci }, { gstin: ci }] }, take: 8, orderBy: { name: "asc" } }),
     prisma.job.findMany({
       where: {
@@ -344,11 +327,17 @@ export async function search(q: string): Promise<SearchResults> {
       orderBy: { jobDate: "desc" },
       take: 10,
     }),
-    prisma.invoice.findMany({
-      where: { OR: [{ invoiceNumber: ci }, { client: { name: ci } }, ...(date ? [{ date }] : [])] },
+    prisma.subBill.findMany({
+      where: { OR: [{ billNumber: ci }, { reference: ci }, { client: { name: ci } }, ...(date ? [{ date }] : [])] },
       include: { client: { select: { name: true } } },
       orderBy: { date: "desc" },
-      take: 8,
+      take: 6,
+    }),
+    prisma.mainBill.findMany({
+      where: { OR: [{ billNumber: ci }, { client: { name: ci } }, { job: { jobNumber: ci } }, ...(date ? [{ date }] : [])] },
+      include: { client: { select: { name: true } } },
+      orderBy: { date: "desc" },
+      take: 4,
     }),
     prisma.product.findMany({ where: { OR: [{ name: ci }, { code: ci }] }, take: 5 }),
     prisma.design.findMany({ where: { OR: [{ name: ci }, { code: ci }] }, take: 5 }),
@@ -356,7 +345,10 @@ export async function search(q: string): Promise<SearchResults> {
   return {
     clients: clients.map((c) => ({ id: c.id, name: c.name, sub: c.businessName ?? c.phone })),
     jobs: jobs.map((j) => ({ id: j.id, jobNumber: j.jobNumber, clientName: j.client.name, productName: j.product.name, status: j.status as JobStatus, jobDate: j.jobDate.toISOString() })),
-    invoices: invoices.map((i) => ({ id: i.id, invoiceNumber: i.invoiceNumber, clientName: i.client.name, totalPaise: i.totalPaise, date: i.date.toISOString() })),
+    bills: [
+      ...mainBills.map((m) => ({ id: m.id, kind: "main" as const, billNumber: m.billNumber, clientName: m.client.name, amountPaise: m.totalPaise, date: m.date.toISOString() })),
+      ...subBills.map((b) => ({ id: b.id, kind: "sub" as const, billNumber: b.billNumber, clientName: b.client.name, amountPaise: b.amountPaise, date: b.date.toISOString() })),
+    ],
     products: products.map((p) => ({ id: p.id, name: p.name, code: p.code })),
     designs: designs.map((d) => ({ id: d.id, name: d.name, code: d.code })),
   };

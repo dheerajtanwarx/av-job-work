@@ -1,4 +1,4 @@
-import { JOB_STATUS_LABEL, PAYMENT_STATUS_LABEL, type JobStatus, type PaymentStatus } from "@av/shared";
+import { JOB_STATUS_LABEL, type JobStatus } from "@av/shared";
 import type { ReactNode } from "react";
 import { cn } from "@/lib/utils";
 
@@ -48,12 +48,20 @@ export function JobStatusBadge({ status, overdue }: { status: JobStatus; overdue
   );
 }
 
-const payTone: Record<PaymentStatus, Tone> = { UNPAID: "danger", PARTIAL: "warning", PAID: "success", CANCELLED: "neutral" };
+export type BillState = "paid" | "voided" | "settled" | "cancelled";
 
-export function PaymentStatusBadge({ status }: { status: PaymentStatus }) {
+const billBadge: Record<BillState, { tone: Tone; label: string }> = {
+  paid: { tone: "success", label: "Paid" },
+  voided: { tone: "neutral", label: "Voided" },
+  settled: { tone: "success", label: "Settled" },
+  cancelled: { tone: "neutral", label: "Cancelled" },
+};
+
+export function BillStatusBadge({ state }: { state: BillState }) {
+  const b = billBadge[state];
   return (
-    <Badge tone={payTone[status]} dot className="bg-transparent px-0">
-      {PAYMENT_STATUS_LABEL[status]}
+    <Badge tone={b.tone} dot className="bg-transparent px-0">
+      {b.label}
     </Badge>
   );
 }

@@ -24,18 +24,14 @@ clientsRouter.get("/", async (req, res) => {
   });
   if (req.query.simple === "true") return res.json(clients);
   const ids = clients.map((c) => c.id);
-  const [jobs, invoices] = await Promise.all([
-    loadJobs(prisma, { clientId: { in: ids } }),
-    prisma.invoice.findMany({ where: { clientId: { in: ids }, cancelledAt: null }, select: { clientId: true, totalPaise: true, payments: { select: { amountPaise: true, voidedAt: true } } } }),
-  ]);
-  const stats = new Map(ids.map((id) => [id, { activeJobs: 0, pendingPieces: 0, outstandingPaise: 0 }]));
+  const jobs = await loadJobs(prisma, { clientId: { in: ids } });
+  const stats = new Map(ids.map((id) => [id, { activeJobs: 0, pendingPieces: 0, toPayPaise: 0 }]));
   for (const j of jobs) {
     const s = stats.get(j.clientId)!;
     if (OPEN_JOB_STATUSES.includes(j.status) && j.status !== "DRAFT") s.activeJobs++;
-    s.pendingPieces += sumTotals(summarizeJobItems(j)).pending;
-  }
-  for (const i of invoices) {
-    stats.get(i.clientId)!.outstandingPaise += i.totalPaise - i.payments.filter((p) => !p.voidedAt).reduce((s, p) => s + p.amountPaise, 0);
+    const t = sumTotals(summarizeJobItems(j));
+    s.pendingPieces += t.pending;
+    s.toPayPaise += t.unbilledValuePaise;
   }
   res.json(clients.map((c) => ({ ...c, ...stats.get(c.id) })));
 });

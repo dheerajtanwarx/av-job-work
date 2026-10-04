@@ -173,7 +173,7 @@ function RecordReturn() {
                       <button onClick={() => router.replace(`/returns/new?job=${j.id}`, { scroll: false })} className="flex min-h-12 w-full items-center gap-4 px-4 py-2 text-left transition-colors duration-100 hover:bg-surface-2">
                         <div className="min-w-0 flex-1">
                           <div className="truncate text-[13px]">
-                            <span className="num font-medium">{j.jobNumber}</span>
+                            <span className="font-medium">{j.jobNumber}</span>
                             <span className="text-fg-muted"> · {j.client.name}</span>
                           </div>
                           <div className="num truncate text-xs text-fg-muted">
@@ -212,7 +212,7 @@ function RecordReturn() {
               <div className="min-w-0">
                 <div className="flex flex-wrap items-center gap-x-3">
                   <h2 className="text-[13px] font-semibold">
-                    <span className="num">{job.data.jobNumber}</span> · {job.data.client.name}
+                    {job.data.jobNumber} · {job.data.client.name}
                   </h2>
                   <JobStatusBadge status={job.data.status} />
                 </div>

@@ -128,7 +128,7 @@ function PendingReport() {
                       </Link>
                     </td>
                     <td className="whitespace-nowrap">
-                      <Link href={`/jobs/${r.jobId}`} className="num font-medium hover:text-accent">
+                      <Link href={`/jobs/${r.jobId}`} className="font-medium hover:text-accent">
                         {r.jobNumber}
                       </Link>
                       {r.overdue && <span className="ml-2 text-xs font-medium text-danger">Overdue</span>}
@@ -290,7 +290,7 @@ function BillingReport() {
                 {d.rows.map((r) => (
                   <tr key={r.id} className={cn(r.status === "CANCELLED" && "text-fg-muted")}>
                     <td>
-                      <Link href={`/invoices/${r.id}`} className="num font-medium hover:text-accent">
+                      <Link href={`/invoices/${r.id}`} className="font-medium hover:text-accent">
                         {r.invoiceNumber}
                       </Link>
                     </td>
@@ -356,7 +356,7 @@ function OutstandingReport() {
                   {d.rows.map((r) => (
                     <tr key={r.id}>
                       <td className="whitespace-nowrap">
-                        <Link href={`/invoices/${r.id}`} className="num font-medium hover:text-accent">
+                        <Link href={`/invoices/${r.id}`} className="font-medium hover:text-accent">
                           {r.invoiceNumber}
                         </Link>
                         <div className="num text-xs text-fg-muted">{formatDate(r.date)}</div>

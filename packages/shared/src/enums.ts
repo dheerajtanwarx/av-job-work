@@ -16,9 +16,9 @@ export const BILLING_POLICIES = ["AFTER_EACH_RETURN", "ON_COMPLETION", "MANUAL"]
 export type BillingPolicy = (typeof BILLING_POLICIES)[number];
 
 export const BILLING_POLICY_LABEL: Record<BillingPolicy, string> = {
-  AFTER_EACH_RETURN: "Bill after each return",
-  ON_COMPLETION: "Bill when the whole job is complete",
-  MANUAL: "I'll decide when to bill",
+  AFTER_EACH_RETURN: "Pay after each return",
+  ON_COMPLETION: "Pay when the whole job is complete",
+  MANUAL: "I'll decide when to pay",
 };
 
 export const DISPATCH_KINDS = ["INITIAL", "REWORK"] as const;
@@ -33,14 +33,4 @@ export const PAYMENT_METHOD_LABEL: Record<PaymentMethod, string> = {
   BANK: "Bank transfer",
   CHEQUE: "Cheque",
   OTHER: "Other",
-};
-
-export const PAYMENT_STATUSES = ["UNPAID", "PARTIAL", "PAID", "CANCELLED"] as const;
-export type PaymentStatus = (typeof PAYMENT_STATUSES)[number];
-
-export const PAYMENT_STATUS_LABEL: Record<PaymentStatus, string> = {
-  UNPAID: "Unpaid",
-  PARTIAL: "Partially paid",
-  PAID: "Paid",
-  CANCELLED: "Cancelled",
 };

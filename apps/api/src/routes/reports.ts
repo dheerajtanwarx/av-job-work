@@ -1,9 +1,9 @@
-import { formatDate, JOB_STATUS_LABEL, PAYMENT_STATUS_LABEL } from "@av/shared";
+import { formatDate, JOB_STATUS_LABEL, PAYMENT_METHOD_LABEL } from "@av/shared";
 import { Router } from "express";
 import { rupees, sendCsv } from "../lib/csv.js";
 import { toDate } from "../lib/dates.js";
 import { str } from "../lib/http.js";
-import { billingReport, clientSummaryReport, getDashboard, outstandingReport, pendingMaterial, search } from "../services/reports.js";
+import { clientSummaryReport, getDashboard, paymentsReport, pendingMaterial, search, toPayReport } from "../services/reports.js";
 
 const dateQ = (v: unknown) => (str(v) ? toDate(str(v)!) : undefined);
 const wantsCsv = (q: unknown) => q === "csv";
@@ -22,7 +22,7 @@ reportsRouter.get("/reports/pending-material", async (req, res) => {
   const data = await pendingMaterial({ clientId: str(req.query.clientId), designId: str(req.query.designId), onlyPending: req.query.onlyPending === "true" });
   if (!wantsCsv(req.query.format)) return res.json(data);
   sendCsv(res, "pending-material.csv", data.rows, [
-    { header: "Client", value: (r) => r.clientName },
+    { header: "Job worker", value: (r) => r.clientName },
     { header: "Job", value: (r) => r.jobNumber },
     { header: "Status", value: (r) => JOB_STATUS_LABEL[r.jobStatus] },
     { header: "Job date", value: (r) => formatDate(r.jobDate) },
@@ -41,46 +41,48 @@ reportsRouter.get("/reports/client-summary", async (req, res) => {
   const data = await clientSummaryReport({ includeInactive: req.query.includeInactive === "true" });
   if (!wantsCsv(req.query.format)) return res.json(data);
   sendCsv(res, "client-summary.csv", data.rows, [
-    { header: "Client", value: (r) => r.clientName },
+    { header: "Job worker", value: (r) => r.clientName },
     { header: "Jobs", value: (r) => r.jobs },
     { header: "Pieces sent", value: (r) => r.sent },
     { header: "Pieces received", value: (r) => r.received },
     { header: "Damaged/Rejected/Lost", value: (r) => r.exceptions },
     { header: "Pending pieces", value: (r) => r.pending },
-    { header: "Billed (Rs)", value: (r) => rupees(r.billedPaise) },
+    { header: "Work completed (Rs)", value: (r) => rupees(r.completedValuePaise) },
     { header: "Paid (Rs)", value: (r) => rupees(r.paidPaise) },
-    { header: "Outstanding (Rs)", value: (r) => rupees(r.outstandingPaise) },
-    { header: "Not yet billed (Rs)", value: (r) => rupees(r.unbilledPaise) },
+    { header: "To pay (Rs)", value: (r) => rupees(r.toPayPaise) },
   ]);
 });
 
-reportsRouter.get("/reports/billing", async (req, res) => {
-  const data = await billingReport({ from: dateQ(req.query.from), to: dateQ(req.query.to), clientId: str(req.query.clientId) });
+reportsRouter.get("/reports/payments", async (req, res) => {
+  const data = await paymentsReport({ from: dateQ(req.query.from), to: dateQ(req.query.to), clientId: str(req.query.clientId) });
   if (!wantsCsv(req.query.format)) return res.json(data);
-  sendCsv(res, "billing.csv", data.rows, [
-    { header: "Invoice", value: (r) => r.invoiceNumber },
+  sendCsv(res, "payments.csv", data.rows, [
+    { header: "Sub bill", value: (r) => r.billNumber },
     { header: "Date", value: (r) => formatDate(r.date) },
-    { header: "Client", value: (r) => r.client.name },
-    { header: "Jobs", value: (r) => r.jobNumbers.join(" ") },
+    { header: "Job worker", value: (r) => r.client.name },
+    { header: "Job", value: (r) => r.job.jobNumber },
+    { header: "Product", value: (r) => r.job.productName },
     { header: "Pieces", value: (r) => r.qty },
-    { header: "Total (Rs)", value: (r) => rupees(r.totalPaise) },
-    { header: "Paid (Rs)", value: (r) => rupees(r.paidPaise) },
-    { header: "Outstanding (Rs)", value: (r) => rupees(r.outstandingPaise) },
-    { header: "Status", value: (r) => PAYMENT_STATUS_LABEL[r.status] },
+    { header: "Amount (Rs)", value: (r) => rupees(r.amountPaise) },
+    { header: "Method", value: (r) => PAYMENT_METHOD_LABEL[r.method] },
+    { header: "Reference", value: (r) => r.reference ?? "" },
+    { header: "Status", value: (r) => (r.voidedAt ? "Voided" : "Paid") },
   ]);
 });
 
-reportsRouter.get("/reports/outstanding", async (req, res) => {
-  const data = await outstandingReport({ clientId: str(req.query.clientId) });
+reportsRouter.get("/reports/to-pay", async (req, res) => {
+  const data = await toPayReport({ clientId: str(req.query.clientId) });
   if (!wantsCsv(req.query.format)) return res.json(data);
-  sendCsv(res, "outstanding.csv", data.rows, [
-    { header: "Invoice", value: (r) => r.invoiceNumber },
-    { header: "Date", value: (r) => formatDate(r.date) },
-    { header: "Days", value: (r) => r.ageDays },
-    { header: "Client", value: (r) => r.client.name },
-    { header: "Total (Rs)", value: (r) => rupees(r.totalPaise) },
-    { header: "Paid (Rs)", value: (r) => rupees(r.paidPaise) },
-    { header: "Outstanding (Rs)", value: (r) => rupees(r.outstandingPaise) },
-    { header: "Status", value: (r) => PAYMENT_STATUS_LABEL[r.status] },
+  sendCsv(res, "to-pay.csv", data.rows, [
+    { header: "Job worker", value: (r) => r.clientName },
+    { header: "Job", value: (r) => r.jobNumber },
+    { header: "Status", value: (r) => JOB_STATUS_LABEL[r.jobStatus] },
+    { header: "Product", value: (r) => r.productName },
+    { header: "Design", value: (r) => r.designName },
+    { header: "Rate (Rs)", value: (r) => rupees(r.ratePaise) },
+    { header: "Received OK", value: (r) => r.ok },
+    { header: "Paid pieces", value: (r) => r.billedQty },
+    { header: "To pay pieces", value: (r) => r.unbilledQty },
+    { header: "To pay (Rs)", value: (r) => rupees(r.unbilledValuePaise) },
   ]);
 });

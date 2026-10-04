@@ -105,7 +105,7 @@ function Event({ e, onVoid }: { e: TimelineEvent; onVoid?: (e: Extract<TimelineE
       title = e.text;
   }
   return (
-    <div className={cn("group relative mb-4 last:mb-0", struck && "text-fg-faint")}>
+    <div className={cn("group relative mb-4 max-w-xl last:mb-0", struck && "text-fg-faint")}>
       <span className={cn("absolute top-0 -left-[30.5px] grid size-5 place-items-center rounded-full bg-surface ring-1 ring-border", tint[e.type])}>
         <Icon className="size-3" strokeWidth={2} />
       </span>
@@ -126,7 +126,7 @@ function Event({ e, onVoid }: { e: TimelineEvent; onVoid?: (e: Extract<TimelineE
 
 function Breakdown({ rows }: { rows: [ReactNode, ReactNode][] }) {
   return (
-    <ul className="mt-1 max-w-sm space-y-px text-xs">
+    <ul className="mt-1 max-w-xs space-y-px text-xs">
       {rows.map(([a, b], i) => (
         <li key={i} className="flex gap-3">
           <span className="min-w-0 flex-1 truncate text-fg-muted">{a}</span>

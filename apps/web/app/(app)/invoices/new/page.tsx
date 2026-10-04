@@ -128,7 +128,7 @@ function NewInvoice() {
                           <td colSpan={6} className="h-8! bg-surface-2/60 py-1!">
                             <span className="inline-flex items-center gap-3">
                               <span>
-                                <span className="num font-medium">{g[0].jobNumber}</span> <span className="text-fg-muted">· {g[0].productName}</span>
+                                <span className="font-medium">{g[0].jobNumber}</span> <span className="text-fg-muted">· {g[0].productName}</span>
                               </span>
                               <JobStatusBadge status={g[0].jobStatus} />
                             </span>
