@@ -11,7 +11,7 @@ import { loadJobs, summarizeJobItems } from "../src/services/jobs.js";
  * then challan_v2 – and checks that old data keeps its meaning.
  */
 const MIGRATIONS = path.resolve(import.meta.dirname, "../../../packages/db/prisma/migrations");
-const DB_NAME = "av_erp_migration_test";
+const DB_NAME = `${new URL(process.env.TEST_DATABASE_URL!).pathname.slice(1)}_migration`;
 const V2 = "20261004170000_challan_v2";
 
 function statements(file: string) {

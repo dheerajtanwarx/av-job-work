@@ -9,6 +9,8 @@ import { authRouter } from "./routes/auth.js";
 import { billingRouter } from "./routes/billing.js";
 import { entriesRouter, jobsRouter } from "./routes/jobs.js";
 import { clientsRouter, designsRouter, jobWorkTypesRouter, materialsRouter, productsRouter, stockRouter } from "./routes/masters.js";
+import { photosRouter } from "./routes/photos.js";
+import { publicRouter } from "./routes/public.js";
 import { reportsRouter } from "./routes/reports.js";
 
 export function createApp() {
@@ -23,6 +25,7 @@ export function createApp() {
     res.json({ ok: true });
   });
   app.use("/auth", authRouter);
+  app.use("/public", publicRouter);
 
   app.use(requireAuth);
   app.use(blockViewersFromWriting);
@@ -32,6 +35,7 @@ export function createApp() {
   app.use("/designs", designsRouter);
   app.use("/materials", materialsRouter);
   app.use("/", stockRouter);
+  app.use("/", photosRouter);
   app.use("/jobs", jobsRouter);
   app.use("/", entriesRouter);
   app.use("/", billingRouter);
