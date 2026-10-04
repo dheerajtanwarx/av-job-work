@@ -82,7 +82,7 @@ function NewSubBill() {
         lines: chosen.map((c) => ({ jobItemId: c.jobItemId, qty: c.qty })),
       }),
     onSuccess: (b) => {
-      qc.invalidateQueries();
+      qc.invalidateQueries({ refetchType: "none" }); // mark stale without re-rendering this form as "nothing to pay" before we navigate away
       toast.success(
         b.mainBill && !b.mainBill.cancelled
           ? `${b.billNumber} saved. ${b.job.jobNumber} is fully paid, main bill ${b.mainBill.billNumber} issued.`

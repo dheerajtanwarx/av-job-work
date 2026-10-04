@@ -39,7 +39,7 @@ async function payAll(page: Page, amount: string) {
   await expect(page.getByText(amount).last()).toBeVisible();
   await page.getByRole("radio", { name: "UPI" }).click();
   await page.getByRole("button", { name: "Save sub bill" }).click();
-  await expect(page.getByText("Payment voucher")).toBeVisible();
+  await expect(page.getByText("Payment voucher")).toBeVisible({ timeout: 30_000 }); // first visit compiles the page in dev
   await expect(page.getByText("Amount paid").last().locator("..")).toContainText(amount);
 }
 
