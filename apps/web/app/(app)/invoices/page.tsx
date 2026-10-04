@@ -9,8 +9,9 @@ import { Suspense, useEffect, useState } from "react";
 import { InvoicesTable } from "@/components/billing/invoices-table";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { Input, Select } from "@/components/ui/input";
-import { EmptyState, ErrorBlock, LoadingBlock, PageHeader, Stat } from "@/components/ui/misc";
+import { Select } from "@/components/ui/input";
+import { DateRange, SearchInput, Toolbar } from "@/components/ui/toolbar";
+import { EmptyState, ErrorBlock, LoadingBlock, Metric, MetricStrip, PageHeader } from "@/components/ui/misc";
 import { api, qs } from "@/lib/api";
 import { useClients } from "@/lib/queries";
 
@@ -34,45 +35,88 @@ function InvoiceList() {
   const active = (list.data ?? []).filter((i) => i.status !== "CANCELLED");
   const sum = (k: "totalPaise" | "paidPaise" | "outstandingPaise") => active.reduce((s, i) => s + i[k], 0);
 
+  const clear = () => {
+    setQ("");
+    router.replace(path);
+  };
+
   return (
     <>
-      <PageHeader title="Invoices" subtitle="Bills for completed work." actions={<Button asChild><Link href="/invoices/new"><Plus /> New invoice</Link></Button>} />
-      <div className="mb-4 flex flex-wrap gap-2">
-        <div className="relative min-w-56 flex-1 sm:max-w-xs">
-          <Search className="absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted" />
-          <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Invoice no., client, job…" className="pl-9" />
-        </div>
-        <Select value={filters.status} onChange={(e) => setFilter({ status: e.target.value })} className="w-48" aria-label="Payment status">
-          <option value="">All payment statuses</option>
-          <option value="OPEN">Unpaid + partially paid</option>
-          {PAYMENT_STATUSES.map((s) => <option key={s} value={s}>{PAYMENT_STATUS_LABEL[s]}</option>)}
-        </Select>
-        <Select value={filters.clientId} onChange={(e) => setFilter({ clientId: e.target.value })} className="w-48" aria-label="Client">
-          <option value="">All clients</option>
-          {clients.data?.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-        </Select>
-        <Input type="date" value={filters.from} onChange={(e) => setFilter({ from: e.target.value })} className="w-40" aria-label="From date" />
-        <Input type="date" value={filters.to} onChange={(e) => setFilter({ to: e.target.value })} className="w-40" aria-label="To date" />
-        {anyFilter && <Button variant="ghost" onClick={() => { setQ(""); router.replace(path); }}><X /> Clear</Button>}
-      </div>
+      <PageHeader
+        title="Invoices"
+        subtitle="Bills for completed work."
+        actions={
+          <Button asChild>
+            <Link href="/invoices/new">
+              <Plus /> New invoice
+            </Link>
+          </Button>
+        }
+      />
       {list.data && list.data.length > 0 && (
-        <Card className="mb-4 grid grid-cols-3 gap-4 p-5">
-          <Stat label="Billed" value={formatINR(sum("totalPaise"))} />
-          <Stat label="Received" value={formatINR(sum("paidPaise"))} tone="leaf" />
-          <Stat label="Outstanding" value={formatINR(sum("outstandingPaise"))} tone={sum("outstandingPaise") ? "madder" : "muted"} />
-        </Card>
+        <MetricStrip className="mb-6 grid-cols-3">
+          <Metric label="Billed" value={formatINR(sum("totalPaise"))} />
+          <Metric label="Received" value={formatINR(sum("paidPaise"))} />
+          <Metric label="Outstanding" value={formatINR(sum("outstandingPaise"))} tone={sum("outstandingPaise") ? "danger" : "fg"} />
+        </MetricStrip>
       )}
-      <Card>
+      <Toolbar>
+        <SearchInput value={q} onChange={setQ} placeholder="Invoice no., client, job…" label="Search invoices" />
+        <Select value={filters.status} onChange={(e) => setFilter({ status: e.target.value })} className="w-[calc(50%-4px)] sm:w-44" aria-label="Payment status">
+          <option value="">All statuses</option>
+          <option value="OPEN">Unpaid + partially paid</option>
+          {PAYMENT_STATUSES.map((s) => (
+            <option key={s} value={s}>
+              {PAYMENT_STATUS_LABEL[s]}
+            </option>
+          ))}
+        </Select>
+        <Select value={filters.clientId} onChange={(e) => setFilter({ clientId: e.target.value })} className="w-[calc(50%-4px)] sm:w-44" aria-label="Client">
+          <option value="">All clients</option>
+          {clients.data?.map((c) => (
+            <option key={c.id} value={c.id}>
+              {c.name}
+            </option>
+          ))}
+        </Select>
+        <DateRange from={filters.from} to={filters.to} onFrom={(from) => setFilter({ from })} onTo={(to) => setFilter({ to })} />
+        {anyFilter && (
+          <Button variant="ghost" onClick={clear}>
+            <X /> Clear
+          </Button>
+        )}
+      </Toolbar>
+      <Card className="overflow-hidden">
         {list.isPending ? (
-          <LoadingBlock />
+          <LoadingBlock rows={6} />
         ) : list.isError ? (
-          <div className="p-5"><ErrorBlock error={list.error} /></div>
+          <div className="p-4">
+            <ErrorBlock error={list.error} onRetry={() => list.refetch()} />
+          </div>
         ) : list.data.length === 0 ? (
-          <EmptyState icon={ReceiptText} title={anyFilter ? "No invoices match" : "No invoices yet"} action={!anyFilter && <Button asChild><Link href="/invoices/new"><Plus /> Create an invoice</Link></Button>}>
-            {anyFilter ? "Try clearing some filters." : "When pieces come back, their work becomes ready to bill."}
+          <EmptyState
+            icon={anyFilter ? Search : ReceiptText}
+            title={anyFilter ? "No matching invoices" : "No invoices yet"}
+            action={
+              anyFilter ? (
+                <Button variant="secondary" onClick={clear}>
+                  Clear filters
+                </Button>
+              ) : (
+                <Button asChild>
+                  <Link href="/invoices/new">
+                    <Plus /> New invoice
+                  </Link>
+                </Button>
+              )
+            }
+          >
+            {!anyFilter && "Work becomes billable as pieces come back."}
           </EmptyState>
         ) : (
-          <InvoicesTable rows={list.data} />
+          <div className={list.isPlaceholderData ? "opacity-60 transition-opacity" : "transition-opacity"}>
+            <InvoicesTable rows={list.data} />
+          </div>
         )}
       </Card>
     </>

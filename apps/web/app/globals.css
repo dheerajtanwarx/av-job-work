@@ -112,6 +112,24 @@
   }
 }
 
+/* A document surface that always reads as paper (the invoice sheet), regardless of theme. */
+.sheet {
+  color-scheme: light;
+  --surface: #ffffff;
+  --surface-2: #f6f6f4;
+  --border: rgb(24 24 20 / 0.1);
+  --border-strong: rgb(24 24 20 / 0.18);
+  --fg: #18181b;
+  --fg-2: #3f3f46;
+  --fg-muted: #6e6e76;
+  --fg-faint: #a1a1a8;
+  --accent: #3b4ba8;
+  --success: #1d7a4b;
+  --danger: #c0352a;
+  background: var(--surface);
+  color: var(--fg);
+}
+
 @layer base {
   html {
     -webkit-text-size-adjust: 100%;

@@ -1,9 +1,11 @@
 "use client";
 
 import { formatDate, formatINR, formatQty, type InvoiceListRow } from "@av/shared";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { PaymentStatusBadge } from "@/components/ui/badge";
 import { TableWrap } from "@/components/ui/card";
+import { cn } from "@/lib/utils";
 
 export function InvoicesTable({ rows, hideClient }: { rows: InvoiceListRow[]; hideClient?: boolean }) {
   const router = useRouter();
@@ -24,18 +26,22 @@ export function InvoicesTable({ rows, hideClient }: { rows: InvoiceListRow[]; hi
         </thead>
         <tbody>
           {rows.map((i) => (
-            <tr key={i.id} className="row-link" onClick={() => router.push(`/invoices/${i.id}`)}>
+            <tr key={i.id} className={cn("row-link", i.status === "CANCELLED" && "text-fg-muted")} onClick={() => router.push(`/invoices/${i.id}`)}>
               <td className="whitespace-nowrap">
-                <div className="font-semibold text-indigo">{i.invoiceNumber}</div>
-                <div className="text-sm text-muted">{formatDate(i.date)}</div>
+                <Link href={`/invoices/${i.id}`} className="num font-medium text-fg hover:text-accent" onClick={(e) => e.stopPropagation()}>
+                  {i.invoiceNumber}
+                </Link>
+                <div className="num text-xs text-fg-muted">{formatDate(i.date)}</div>
               </td>
-              {!hideClient && <td className="font-medium">{i.client.name}</td>}
-              <td className="text-sm text-muted">{i.jobNumbers.join(", ")}</td>
-              <td className="r num">{formatQty(i.qty)}</td>
-              <td className="r num font-semibold">{formatINR(i.totalPaise)}</td>
-              <td className="r num text-leaf">{i.paidPaise ? formatINR(i.paidPaise) : "—"}</td>
-              <td className="r num">{i.outstandingPaise > 0 ? <span className="font-bold text-madder">{formatINR(i.outstandingPaise)}</span> : <span className="text-faint">—</span>}</td>
-              <td><PaymentStatusBadge status={i.status} /></td>
+              {!hideClient && <td className="max-w-56 truncate">{i.client.name}</td>}
+              <td className="num max-w-48 truncate text-xs text-fg-muted">{i.jobNumbers.join(", ")}</td>
+              <td className="r">{formatQty(i.qty)}</td>
+              <td className="r font-medium">{formatINR(i.totalPaise)}</td>
+              <td className="r">{i.paidPaise ? formatINR(i.paidPaise) : <span className="text-fg-faint">—</span>}</td>
+              <td className="r">{i.outstandingPaise > 0 ? <span className="font-medium text-danger">{formatINR(i.outstandingPaise)}</span> : <span className="text-fg-faint">—</span>}</td>
+              <td className="whitespace-nowrap">
+                <PaymentStatusBadge status={i.status} />
+              </td>
             </tr>
           ))}
         </tbody>

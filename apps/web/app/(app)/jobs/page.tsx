@@ -9,7 +9,8 @@ import { Suspense, useEffect, useState } from "react";
 import { JobsTable } from "@/components/jobs/jobs-table";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { Input, Select } from "@/components/ui/input";
+import { Select } from "@/components/ui/input";
+import { DateRange, SearchInput, Toolbar } from "@/components/ui/toolbar";
 import { EmptyState, ErrorBlock, LoadingBlock, PageHeader } from "@/components/ui/misc";
 import { api, qs } from "@/lib/api";
 import { useClients, useDesigns, useProducts } from "@/lib/queries";
@@ -59,11 +60,8 @@ function JobsList() {
           </Button>
         }
       />
-      <div className="mb-3 flex flex-wrap items-center gap-2">
-        <div className="relative w-full sm:w-64">
-          <Search className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-fg-muted" />
-          <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Job no., client, design…" className="pl-8" aria-label="Search jobs" />
-        </div>
+      <Toolbar>
+        <SearchInput value={q} onChange={setQ} placeholder="Job no., client, design…" label="Search jobs" />
         <Select value={filters.status} onChange={(e) => setFilter({ status: e.target.value })} className="w-[calc(50%-4px)] sm:w-44" aria-label="Status">
           <option value="">All statuses</option>
           <option value="open">Open (not completed)</option>
@@ -83,20 +81,14 @@ function JobsList() {
             </option>
           ))}
         </Select>
-        <div className="flex w-full items-center rounded-md border border-border-strong bg-surface shadow-xs sm:w-auto focus-within:border-accent focus-within:ring-[3px] focus-within:ring-accent/15 [&_input]:border-0 [&_input]:shadow-none [&_input]:focus:ring-0">
-          <Input type="date" value={filters.from} onChange={(e) => setFilter({ from: e.target.value })} className="h-[30px] w-full sm:w-[132px]" aria-label="From date" title="From" />
-          <span className="text-xs text-fg-faint" aria-hidden>
-            –
-          </span>
-          <Input type="date" value={filters.to} onChange={(e) => setFilter({ to: e.target.value })} className="h-[30px] w-full sm:w-[132px]" aria-label="To date" title="To" />
-        </div>
+        <DateRange from={filters.from} to={filters.to} onFrom={(from) => setFilter({ from })} onTo={(to) => setFilter({ to })} />
         {anyFilter && (
           <Button variant="ghost" onClick={clear}>
             <X /> Clear
           </Button>
         )}
         {list.data && list.data.length > 0 && <span className="num ml-auto hidden text-xs text-fg-muted sm:inline">{list.data.length} jobs</span>}
-      </div>
+      </Toolbar>
       {(design || product) && (
         <div className="mb-3 flex items-center gap-2 text-[13px] text-fg-muted">
           Showing jobs with
