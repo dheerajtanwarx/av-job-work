@@ -6,7 +6,6 @@ import {
   paymentStatus,
   sumTotals,
   summarizeItem,
-  type DispatchCreateInput,
   type JobDetail,
   type JobItemView,
   type JobListRow,
@@ -541,4 +540,3 @@ function lastActivityDate(returns: { date: Date; voidedAt: Date | null }[], disp
   return dates.length ? new Date(Math.max(...dates)).toISOString() : null;
 }
 
-export type { DispatchCreateInput };
