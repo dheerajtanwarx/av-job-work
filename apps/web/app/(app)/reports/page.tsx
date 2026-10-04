@@ -1,12 +1,12 @@
 "use client";
 
-import { formatDate, formatINR, formatQty, type InvoiceListRow, type JobStatus } from "@av/shared";
+import { formatDate, formatINR, formatQty, PAYMENT_METHOD_LABEL, type JobStatus, type SubBillRow, type UnpaidLine } from "@av/shared";
 import { useQuery } from "@tanstack/react-query";
 import { Download, PackageCheck, ReceiptText, Wallet } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useState } from "react";
-import { PaymentStatusBadge } from "@/components/ui/badge";
+import { BillStatusBadge, JobStatusBadge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, TableWrap } from "@/components/ui/card";
 import { Select } from "@/components/ui/input";
@@ -20,8 +20,8 @@ import { cn } from "@/lib/utils";
 const TABS = [
   { id: "pending", label: "Pending material" },
   { id: "clients", label: "Client summary" },
-  { id: "billing", label: "Billing" },
-  { id: "outstanding", label: "Outstanding" },
+  { id: "payments", label: "Payments" },
+  { id: "to-pay", label: "To pay" },
 ] as const;
 type Tab = (typeof TABS)[number]["id"];
 
@@ -164,7 +164,7 @@ function PendingReport() {
 }
 
 // ───────── Client summary ─────────
-interface ClientRow { clientId: string; clientName: string; jobs: number; activeJobs: number; sent: number; received: number; exceptions: number; pending: number; completedValuePaise: number; unbilledPaise: number; billedPaise: number; paidPaise: number; outstandingPaise: number }
+interface ClientRow { clientId: string; clientName: string; jobs: number; activeJobs: number; sent: number; received: number; exceptions: number; pending: number; completedValuePaise: number; paidPaise: number; toPayPaise: number }
 
 function ClientsReport() {
   const [all, setAll] = useState(false);
@@ -189,9 +189,9 @@ function ClientsReport() {
                   <th className="r">Sent</th>
                   <th className="r">Received</th>
                   <th className="r">Pending</th>
-                  <th className="r">Billed</th>
+                  <th className="r">Work done</th>
                   <th className="r">Paid</th>
-                  <th className="r">Outstanding</th>
+                  <th className="r">To pay</th>
                 </tr>
               </thead>
               <tbody>
@@ -201,7 +201,6 @@ function ClientsReport() {
                       <Link href={`/clients/${r.clientId}`} className="block truncate font-medium hover:text-accent">
                         {r.clientName}
                       </Link>
-                      {r.unbilledPaise > 0 && <div className="num text-xs text-fg-muted">{formatINR(r.unbilledPaise)} not billed</div>}
                     </td>
                     <td className="r">
                       {r.jobs}
@@ -213,9 +212,9 @@ function ClientsReport() {
                       {r.exceptions > 0 && <div className="text-xs text-danger">+{r.exceptions} issues</div>}
                     </td>
                     <td className="r">{r.pending ? <span className="font-medium text-warning">{formatQty(r.pending)}</span> : <span className="text-fg-muted">0</span>}</td>
-                    <td className="r">{formatINR(r.billedPaise)}</td>
+                    <td className="r">{formatINR(r.completedValuePaise)}</td>
                     <td className="r">{formatINR(r.paidPaise)}</td>
-                    <td className="r">{r.outstandingPaise ? <span className="font-medium text-danger">{formatINR(r.outstandingPaise)}</span> : dash}</td>
+                    <td className="r">{r.toPayPaise ? <span className="font-medium text-danger">{formatINR(r.toPayPaise)}</span> : dash}</td>
                   </tr>
                 ))}
               </tbody>
@@ -226,9 +225,9 @@ function ClientsReport() {
                   <td className="r">{formatQty(d.totals.sent)}</td>
                   <td className="r">{formatQty(d.totals.received)}</td>
                   <td className="r">{formatQty(d.totals.pending)}</td>
-                  <td className="r">{formatINR(d.totals.billedPaise)}</td>
+                  <td className="r">{formatINR(d.totals.completedValuePaise)}</td>
                   <td className="r">{formatINR(d.totals.paidPaise)}</td>
-                  <td className="r">{formatINR(d.totals.outstandingPaise)}</td>
+                  <td className="r">{formatINR(d.totals.toPayPaise)}</td>
                 </tr>
               </tfoot>
             </table>
@@ -239,20 +238,20 @@ function ClientsReport() {
   );
 }
 
-// ───────── Billing ─────────
+// ───────── Payments ─────────
 function monthStart() {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-01`;
 }
 
-function BillingReport() {
+function PaymentsReport() {
   const [from, setFrom] = useState(monthStart());
   const [to, setTo] = useState("");
   const [clientId, setClientId] = useState("");
-  const path = `/reports/billing${qs({ from, to, clientId })}`;
+  const path = `/reports/payments${qs({ from, to, clientId })}`;
   const q = useQuery({
     queryKey: ["report", path],
-    queryFn: () => api.get<{ rows: InvoiceListRow[]; summary: { completedPieces: number; completedValuePaise: number; invoiceCount: number; cancelledCount: number; billedPieces: number; billedPaise: number; paidPaise: number; outstandingPaise: number } }>(path),
+    queryFn: () => api.get<{ rows: SubBillRow[]; summary: { completedPieces: number; completedValuePaise: number; subBillCount: number; voidedCount: number; paidPieces: number; paidPaise: number } }>(path),
   });
   const s = q.data?.summary;
   return (
@@ -263,45 +262,48 @@ function BillingReport() {
         <Csv path={path} />
       </Toolbar>
       {s && (
-        <MetricStrip className="mb-4 grid-cols-2 lg:grid-cols-4">
-          <Metric label="Pieces completed" value={formatQty(s.completedPieces)} sub={`Worth ${formatINR(s.completedValuePaise)}`} />
-          <Metric label="Invoices" value={formatQty(s.invoiceCount)} sub={`${formatQty(s.billedPieces)} pieces${s.cancelledCount ? ` · ${s.cancelledCount} cancelled` : ""}`} />
-          <Metric label="Total billed" value={formatINR(s.billedPaise)} sub={`${formatINR(s.paidPaise)} received`} />
-          <Metric label="Outstanding" value={formatINR(s.outstandingPaise)} tone={s.outstandingPaise ? "danger" : "fg"} />
+        <MetricStrip className="mb-4 grid-cols-3">
+          <Metric label="Pieces returned OK" value={formatQty(s.completedPieces)} sub={`Worth ${formatINR(s.completedValuePaise)}`} />
+          <Metric label="Sub bills" value={formatQty(s.subBillCount)} sub={`${formatQty(s.paidPieces)} pieces${s.voidedCount ? ` · ${s.voidedCount} voided` : ""}`} />
+          <Metric label="Total paid" value={formatINR(s.paidPaise)} />
         </MetricStrip>
       )}
-      <ReportBody q={q} empty={(d) => d.rows.length === 0 && <EmptyState icon={ReceiptText} title="No invoices in this period" />}>
+      <ReportBody q={q} empty={(d) => d.rows.length === 0 && <EmptyState icon={ReceiptText} title="No payments in this period" />}>
         {(d) => (
           <TableWrap>
             <table className="ledger">
               <thead>
                 <tr>
-                  <th>Invoice</th>
+                  <th>Sub bill</th>
                   <th>Date</th>
-                  <th>Client</th>
+                  <th>Job worker</th>
+                  <th>Job</th>
                   <th className="r">Pieces</th>
-                  <th className="r">Total</th>
-                  <th className="r">Paid</th>
-                  <th className="r">Outstanding</th>
+                  <th className="r">Amount</th>
+                  <th>Paid by</th>
                   <th>Status</th>
                 </tr>
               </thead>
               <tbody>
                 {d.rows.map((r) => (
-                  <tr key={r.id} className={cn(r.status === "CANCELLED" && "text-fg-muted")}>
+                  <tr key={r.id} className={cn(r.voidedAt && "text-fg-muted")}>
                     <td>
-                      <Link href={`/invoices/${r.id}`} className="font-medium hover:text-accent">
-                        {r.invoiceNumber}
+                      <Link href={`/bills/sub/${r.id}`} className="font-medium hover:text-accent">
+                        {r.billNumber}
                       </Link>
                     </td>
                     <td className="num whitespace-nowrap text-fg-2">{formatDate(r.date)}</td>
                     <td className="max-w-48 truncate">{r.client.name}</td>
-                    <td className="r">{formatQty(r.qty)}</td>
-                    <td className="r font-medium">{formatINR(r.totalPaise)}</td>
-                    <td className="r">{formatINR(r.paidPaise)}</td>
-                    <td className="r">{r.outstandingPaise ? formatINR(r.outstandingPaise) : dash}</td>
                     <td className="whitespace-nowrap">
-                      <PaymentStatusBadge status={r.status} />
+                      <Link href={`/jobs/${r.job.id}`} className="hover:text-accent">
+                        {r.job.jobNumber}
+                      </Link>
+                    </td>
+                    <td className="r">{formatQty(r.qty)}</td>
+                    <td className={cn("r font-medium", r.voidedAt && "line-through decoration-fg-faint")}>{formatINR(r.amountPaise)}</td>
+                    <td className="whitespace-nowrap text-fg-2">{PAYMENT_METHOD_LABEL[r.method]}</td>
+                    <td className="whitespace-nowrap">
+                      <BillStatusBadge state={r.voidedAt ? "voided" : "paid"} />
                     </td>
                   </tr>
                 ))}
@@ -314,13 +316,14 @@ function BillingReport() {
   );
 }
 
-// ───────── Outstanding ─────────
-function OutstandingReport() {
+// ───────── To pay ─────────
+function ToPayReport() {
   const [clientId, setClientId] = useState("");
-  const path = `/reports/outstanding${qs({ clientId })}`;
+  const path = `/reports/to-pay${qs({ clientId })}`;
   const q = useQuery({
     queryKey: ["report", path],
-    queryFn: () => api.get<{ rows: (InvoiceListRow & { ageDays: number })[]; byClient: { clientId: string; clientName: string; invoices: number; outstandingPaise: number }[]; totals: { invoices: number; unpaid: number; partial: number; outstandingPaise: number; totalPaise: number; paidPaise: number } }>(path),
+    queryFn: () =>
+      api.get<{ rows: UnpaidLine[]; byClient: { clientId: string; clientName: string; jobs: number; qty: number; valuePaise: number }[]; totals: { jobs: number; qty: number; valuePaise: number } }>(path),
   });
   const t = q.data?.totals;
   return (
@@ -331,43 +334,54 @@ function OutstandingReport() {
       </Toolbar>
       {t && (
         <MetricStrip className="mb-4 grid-cols-3">
-          <Metric label="Outstanding" value={formatINR(t.outstandingPaise)} tone={t.outstandingPaise ? "danger" : "fg"} />
-          <Metric label="Unpaid invoices" value={formatQty(t.unpaid)} />
-          <Metric label="Partially paid" value={formatQty(t.partial)} />
+          <Metric label="To pay" value={formatINR(t.valuePaise)} tone={t.valuePaise ? "danger" : "fg"} />
+          <Metric label="Pieces" value={formatQty(t.qty)} sub="Returned OK, not paid" />
+          <Metric label="Jobs" value={formatQty(t.jobs)} />
         </MetricStrip>
       )}
-      <ReportBody q={q} empty={(d) => d.rows.length === 0 && <EmptyState icon={Wallet} title="Nothing outstanding">Every invoice is paid.</EmptyState>}>
+      <ReportBody q={q} empty={(d) => d.rows.length === 0 && <EmptyState icon={Wallet} title="Nothing to pay">Every returned piece is paid for.</EmptyState>}>
         {(d) => (
           <div className="grid lg:grid-cols-[minmax(0,1fr)_16rem]">
             <TableWrap>
               <table className="ledger">
                 <thead>
                   <tr>
-                    <th>Invoice</th>
-                    <th>Client</th>
-                    <th className="r">Days</th>
-                    <th className="r">Total</th>
+                    <th>Job</th>
+                    <th>Job worker</th>
+                    <th>Design</th>
+                    <th className="r">OK back</th>
                     <th className="r">Paid</th>
-                    <th className="r">Outstanding</th>
-                    <th>Status</th>
+                    <th className="r">To pay</th>
+                    <th className="r">Amount</th>
+                    <th />
                   </tr>
                 </thead>
                 <tbody>
                   {d.rows.map((r) => (
-                    <tr key={r.id}>
+                    <tr key={r.jobItemId}>
                       <td className="whitespace-nowrap">
-                        <Link href={`/invoices/${r.id}`} className="font-medium hover:text-accent">
-                          {r.invoiceNumber}
+                        <Link href={`/jobs/${r.jobId}`} className="font-medium hover:text-accent">
+                          {r.jobNumber}
                         </Link>
-                        <div className="num text-xs text-fg-muted">{formatDate(r.date)}</div>
+                        <div className="mt-0.5">
+                          <JobStatusBadge status={r.jobStatus} />
+                        </div>
                       </td>
-                      <td className="max-w-48 truncate">{r.client.name}</td>
-                      <td className={cn("r", r.ageDays > 30 ? "font-medium text-danger" : "text-fg-muted")}>{r.ageDays}</td>
-                      <td className="r">{formatINR(r.totalPaise)}</td>
-                      <td className="r">{r.paidPaise ? formatINR(r.paidPaise) : dash}</td>
-                      <td className="r font-medium text-danger">{formatINR(r.outstandingPaise)}</td>
-                      <td className="whitespace-nowrap">
-                        <PaymentStatusBadge status={r.status} />
+                      <td className="max-w-48 truncate">{r.clientName}</td>
+                      <td>
+                        {r.designName}
+                        <div className="text-xs text-fg-muted">
+                          {r.productName} · {formatINR(r.ratePaise)}
+                        </div>
+                      </td>
+                      <td className="r">{formatQty(r.ok)}</td>
+                      <td className="r">{r.billedQty ? formatQty(r.billedQty) : dash}</td>
+                      <td className="r font-medium">{formatQty(r.unbilledQty)}</td>
+                      <td className="r font-medium text-danger">{formatINR(r.unbilledValuePaise)}</td>
+                      <td className="r">
+                        <Button asChild size="sm" variant="secondary">
+                          <Link href={`/bills/new?jobId=${r.jobId}`}>Pay</Link>
+                        </Button>
                       </td>
                     </tr>
                   ))}
@@ -375,15 +389,15 @@ function OutstandingReport() {
               </table>
             </TableWrap>
             <div className="border-t border-border lg:border-t-0 lg:border-l">
-              <div className="flex h-[34px] items-center border-b border-border px-4 text-xs font-medium text-fg-muted">By client</div>
+              <div className="flex h-[34px] items-center border-b border-border px-4 text-xs font-medium text-fg-muted">By job worker</div>
               <ul className="py-1">
                 {d.byClient.map((c) => (
                   <li key={c.clientId}>
-                    <Link href={`/clients/${c.clientId}`} className="flex items-baseline justify-between gap-3 px-4 py-1.5 text-[13px] transition-colors duration-100 hover:bg-surface-2">
+                    <Link href={`/bills/new?clientId=${c.clientId}`} className="flex items-baseline justify-between gap-3 px-4 py-1.5 text-[13px] transition-colors duration-100 hover:bg-surface-2">
                       <span className="min-w-0 truncate">
-                        {c.clientName} <span className="num text-xs text-fg-faint">{c.invoices}</span>
+                        {c.clientName} <span className="num text-xs text-fg-faint">{formatQty(c.qty)} pcs</span>
                       </span>
-                      <span className="num font-medium">{formatINR(c.outstandingPaise)}</span>
+                      <span className="num font-medium">{formatINR(c.valuePaise)}</span>
                     </Link>
                   </li>
                 ))}
@@ -407,8 +421,8 @@ function Reports() {
       <Tabs className="mb-5" value={tab} onChange={(id) => router.replace(`${path}?tab=${id}`, { scroll: false })} items={TABS.map((t) => ({ value: t.id, label: t.label }))} />
       {tab === "pending" && <PendingReport />}
       {tab === "clients" && <ClientsReport />}
-      {tab === "billing" && <BillingReport />}
-      {tab === "outstanding" && <OutstandingReport />}
+      {tab === "payments" && <PaymentsReport />}
+      {tab === "to-pay" && <ToPayReport />}
     </>
   );
 }

@@ -2,7 +2,7 @@
 
 import { exceedsPending, formatDate, formatINR, formatQty, todayISO, type JobDetail, type JobListRow, type ReturnResult } from "@av/shared";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, CheckCircle2, ChevronDown, PackageCheck, ReceiptText } from "lucide-react";
+import { AlertTriangle, CheckCircle2, ChevronDown, PackageCheck, Wallet } from "lucide-react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useMemo, useState } from "react";
@@ -129,8 +129,8 @@ function RecordReturn() {
             {result.job.totals.unbilledQty > 0 &&
               (result.billingPolicy === "AFTER_EACH_RETURN" || (result.billingPolicy === "ON_COMPLETION" && result.justCompleted) || result.billingPolicy === "MANUAL") && (
                 <Button asChild variant={result.billingPolicy === "MANUAL" ? "secondary" : "primary"}>
-                  <Link href={`/invoices/new?clientId=${result.job.client.id}&jobId=${result.job.id}`}>
-                    <ReceiptText /> Bill {formatINR(result.job.totals.unbilledValuePaise)} now
+                  <Link href={`/bills/new?jobId=${result.job.id}`}>
+                    <Wallet /> Pay {formatINR(result.job.totals.unbilledValuePaise)} now
                   </Link>
                 </Button>
               )}
@@ -303,7 +303,7 @@ function RecordReturn() {
                               <Input type="number" inputMode="numeric" min={0} value={l[k]} onChange={(e) => set(it.id, { [k]: e.target.value })} className="num text-right" placeholder="0" />
                             </Field>
                           ))}
-                          <p className="col-span-3 text-xs text-fg-muted">Kept separate from good pieces and not billed.</p>
+                          <p className="col-span-3 text-xs text-fg-muted">Kept separate from good pieces and not paid for.</p>
                         </div>
                       )}
                       {over && (

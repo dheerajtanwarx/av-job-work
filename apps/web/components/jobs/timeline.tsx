@@ -1,7 +1,7 @@
 "use client";
 
 import { formatDate, formatINR, formatQty, PAYMENT_METHOD_LABEL, type TimelineEvent } from "@av/shared";
-import { CheckCircle2, FilePlus2, History, PackageCheck, ReceiptText, Truck, Wallet, XCircle } from "lucide-react";
+import { CheckCircle2, FileCheck2, FilePlus2, History, PackageCheck, Truck, Wallet, XCircle } from "lucide-react";
 import Link from "next/link";
 import type { ReactNode } from "react";
 import { cn } from "@/lib/utils";
@@ -10,8 +10,8 @@ const icon = {
   created: FilePlus2,
   dispatch: Truck,
   return: PackageCheck,
-  invoice: ReceiptText,
-  payment: Wallet,
+  sub_bill: Wallet,
+  main_bill: FileCheck2,
   completed: CheckCircle2,
   cancelled: XCircle,
   audit: History,
@@ -21,8 +21,8 @@ const tint = {
   created: "text-fg-muted",
   dispatch: "text-accent",
   return: "text-success",
-  invoice: "text-fg-2",
-  payment: "text-success",
+  sub_bill: "text-success",
+  main_bill: "text-success",
   completed: "text-success",
   cancelled: "text-danger",
   audit: "text-fg-faint",
@@ -58,8 +58,8 @@ export function Timeline({ events, onVoid }: { events: TimelineEvent[]; onVoid?:
 
 function Event({ e, onVoid }: { e: TimelineEvent; onVoid?: (e: Extract<TimelineEvent, { type: "dispatch" | "return" }>) => void }) {
   const Icon = icon[e.type];
-  const voided = (e.type === "dispatch" || e.type === "return") && e.voided;
-  const struck = voided || (e.type === "invoice" && e.cancelled) || (e.type === "payment" && e.voided);
+  const voided = (e.type === "dispatch" || e.type === "return" || e.type === "sub_bill") && e.voided;
+  const struck = voided || (e.type === "main_bill" && e.cancelled);
   let title: ReactNode;
   let body: ReactNode = null;
   switch (e.type) {
@@ -90,16 +90,19 @@ function Event({ e, onVoid }: { e: TimelineEvent; onVoid?: (e: Extract<TimelineE
         />
       );
       break;
-    case "invoice":
+    case "sub_bill":
       title = (
-        <Link href={`/invoices/${e.id}`} className="hover:text-accent">
-          Invoice {e.invoiceNumber} · {formatQty(e.qty)} pcs · {formatINR(e.amountPaise)}
-          {e.cancelled && <span className="ml-1 font-normal text-danger">(cancelled)</span>}
+        <Link href={`/bills/sub/${e.id}`} className="hover:text-accent">
+          {formatINR(e.amountPaise)} paid for {formatQty(e.qty)} pcs <span className="font-normal text-fg-muted">· {PAYMENT_METHOD_LABEL[e.method]} · {e.billNumber}</span>
         </Link>
       );
       break;
-    case "payment":
-      title = `${formatINR(e.amountPaise)} received · ${PAYMENT_METHOD_LABEL[e.method]} (${e.invoiceNumber})${e.voided ? " – voided" : ""}`;
+    case "main_bill":
+      title = (
+        <Link href={`/bills/main/${e.id}`} className="hover:text-accent">
+          Fully paid – main bill {e.billNumber} · {formatINR(e.totalPaise)}
+        </Link>
+      );
       break;
     default:
       title = e.text;

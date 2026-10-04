@@ -29,7 +29,20 @@ async function recordReturn(page: Page, qty: Record<string, number>) {
 
 const row = (page: Page, design: string) => page.locator("tbody tr", { hasText: design }).first();
 
-test("acceptance: 100 plain blouses, 3 designs, 3 partial returns, invoice, partial payment", async ({ page }) => {
+/** From the job page: pay for everything that came back, then return to the job. */
+async function payAll(page: Page, amount: string) {
+  await page.getByRole("link", { name: `Pay ${amount}` }).first().click();
+  await expect(page.getByRole("heading", { name: "New sub bill" })).toBeVisible();
+  await expect(page.getByText(amount).last()).toBeVisible();
+  await page.getByRole("radio", { name: "UPI" }).click();
+  await page.getByRole("button", { name: "Save sub bill" }).click();
+  await expect(page.getByText("Payment voucher")).toBeVisible();
+  await expect(page.getByText("Amount paid").last().locator("..")).toContainText(amount);
+}
+
+const backToJob = (page: Page) => page.getByRole("main").getByRole("link", { name: /^JOB-/ }).first().click();
+
+test("acceptance: 100 plain blouses, 3 designs, 3 partial returns, a sub bill after each, main bill", async ({ page }) => {
   const client = `Sharma Embroidery ${Date.now().toString().slice(-5)}`;
 
   await page.goto("/login");
@@ -70,36 +83,42 @@ test("acceptance: 100 plain blouses, 3 designs, 3 partial returns, invoice, part
   await expect(page.locator("tfoot")).toContainText("₹1,350"); // 15×20 + 30×25 + 20×15
   await shot(page, "03-after-first-return");
 
+  // ── Sub bill 1: pay for the 65 pieces ──
+  await payAll(page, "₹1,350");
+  await expect(row(page, "Floral Design")).toContainText("₹300");
+  await expect(row(page, "Royal Design")).toContainText("₹750");
+  await expect(page.getByText("Rupees One Thousand Three Hundred Fifty Only")).toBeVisible();
+  await shot(page, "04-sub-bill");
+  await backToJob(page);
+
   // ── Second return ──
   await recordReturn(page, { "Floral Design": 5, "Royal Design": 15, "Simple Design": 10 });
   await expect(page.locator("tfoot")).toContainText("95");
   await expect(row(page, "Royal Design")).toContainText("5");
   await expect(row(page, "Floral Design")).toContainText("0 ✓");
+  await payAll(page, "₹625");
+  await backToJob(page);
 
   // ── Final return ──
   await recordReturn(page, { "Royal Design": 5 });
   await expect(page.getByText("Completed").first()).toBeVisible();
   await expect(page.locator("tfoot")).toContainText("100");
   await expect(page.locator("tfoot")).toContainText("₹2,100");
-  await shot(page, "04-completed");
+  await shot(page, "05-completed");
 
-  // ── Invoice ──
-  await page.getByRole("link", { name: /Bill ₹2,100/ }).first().click();
-  await expect(page.getByRole("heading", { name: "New invoice" })).toBeVisible();
-  await expect(page.getByText("₹2,100").last()).toBeVisible();
-  await page.getByRole("button", { name: "Create invoice" }).click();
-  await expect(page.getByText("INVOICE", { exact: true })).toBeVisible();
+  // ── Last sub bill settles the job → main bill ──
+  await payAll(page, "₹125");
+  await page.getByRole("link", { name: /^Main bill MB-/ }).click();
+  await expect(page.getByText("Job settlement")).toBeVisible();
+  await expect(page.getByText("Fully settled").first()).toBeVisible();
+  await expect(page.getByText("Plain Blouse").first()).toBeVisible();
   await expect(row(page, "Floral Design")).toContainText("₹400");
   await expect(row(page, "Royal Design")).toContainText("₹1,250");
   await expect(row(page, "Simple Design")).toContainText("₹450");
-
-  // ── Partial payment ──
-  await page.getByRole("button", { name: "Record payment" }).click();
-  await page.getByLabel("Amount received").fill("1000");
-  await page.getByRole("button", { name: "Save payment" }).click();
-  await expect(page.getByText("Partially paid").first()).toBeVisible();
-  await expect(page.getByText("Balance due").locator("..")).toContainText("₹1,100");
-  await shot(page, "05-invoice-partial-payment");
+  await expect(page.locator("tbody tr", { hasText: /SB-\d{3}/ })).toHaveCount(3);
+  await expect(page.getByText("Rupees Two Thousand One Hundred Only")).toBeVisible();
+  await shot(page, "06-main-bill");
+  await backToJob(page);
 
   // ── History ──
   await page.getByRole("link", { name: /^JOB-/ }).first().click();
@@ -108,18 +127,19 @@ test("acceptance: 100 plain blouses, 3 designs, 3 partial returns, invoice, part
   await expect(page.getByText(/30 returned/)).toBeVisible();
   await expect(page.getByText(/^5 returned/)).toBeVisible();
   await expect(page.getByText("Job completed – all pieces accounted for")).toBeVisible();
-  await expect(page.getByText(/₹1,000 received/)).toBeVisible();
-  await shot(page, "06-job-history");
+  await expect(page.getByText(/₹1,350 paid for 65 pcs/)).toBeVisible();
+  await expect(page.getByText(/Fully paid – main bill MB-/)).toBeVisible();
+  await shot(page, "07-job-history");
 
   // ── Reports ──
   await page.goto("/reports?tab=clients");
   const clientRow = page.locator("tbody tr", { hasText: client });
   await expect(clientRow).toContainText("₹2,100");
-  await expect(clientRow).toContainText("₹1,000");
-  await expect(clientRow).toContainText("₹1,100");
-  await page.goto("/reports?tab=outstanding");
-  await expect(page.locator("tbody tr", { hasText: client })).toContainText("₹1,100");
-  await shot(page, "07-outstanding");
+  await page.goto("/reports?tab=payments");
+  await expect(page.locator("tbody tr", { hasText: client })).toHaveCount(3);
+  await page.goto("/reports?tab=to-pay");
+  await expect(page.locator("tbody tr", { hasText: client })).toHaveCount(0);
+  await shot(page, "08-to-pay");
   await page.goto("/reports?tab=pending");
   await expect(page.locator("tbody tr", { hasText: client })).toHaveCount(0);
 });

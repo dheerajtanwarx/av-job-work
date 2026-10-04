@@ -112,7 +112,7 @@
   }
 }
 
-/* A document surface that always reads as paper (the invoice sheet), regardless of theme. */
+/* A document surface that always reads as paper (printed bills), regardless of theme. */
 .sheet {
   color-scheme: light;
   --surface: #ffffff;
@@ -313,4 +313,12 @@
   body { background: white !important; }
   .no-print { display: none !important; }
   .print-plain { box-shadow: none !important; border: 0 !important; padding: 0 !important; margin: 0 !important; }
+  /* Bills: compact tables so wide ones (11 columns on a main bill) fit A4 without clipping. */
+  .sheet .overflow-x-auto { overflow: visible !important; }
+  .sheet .ledger { font-size: 11px; }
+  .sheet .ledger th { height: 26px; padding: 0 6px; font-size: 10px; position: static; }
+  .sheet .ledger td, .sheet .ledger tfoot td { height: auto; padding: 5px 6px; }
+  .sheet .ledger th:first-child, .sheet .ledger td:first-child { padding-left: 0; }
+  .sheet .ledger th:last-child, .sheet .ledger td:last-child { padding-right: 0; }
+  .sheet .ledger tr { break-inside: avoid; }
 }

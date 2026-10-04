@@ -48,7 +48,7 @@ export function SearchPalette({ open, onOpenChange }: { open: boolean; onOpenCha
     router.push(href);
   };
 
-  const total = data ? data.clients.length + data.jobs.length + data.invoices.length + data.products.length + data.designs.length : 0;
+  const total = data ? data.clients.length + data.jobs.length + data.bills.length + data.products.length + data.designs.length : 0;
 
   return (
     <D.Root open={open} onOpenChange={onOpenChange}>
@@ -56,7 +56,7 @@ export function SearchPalette({ open, onOpenChange }: { open: boolean; onOpenCha
         <D.Overlay className="fixed inset-0 z-40 bg-black/30 data-[state=open]:animate-[overlay-in_120ms_ease-out] dark:bg-black/55" />
         <D.Content className="fixed top-[12vh] left-1/2 z-50 w-[calc(100%-1.5rem)] max-w-[560px] -translate-x-1/2 overflow-hidden rounded-xl bg-surface shadow-overlay data-[state=open]:animate-[pop-in_120ms_ease-out] focus:outline-none">
           <D.Title className="sr-only">Search</D.Title>
-          <D.Description className="sr-only">Search clients, jobs, invoices, products and designs</D.Description>
+          <D.Description className="sr-only">Search clients, jobs, bills, products and designs</D.Description>
           <Command shouldFilter={false} loop>
             <div className="flex items-center gap-2.5 border-b border-border px-4">
               <Search className="size-4 shrink-0 text-fg-muted" />
@@ -64,13 +64,13 @@ export function SearchPalette({ open, onOpenChange }: { open: boolean; onOpenCha
                 autoFocus
                 value={q}
                 onValueChange={setQ}
-                placeholder="Search jobs, clients, invoices, designs…"
+                placeholder="Search jobs, clients, bills, designs…"
                 className="h-12 w-full bg-transparent text-[15px] text-fg outline-none placeholder:text-fg-faint"
               />
               {isFetching && <span className="size-3.5 shrink-0 animate-spin rounded-full border-[1.5px] border-fg-faint border-r-transparent" aria-hidden />}
             </div>
             <Command.List className="max-h-[min(60vh,420px)] overflow-y-auto p-1.5">
-              {!dq && <div className="px-3 py-8 text-center text-[13px] text-fg-muted">Client name, job or invoice number, design, or a date like “04 Oct”</div>}
+              {!dq && <div className="px-3 py-8 text-center text-[13px] text-fg-muted">Client name, job or bill number, design, or a date like “04 Oct”</div>}
               {dq && data && total === 0 && <div className="px-3 py-8 text-center text-[13px] text-fg-muted">No results for “{dq}”</div>}
               {data && dq && (
                 <>
@@ -84,9 +84,9 @@ export function SearchPalette({ open, onOpenChange }: { open: boolean; onOpenCha
                       <Row key={c.id} onSelect={() => go(`/clients/${c.id}`)} icon={<Users />} title={c.name} sub={c.sub} />
                     ))}
                   </Group>
-                  <Group heading="Invoices">
-                    {data.invoices.map((i) => (
-                      <Row key={i.id} onSelect={() => go(`/invoices/${i.id}`)} icon={<ReceiptText />} title={`${i.invoiceNumber} · ${i.clientName}`} meta={formatINR(i.totalPaise)} sub={formatDate(i.date)} />
+                  <Group heading="Bills">
+                    {data.bills.map((b) => (
+                      <Row key={b.id} onSelect={() => go(`/bills/${b.kind}/${b.id}`)} icon={<ReceiptText />} title={`${b.billNumber} · ${b.clientName}`} meta={formatINR(b.amountPaise)} sub={`${b.kind === "main" ? "Main bill" : "Sub bill"} · ${formatDate(b.date)}`} />
                     ))}
                   </Group>
                   <Group heading="Designs">

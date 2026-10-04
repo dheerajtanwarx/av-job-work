@@ -33,7 +33,7 @@ export default function DashboardPage() {
   const q = useQuery({ queryKey: ["dashboard"], queryFn: () => api.get<Dashboard>("/dashboard") });
   if (q.isError) return <ErrorBlock error={q.error} onRetry={() => q.refetch()} />;
   const d = q.data;
-  const empty = d && d.ops.activeJobs === 0 && d.ops.draftJobs === 0 && d.money.billedPaise === 0 && d.recentActivity.length === 0;
+  const empty = d && d.ops.activeJobs === 0 && d.ops.draftJobs === 0 && d.money.completedValuePaise === 0 && d.recentActivity.length === 0;
 
   return (
     <div className="space-y-8">
@@ -105,11 +105,10 @@ export default function DashboardPage() {
           {!d ? (
             <Skeleton className="h-[86px] rounded-lg" />
           ) : (
-            <MetricStrip className="grid-cols-2 lg:grid-cols-4">
-              <Metric label="Work completed" value={formatINR(d.money.completedValuePaise)} sub={d.money.unbilledPaise ? `${formatINR(d.money.unbilledPaise)} not billed` : "All billed"} href="/invoices/new" />
-              <Metric label="Billed" value={formatINR(d.money.billedPaise)} sub="Total of invoices" href="/invoices" />
-              <Metric label="Received" value={formatINR(d.money.paidPaise)} sub="Payments in" href="/payments" />
-              <Metric label="Outstanding" value={formatINR(d.money.outstandingPaise)} tone={d.money.outstandingPaise ? "danger" : "fg"} sub="Still to collect" href="/reports?tab=outstanding" />
+            <MetricStrip className="grid-cols-3">
+              <Metric label="Work completed" value={formatINR(d.money.completedValuePaise)} sub="OK pieces returned" href="/reports?tab=clients" />
+              <Metric label="Paid" value={formatINR(d.money.paidPaise)} sub="Sub bills" href="/bills" />
+              <Metric label="To pay" value={formatINR(d.money.toPayPaise)} tone={d.money.toPayPaise ? "danger" : "fg"} sub={d.money.toPayPaise ? "Returned, not yet paid" : "All paid"} href="/reports?tab=to-pay" />
             </MetricStrip>
           )}
         </Section>
@@ -194,9 +193,9 @@ export default function DashboardPage() {
             )}
           </Section>
 
-          <Section title="Ready to bill" description="Completed, not billed">
-            <ListPanel empty={d.readyToBill.length === 0 && "Nothing waiting to be billed."}>
-              {d.readyToBill.slice(0, 6).map((r) => (
+          <Section title="To pay" description="Returned, not yet paid">
+            <ListPanel empty={d.toPay.length === 0 && "Nothing waiting to be paid."}>
+              {d.toPay.slice(0, 6).map((r) => (
                 <li key={r.clientId} className="flex min-h-11 items-center gap-3 px-4 py-2">
                   <div className="min-w-0 flex-1">
                     <div className="truncate text-[13px] font-medium">{r.clientName}</div>
@@ -204,7 +203,7 @@ export default function DashboardPage() {
                   </div>
                   <div className="num text-[13px] font-medium">{formatINR(r.valuePaise)}</div>
                   <Button asChild size="sm" variant="secondary">
-                    <Link href={`/invoices/new?clientId=${r.clientId}`}>Bill</Link>
+                    <Link href={`/bills/new?clientId=${r.clientId}`}>Pay</Link>
                   </Button>
                 </li>
               ))}

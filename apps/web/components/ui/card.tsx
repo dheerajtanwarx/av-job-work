@@ -1,7 +1,7 @@
 import type { HTMLAttributes, ReactNode } from "react";
 import { cn } from "@/lib/utils";
 
-/** A bordered surface. Use only when containment adds meaning (tables, lists, the invoice sheet). */
+/** A bordered surface. Use only when containment adds meaning (tables, lists, the bill sheet). */
 export function Card({ className, ...props }: HTMLAttributes<HTMLDivElement>) {
   return <div className={cn("rounded-lg border border-border bg-surface", className)} {...props} />;
 }

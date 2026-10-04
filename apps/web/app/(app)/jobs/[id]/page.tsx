@@ -2,14 +2,14 @@
 
 import { formatDate, formatINR, formatQty, type JobDetail, type TimelineEvent } from "@av/shared";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, ArrowRight, Ban, PackageCheck, Pencil, ReceiptText, Truck } from "lucide-react";
+import { AlertTriangle, ArrowRight, Ban, FileCheck2, PackageCheck, Pencil, Truck, Wallet } from "lucide-react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useState } from "react";
 import { toast } from "sonner";
 import { DispatchDialog } from "@/components/jobs/dispatch-dialog";
 import { Timeline } from "@/components/jobs/timeline";
-import { JobStatusBadge, PaymentStatusBadge } from "@/components/ui/badge";
+import { BillStatusBadge, JobStatusBadge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, Section, TableWrap } from "@/components/ui/card";
 import { Menu, MenuItem } from "@/components/ui/menu";
@@ -58,10 +58,11 @@ export default function JobPage() {
   const canReturn = t.pending > 0;
   const canSend = !cancelled && (t.notYetSent > 0 || job.items.some((i) => i.rejected + i.damaged - i.reworkSent > 0));
 
+  const payHref = `/bills/new?jobId=${job.id}`;
   const billLink = t.unbilledQty > 0 && (
     <Button asChild variant={canReturn ? "secondary" : "primary"}>
-      <Link href={`/invoices/new?clientId=${job.client.id}&jobId=${job.id}`}>
-        <ReceiptText /> Bill {formatINR(t.unbilledValuePaise)}
+      <Link href={payHref}>
+        <Wallet /> Pay {formatINR(t.unbilledValuePaise)}
       </Link>
     </Button>
   );
@@ -174,7 +175,7 @@ export default function JobPage() {
             { label: "Total work value", value: formatINR(t.expectedValuePaise) },
             { label: "Completed value", value: formatINR(t.completedValuePaise) },
             { label: "Pending value", value: formatINR(t.pendingValuePaise), cls: t.pendingValuePaise ? "text-warning" : "" },
-            { label: "Billed", value: formatINR(t.billedValuePaise), sub: t.unbilledValuePaise > 0 ? `${formatINR(t.unbilledValuePaise)} not billed` : t.billedValuePaise ? "All completed work billed" : undefined },
+            { label: "Paid", value: formatINR(t.billedValuePaise), sub: t.unbilledValuePaise > 0 ? `${formatINR(t.unbilledValuePaise)} to pay` : t.billedValuePaise ? "All returned work paid" : undefined },
           ].map((m, i) => (
             <div key={m.label} className={cn("px-4 py-3.5 sm:px-5", i % 2 === 1 && "border-l border-border", i > 1 && "border-t border-border")}>
               <dt className="text-xs text-fg-muted">{m.label}</dt>
@@ -282,33 +283,52 @@ export default function JobPage() {
           </div>
         </Section>
         <div className="space-y-6">
+          {job.mainBill && (
+            <Link
+              href={`/bills/main/${job.mainBill.id}`}
+              className={cn(
+                "flex items-center gap-3 rounded-lg border px-4 py-3 transition-colors duration-100",
+                job.mainBill.cancelledAt ? "border-border hover:bg-surface-2" : "border-success/30 bg-success-subtle hover:brightness-[0.98]",
+              )}
+            >
+              <FileCheck2 className={cn("size-4 shrink-0", job.mainBill.cancelledAt ? "text-fg-faint" : "text-success")} />
+              <div className="min-w-0 flex-1">
+                <div className="text-[13px] font-medium">Main bill {job.mainBill.billNumber}</div>
+                <div className="text-xs text-fg-muted">{job.mainBill.cancelledAt ? "Cancelled – job is no longer fully paid" : `Job fully paid · ${formatDate(job.mainBill.date)}`}</div>
+              </div>
+              <div className="num text-[13px] font-semibold">{formatINR(job.mainBill.totalPaise)}</div>
+            </Link>
+          )}
           <Section
-            title="Invoices"
+            title="Sub bills"
+            description={job.subBills.length ? "Payments made on this job" : undefined}
             action={
               t.unbilledQty > 0 && (
-                <Link href={`/invoices/new?clientId=${job.client.id}&jobId=${job.id}`} className="inline-flex items-center gap-1 text-xs font-medium text-fg-muted hover:text-fg">
-                  Create invoice <ArrowRight className="size-3" />
+                <Link href={payHref} className="inline-flex items-center gap-1 text-xs font-medium text-fg-muted hover:text-fg">
+                  New sub bill <ArrowRight className="size-3" />
                 </Link>
               )
             }
           >
-            {job.invoices.length === 0 ? (
+            {job.subBills.length === 0 ? (
               <p className="rounded-lg border border-dashed border-border-strong px-4 py-4 text-[13px] text-fg-muted">
-                {t.unbilledQty > 0 ? `${formatQty(t.unbilledQty)} completed pieces (${formatINR(t.unbilledValuePaise)}) are ready to bill.` : "No invoices yet. Work becomes billable when pieces come back."}
+                {t.unbilledQty > 0 ? `${formatQty(t.unbilledQty)} returned pieces (${formatINR(t.unbilledValuePaise)}) are waiting to be paid for.` : "Nothing paid yet. Pieces can be paid for once they come back."}
               </p>
             ) : (
               <Card className="overflow-hidden">
                 <ul className="divide-y divide-border">
-                  {job.invoices.map((inv) => (
-                    <li key={inv.id}>
-                      <Link href={`/invoices/${inv.id}`} className="flex items-center justify-between gap-3 px-4 py-2.5 transition-colors duration-100 hover:bg-surface-2">
+                  {job.subBills.map((b) => (
+                    <li key={b.id}>
+                      <Link href={`/bills/sub/${b.id}`} className={cn("flex items-center justify-between gap-3 px-4 py-2.5 transition-colors duration-100 hover:bg-surface-2", b.voidedAt && "text-fg-muted")}>
                         <div>
-                          <div className="text-[13px] font-medium">{inv.invoiceNumber}</div>
-                          <div className="num text-xs text-fg-muted">{formatDate(inv.date)}</div>
+                          <div className="text-[13px] font-medium">{b.billNumber}</div>
+                          <div className="num text-xs text-fg-muted">
+                            {formatDate(b.date)} · {formatQty(b.qty)} pcs
+                          </div>
                         </div>
                         <div className="text-right">
-                          <div className="num text-[13px] font-medium">{formatINR(inv.totalPaise)}</div>
-                          <PaymentStatusBadge status={inv.status} />
+                          <div className={cn("num text-[13px] font-medium", b.voidedAt && "line-through decoration-fg-faint")}>{formatINR(b.amountPaise)}</div>
+                          <BillStatusBadge state={b.voidedAt ? "voided" : "paid"} />
                         </div>
                       </Link>
                     </li>

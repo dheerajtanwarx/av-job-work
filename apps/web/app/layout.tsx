@@ -7,7 +7,7 @@ const inter = Inter({ subsets: ["latin"], variable: "--font-inter", display: "sw
 
 export const metadata: Metadata = {
   title: { default: "Job Work Ledger", template: "%s · Job Work Ledger" },
-  description: "Track material sent for job work, partial returns, billing and payments.",
+  description: "Track material sent for job work, partial returns, and what you pay job workers.",
 };
 
 export const viewport: Viewport = {
