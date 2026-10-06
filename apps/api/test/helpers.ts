@@ -9,9 +9,14 @@ export async function resetDb() {
 }
 
 export async function loggedInAgent() {
-  await prisma.user.create({ data: { email: "test@example.com", name: "Test", passwordHash: await bcrypt.hash("secret", 4) } });
+  return agentAs("test@example.com", "OWNER", "Test");
+}
+
+/** A new user with this role, logged in. */
+export async function agentAs(email: string, role: "OWNER" | "SUB_OWNER", name: string = role === "OWNER" ? "Owner" : "Sub-owner") {
+  await prisma.user.create({ data: { email, name, role, passwordHash: await bcrypt.hash("secret", 4) } });
   const agent = request.agent(createApp());
-  const res = await agent.post("/auth/login").send({ email: "test@example.com", password: "secret" });
+  const res = await agent.post("/auth/login").send({ email, password: "secret" });
   if (res.status !== 200) throw new Error(`login failed: ${res.status}`);
   return agent;
 }

@@ -13,6 +13,7 @@ import { Card, MobileList, TableWrap } from "@/components/ui/card";
 import { CardListSkeleton, EmptyState, ErrorBlock, LoadingBlock, PageHeader } from "@/components/ui/misc";
 import { api } from "@/lib/api";
 import { useJobWorkTypes } from "@/lib/queries";
+import { EditedTag } from "@/components/ui/edited";
 import { cn } from "@/lib/utils";
 
 function ActiveSwitch({ t }: { t: JobWorkType }) {
@@ -120,7 +121,12 @@ export default function JobWorkTypesPage() {
                           <span className="text-fg-faint">0</span>
                         )}
                       </td>
-                      <td>{t.isActive ? <StatusBadge tone="success">Active</StatusBadge> : <StatusBadge tone="neutral">Inactive</StatusBadge>}</td>
+                      <td>
+                        <div className="flex items-center gap-1.5">
+                          {t.isActive ? <StatusBadge tone="success">Active</StatusBadge> : <StatusBadge tone="neutral">Inactive</StatusBadge>}
+                          <EditedTag edited={t.edited} compact />
+                        </div>
+                      </td>
                       <td className="r">
                         <ActiveSwitch t={t} />
                       </td>

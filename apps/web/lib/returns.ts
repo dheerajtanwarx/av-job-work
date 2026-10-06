@@ -8,12 +8,17 @@ import { api, qs } from "./api";
 
 /** Same cache entry as the app shell; the session user carries the role. */
 export const useMe = () =>
-  useQuery({ queryKey: ["me"], queryFn: () => api.get<{ user: SessionUser }>("/auth/me"), staleTime: Infinity, retry: false });
+  useQuery({ queryKey: ["me"], queryFn: () => api.get<{ user: SessionUser }>("/auth/me"), staleTime: 60_000, retry: false });
+
+/** Owners and sub-owners can both override and adjust; only owners change payments, users and settings. */
+export function useRole() {
+  const role = useMe().data?.user?.role;
+  return { role, isOwner: role === "OWNER", known: !!role };
+}
 
 export function useIsManager() {
-  const me = useMe();
-  const role = me.data?.user?.role;
-  return role === "OWNER" || role === "MANAGER";
+  const role = useMe().data?.user?.role;
+  return role === "OWNER" || role === "SUB_OWNER";
 }
 
 export const useOpenJobs = () => useQuery({ queryKey: ["jobs", "pending"], queryFn: () => api.get<JobListRow[]>("/jobs?pending=true") });

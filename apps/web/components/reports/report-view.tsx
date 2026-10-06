@@ -364,7 +364,7 @@ export function CatalogReport({ meta, filters, onFilters }: { meta: ReportMeta; 
       <style>{PRINT_CSS}</style>
       {/* Print header */}
       <div className="mb-3 hidden print:block">
-        <div className="text-xs text-fg-muted">AV Creation · Job Work Ledger</div>
+        <div className="text-xs text-fg-muted">AV Creation · AV JOB WORK</div>
         <h2 className="text-base font-semibold">{meta.title}</h2>
         <div className="text-xs text-fg-muted">
           {meta.description} Printed {formatDate(generated)} {timeOf(generated.toISOString())}.

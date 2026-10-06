@@ -25,7 +25,10 @@ import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
 import { Field, Input, MoneyInput, Select, Textarea } from "@/components/ui/input";
 import { Segmented } from "@/components/ui/segmented";
+import { DocPicker } from "@/components/workers/worker-docs";
 import { api, ApiError } from "@/lib/api";
+import { useIsManager } from "@/lib/returns";
+import { removeWorkerDoc, uploadWorkerDoc, WORKER_DOC_FIELD, WORKER_DOC_LABEL, type WorkerDocSlot } from "@/lib/worker-docs";
 import { useDesigns, useJobWorkTypes, useProducts, useSettings } from "@/lib/queries";
 import { PaymentTermsFields, termsLabel } from "./payment-terms";
 
@@ -80,6 +83,7 @@ const emptyClient = {
   gstin: "",
   pan: "",
   notes: "",
+  workItems: "",
   paymentPolicy: "" as PaymentPolicy | "",
   paymentDays: "",
   isActive: true,
@@ -101,11 +105,24 @@ export function ClientDialog({
 }) {
   const [form, setForm] = useState<ClientForm>(emptyClient);
   const [errors, setErrors] = useState<Errors>({});
+  /** Pending image changes per slot: File = new image, null = remove, absent = keep. */
+  const [docs, setDocs] = useState<Partial<Record<WorkerDocSlot, File | null>>>({});
+  const [uploading, setUploading] = useState(false);
+  const setDoc = (slot: WorkerDocSlot) => (v: File | null | undefined) =>
+    setDocs((d) => {
+      const next = { ...d };
+      if (v === undefined) delete next[slot];
+      else next[slot] = v;
+      return next;
+    });
+  const isManager = useIsManager();
+  const qc = useQueryClient();
   const settings = useSettings();
   const save = useMasterSave<Client>("/clients", ["clients", "client"], client?.id);
   useEffect(() => {
     if (open) {
       setErrors({});
+      setDocs({});
       setForm(
         client
           ? {
@@ -118,6 +135,7 @@ export function ClientDialog({
               gstin: client.gstin ?? "",
               pan: client.pan ?? "",
               notes: client.notes ?? "",
+              workItems: client.workItems ?? "",
               paymentPolicy: client.paymentPolicy ?? "",
               paymentDays: client.paymentDays != null ? String(client.paymentDays) : "",
               isActive: client.isActive,
@@ -137,6 +155,24 @@ export function ClientDialog({
         paymentPolicy: form.paymentPolicy || null,
         paymentDays: form.paymentPolicy ? Number(form.paymentDays) || 0 : null,
       });
+      // Images need the saved worker's id, so they go after the details.
+      const changes = Object.entries(docs) as [WorkerDocSlot, File | null][];
+      if (changes.length) {
+        setUploading(true);
+        const failed: string[] = [];
+        for (const [slot, file] of changes) {
+          try {
+            if (file) await uploadWorkerDoc(c.id, slot, file);
+            else await removeWorkerDoc(c.id, slot);
+          } catch (e) {
+            failed.push(`${WORKER_DOC_LABEL[slot]}: ${e instanceof Error ? e.message : "failed"}`);
+          }
+        }
+        setUploading(false);
+        qc.invalidateQueries({ queryKey: ["clients"] });
+        qc.invalidateQueries({ queryKey: ["client"] });
+        if (failed.length) toast.error(`${L.client} saved, but some photos weren't: ${failed.join("; ")}`);
+      }
       toast.success(client ? `${L.client} updated` : `${c.name} added${c.workerCode ? ` as ${c.workerCode}` : ""}`);
       onSaved?.(c);
       onOpenChange(false);
@@ -169,11 +205,14 @@ export function ClientDialog({
         <Field label="Email" error={errors.email} hint="Payment vouchers can be emailed here">
           <Input type="email" value={form.email} onChange={set("email")} />
         </Field>
-        <Field label="Notes" error={errors.notes}>
-          <Input value={form.notes} onChange={set("notes")} />
+        <Field label="Work / items" error={errors.workItems} hint="What this worker makes, e.g. hand work, jardoji">
+          <Input value={form.workItems} onChange={set("workItems")} />
         </Field>
-        <Field label="Address" className="sm:col-span-2" error={errors.address}>
+        <Field label="Address" error={errors.address}>
           <Textarea rows={2} value={form.address} onChange={set("address")} />
+        </Field>
+        <Field label="Notes" error={errors.notes}>
+          <Textarea rows={2} value={form.notes} onChange={set("notes")} />
         </Field>
         <Field label="GSTIN" hint="Optional" error={errors.gstin}>
           <Input value={form.gstin} onChange={set("gstin")} className="num uppercase" />
@@ -191,6 +230,29 @@ export function ClientDialog({
           />
           <p className="mt-1.5 text-xs text-fg-muted">Used for new challans to this worker. A challan can override it.</p>
         </div>
+        <div className="grid gap-4 border-t border-border pt-4 sm:col-span-2 sm:grid-cols-2">
+          <DocPicker
+            label="Worker photo"
+            hint="A clear face photo, shown on the profile and worker list."
+            round
+            savedId={client?.photoId ?? null}
+            value={docs.photo}
+            onChange={setDoc("photo")}
+          />
+          {isManager ? (
+            (["aadhaar-front", "aadhaar-back"] as const).map((slot) => (
+              <DocPicker
+                key={slot}
+                label={`${WORKER_DOC_LABEL[slot]} photo`}
+                savedId={client?.[WORKER_DOC_FIELD[slot]] ?? null}
+                value={docs[slot]}
+                onChange={setDoc(slot)}
+              />
+            ))
+          ) : (
+            <p className="self-center text-xs text-fg-muted">Aadhaar photos can be added by the owner or a manager.</p>
+          )}
+        </div>
         {client && (
           <div className="sm:col-span-2">
             <ActiveToggle
@@ -200,7 +262,7 @@ export function ClientDialog({
             />
           </div>
         )}
-        <FormFooter onCancel={() => onOpenChange(false)} saving={save.isPending} label={client ? "Save changes" : `Add ${L.client.toLowerCase()}`} />
+        <FormFooter onCancel={() => onOpenChange(false)} saving={save.isPending || uploading} label={client ? "Save changes" : `Add ${L.client.toLowerCase()}`} />
       </form>
     </Dialog>
   );

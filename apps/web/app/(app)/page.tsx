@@ -7,6 +7,7 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useState } from "react";
 import { AnalyticsCharts } from "@/components/charts/analytics";
 import { AttentionList, KpiCards, MaterialHolders, RecentPhotos, TodayReturns } from "@/components/dashboard/panels";
+import { TrendPanel } from "@/components/dashboard/trends";
 import { Button } from "@/components/ui/button";
 import { Card, Section } from "@/components/ui/card";
 import { EmptyState, ErrorBlock, LoadingBlock, Skeleton } from "@/components/ui/misc";
@@ -59,6 +60,24 @@ function RangePicker({ preset, range, onChange, allowAll = true }: { preset: Pre
   );
 }
 
+/** The last twelve months, this one included. */
+function last12(): DateRangeValue {
+  const t = todayISO();
+  const y = +t.slice(0, 4);
+  const m = +t.slice(5, 7) - 11;
+  const from = m > 0 ? `${y}-${String(m).padStart(2, "0")}-01` : `${y - 1}-${String(m + 12).padStart(2, "0")}-01`;
+  return { from, to: t };
+}
+
+const rise = (i: number) => ({ className: "rise", style: { "--i": i } as React.CSSProperties });
+
+function Trends() {
+  const [range] = useState(last12);
+  const q = useDashboardCharts(range);
+  if (q.isError) return <ErrorBlock error={q.error} onRetry={() => q.refetch()} />;
+  return !q.data ? <Skeleton className="h-[330px] rounded-lg" /> : <TrendPanel c={q.data} />;
+}
+
 function Overview() {
   const [preset, setPreset] = useState<Preset>("all");
   const [range, setRange] = useState<DateRangeValue>({});
@@ -88,38 +107,50 @@ function Overview() {
         </Card>
       )}
 
-      <Section
-        title="Key figures"
-        description={ranged ? `Work and payments ${range.from ? formatDate(range.from) : "…"} – ${range.to ? formatDate(range.to) : "today"}` : undefined}
-        action={
-          <RangePicker
-            preset={preset}
-            range={range}
-            onChange={(p, r) => {
-              setPreset(p);
-              setRange(r);
-            }}
-          />
-        }
-      >
-        {!d ? <Skeleton className="h-[188px] rounded-lg" /> : <KpiCards k={d.kpis} ranged={ranged} />}
-      </Section>
+      <div {...rise(0)}>
+        <Section
+          title="Key figures"
+          description={ranged ? `Work and payments ${range.from ? formatDate(range.from) : "…"} – ${range.to ? formatDate(range.to) : "today"}` : undefined}
+          action={
+            <RangePicker
+              preset={preset}
+              range={range}
+              onChange={(p, r) => {
+                setPreset(p);
+                setRange(r);
+              }}
+            />
+          }
+        >
+          {!d ? <Skeleton className="h-[188px] rounded-lg" /> : <KpiCards k={d.kpis} ranged={ranged} />}
+        </Section>
+      </div>
 
-      <Section title="Attention required" description={d && d.attention.length ? `${d.attention.length} thing${d.attention.length === 1 ? "" : "s"} to look at` : undefined}>
-        {!d ? <Skeleton className="h-36 rounded-lg" /> : <AttentionList items={d.attention} />}
-      </Section>
+      <div {...rise(1)}>
+        <Section title="Trends" description="Last 12 months" action={<MoreLink href="/?tab=analytics">More charts</MoreLink>}>
+          <Trends />
+        </Section>
+      </div>
 
-      <Section title="Who has my material?" description="Pending with each worker, oldest first" action={<MoreLink href="/reports?report=material-outside">Full report</MoreLink>}>
-        {!d ? (
-          <Card>
-            <LoadingBlock rows={4} />
-          </Card>
-        ) : (
-          <MaterialHolders rows={d.materialHolders} />
-        )}
-      </Section>
+      <div {...rise(2)}>
+        <Section title="Attention required" description={d && d.attention.length ? `${d.attention.length} thing${d.attention.length === 1 ? "" : "s"} to look at` : undefined}>
+          {!d ? <Skeleton className="h-36 rounded-lg" /> : <AttentionList items={d.attention} />}
+        </Section>
+      </div>
 
-      <div className="grid gap-x-6 gap-y-8 lg:grid-cols-2">
+      <div {...rise(3)}>
+        <Section title="Who has my material?" description="Pending with each worker, oldest first" action={<MoreLink href="/reports?report=material-outside">Full report</MoreLink>}>
+          {!d ? (
+            <Card>
+              <LoadingBlock rows={4} />
+            </Card>
+          ) : (
+            <MaterialHolders rows={d.materialHolders} />
+          )}
+        </Section>
+      </div>
+
+      <div className="rise grid gap-x-6 gap-y-8 lg:grid-cols-2" style={{ "--i": 4 } as React.CSSProperties}>
         <Section
           title="Who brought material today?"
           description={d ? `${d.todayReturns.length} line${d.todayReturns.length === 1 ? "" : "s"} · ${formatINR(d.todayReturns.reduce((s, r) => s + r.valuePaise, 0))}` : undefined}
@@ -150,9 +181,11 @@ function Overview() {
         </Section>
       </div>
 
-      <Section title="Recent design returns" action={<MoreLink href="/gallery">Gallery</MoreLink>}>
-        {!d ? <Skeleton className="h-48 rounded-lg" /> : <RecentPhotos photos={d.recentPhotos} />}
-      </Section>
+      <div {...rise(5)}>
+        <Section title="Recent design returns" action={<MoreLink href="/gallery">Gallery</MoreLink>}>
+          {!d ? <Skeleton className="h-48 rounded-lg" /> : <RecentPhotos photos={d.recentPhotos} />}
+        </Section>
+      </div>
     </div>
   );
 }

@@ -6,7 +6,7 @@ import "./globals.css";
 const inter = Inter({ subsets: ["latin"], variable: "--font-inter", display: "swap" });
 
 export const metadata: Metadata = {
-  title: { default: "Job Work Ledger", template: "%s · Job Work Ledger" },
+  title: { default: "AV JOB WORK", template: "%s · AV JOB WORK" },
   description: "Track material sent for job work, partial returns, and what you pay job workers.",
 };
 

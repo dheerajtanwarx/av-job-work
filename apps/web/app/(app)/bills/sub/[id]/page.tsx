@@ -2,21 +2,24 @@
 
 import { formatDate, formatINR, formatQty, L, NOTIFY_CHANNEL_LABEL, PAYMENT_METHOD_LABEL, type NotificationRow, type NotifyChannel, type SubBillDetail, type SubBillWithEmail } from "@av/shared";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Ban, FileCheck2, Mail, MailCheck, MailWarning, MailX, Printer } from "lucide-react";
+import { Ban, FileCheck2, History, Mail, MailCheck, MailWarning, MailX, Pencil, Printer } from "lucide-react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useState } from "react";
 import { toast } from "sonner";
 import { AmountBox, BillSheet, ChallanAccount, SheetSection, SheetTable } from "@/components/billing/bill-sheet";
+import { EditPaymentDialog } from "@/components/billing/edit-payment-dialog";
 import { NotificationStatusBadge, formatDateTime } from "@/components/billing/notification-status";
 import { BillStatusBadge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardHeader } from "@/components/ui/card";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { EditedTag, editedText } from "@/components/ui/edited";
 import { Menu, MenuItem } from "@/components/ui/menu";
 import { ErrorBlock, LoadingBlock, Notice } from "@/components/ui/misc";
 import { ReasonDialog } from "@/components/ui/reason-dialog";
 import { api } from "@/lib/api";
+import { useRole } from "@/lib/returns";
 
 export default function SubBillPage() {
   const { id } = useParams<{ id: string }>();
@@ -25,7 +28,9 @@ export default function SubBillPage() {
     queryKey: ["sub-bill", id],
     queryFn: () => api.get<SubBillDetail>(`/sub-bills/${id}`),
   });
+  const { isOwner } = useRole();
   const [voidOpen, setVoidOpen] = useState(false);
+  const [editOpen, setEditOpen] = useState(false);
   const [resendOpen, setResendOpen] = useState(false);
   const voidBill = useMutation({
     mutationFn: (reason: string) => api.post<SubBillDetail>(`/sub-bills/${id}/void`, { reason }),
@@ -77,6 +82,7 @@ export default function SubBillPage() {
           <div className="flex flex-wrap items-center gap-x-3">
             <h1 className="text-xl leading-7 font-semibold tracking-[-0.01em]">{b.billNumber}</h1>
             <BillStatusBadge state={voided ? "voided" : "paid"} />
+            <EditedTag edited={b.edited} />
           </div>
           <div className="num mt-0.5 text-[13px] text-fg-muted">
             <Link href={`/clients/${b.client.id}`} className="font-medium text-fg-2 hover:text-accent">
@@ -110,7 +116,12 @@ export default function SubBillPage() {
           <Button variant="ghost" onClick={() => window.print()}>
             <Printer /> Print / Save PDF
           </Button>
-          {!voided && (
+          {!voided && isOwner && (
+            <Button variant="secondary" onClick={() => setEditOpen(true)}>
+              <Pencil /> Edit payment
+            </Button>
+          )}
+          {!voided && isOwner && (
             <Menu>
               <MenuItem danger icon={<Ban />} onSelect={() => setVoidOpen(true)}>
                 Void {L.subBill.toLowerCase()}
@@ -122,8 +133,16 @@ export default function SubBillPage() {
 
       {voided && (
         <Notice tone="danger" icon={Ban} className="no-print">
-          <span className="font-medium text-fg">Voided on {formatDate(b.voidedAt)}.</span> <span className="text-fg-muted">{b.voidReason}</span>
+          <span className="font-medium text-fg">
+            Voided on {formatDate(b.voidedAt)}
+            {b.voidedBy ? ` by ${b.voidedBy}` : ""}.
+          </span>{" "}
+          <span className="text-fg-muted">{b.voidReason}</span>
         </Notice>
+      )}
+
+      {!voided && !isOwner && (
+        <p className="no-print text-xs text-fg-muted">Only an owner can change or void a recorded payment.</p>
       )}
 
       {!voided && <EmailBanner bill={b} last={lastEmail} onResend={() => setResendOpen(true)} />}
@@ -153,6 +172,7 @@ export default function SubBillPage() {
             { label: "Payment method", value: PAYMENT_METHOD_LABEL[b.method] },
             ...(b.reference ? [{ label: "Reference", value: <span className="num">{b.reference}</span> }] : []),
             ...(b.enteredBy ? [{ label: "Entered by", value: b.enteredBy }] : []),
+            ...(b.edited ? [{ label: "Last edited", value: editedText(b.edited).replace(/^Edited /, "") }] : []),
             ...(settled ? [{ label: L.mainBill, value: settled.billNumber }] : []),
           ]}
         >
@@ -218,7 +238,11 @@ export default function SubBillPage() {
         </BillSheet>
       </div>
 
+      <ChangeHistory rows={b.history} />
+
       <NotificationLog rows={b.notifications} />
+
+      {isOwner && !voided && <EditPaymentDialog bill={b} open={editOpen} onOpenChange={setEditOpen} />}
 
       <ConfirmDialog
         open={resendOpen}
@@ -278,6 +302,38 @@ function EmailBanner({ bill, last, onResend }: { bill: SubBillDetail; last: Noti
     <Notice tone="warning" icon={MailWarning} className="no-print" action={resend}>
       <span className="font-medium text-fg">Not emailed:</span> <span className="text-fg-muted">{last.error ?? "skipped"}</span>
     </Notice>
+  );
+}
+
+const ACTION_LABEL: Record<string, string> = { create: "Recorded", update: "Edited", void: "Voided", email: "Emailed", email_failed: "Email failed" };
+
+/** Who recorded, changed, voided and emailed this voucher – newest first, with the reason for each change. */
+function ChangeHistory({ rows }: { rows: SubBillDetail["history"] }) {
+  return (
+    <Card className="no-print mx-auto max-w-3xl overflow-hidden">
+      <CardHeader title="History" description="Every change to this payment, with who made it." />
+      {rows.length === 0 ? (
+        <p className="flex items-center gap-2 px-4 py-4 text-[13px] text-fg-muted">
+          <History className="size-4" /> No history yet.
+        </p>
+      ) : (
+        <ul className="divide-y divide-border">
+          {rows.map((h, i) => (
+            <li key={i} className="flex flex-wrap items-start justify-between gap-x-4 gap-y-1 px-4 py-3">
+              <div className="min-w-0">
+                <div className="flex flex-wrap items-center gap-2 text-[13px]">
+                  <span className={h.action === "update" ? "font-medium text-warning" : h.action === "void" ? "font-medium text-danger" : "font-medium"}>{ACTION_LABEL[h.action] ?? h.action}</span>
+                  <span className="text-fg-muted">by {h.user ?? "unknown"}</span>
+                </div>
+                {h.summary && <div className="mt-0.5 text-xs break-words text-fg-2">{h.summary}</div>}
+                {h.reason && h.action !== "create" && <div className="mt-0.5 text-xs text-fg-muted">Reason: {h.reason}</div>}
+              </div>
+              <div className="num text-right text-xs text-fg-muted">{formatDateTime(h.at)}</div>
+            </li>
+          ))}
+        </ul>
+      )}
+    </Card>
   );
 }
 

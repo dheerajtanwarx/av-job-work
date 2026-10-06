@@ -1,6 +1,6 @@
 import { prisma, type Prisma } from "@av/db";
 import { OPEN_JOB_STATUSES, roundQty, type MaterialMovementRow, type MaterialRow, type StockPosition, type Unit } from "@av/shared";
-import { userNames } from "../lib/audit.js";
+import { userNames, withEdited } from "../lib/audit.js";
 import { toDate } from "../lib/dates.js";
 import { loadJobs, summarizeJobItems } from "./jobs.js";
 import { num } from "./ledger.js";
@@ -28,7 +28,7 @@ export async function materialRows(f: { id?: string; q?: string; active?: boolea
     }
   }
   const empty: StockPosition = { available: 0, damagedHeld: 0, withWorkers: 0, lost: 0 };
-  return materials.map((m) => ({
+  return (await withEdited(prisma, materials)).map((m) => ({
     ...m,
     unit: m.unit as Unit,
     createdAt: m.createdAt.toISOString(),

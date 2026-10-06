@@ -1,11 +1,12 @@
 import { prisma } from "@av/db";
-import { NOTIFY_STATUSES, reasonSchema, settingsSchema, subBillCreateSchema, type NotificationLogRow, type NotifyStatus } from "@av/shared";
+import { NOTIFY_STATUSES, reasonSchema, settingsSchema, subBillCreateSchema, subBillUpdateSchema, type NotificationLogRow, type NotifyStatus } from "@av/shared";
 import { Router } from "express";
 import { audit, userNames } from "../lib/audit.js";
 import { toDate } from "../lib/dates.js";
 import { param, parse, str } from "../lib/http.js";
 import { emailSubBill } from "../services/bill-email.js";
-import { createSubBill, getMainBill, getSettings, getSubBill, getUnpaid, listMainBills, listSubBills, voidSubBill } from "../services/billing.js";
+import { createSubBill, getMainBill, getSettings, getSubBill, getUnpaid, listMainBills, listSubBills, updateSubBill, voidSubBill } from "../services/billing.js";
+import { OWNER_ONLY, requireRole } from "../middleware/auth.js";
 
 const dateQ = (v: unknown) => (str(v) ? toDate(str(v)!) : undefined);
 
@@ -48,7 +49,11 @@ billingRouter.get("/sub-bills/:id", async (req, res) => {
   res.json(await getSubBill(param(req.params.id)));
 });
 
-billingRouter.post("/sub-bills/:id/void", async (req, res) => {
+billingRouter.patch("/sub-bills/:id", requireRole(...OWNER_ONLY), async (req, res) => {
+  res.json(await updateSubBill(param(req.params.id), parse(subBillUpdateSchema, req.body), req.user));
+});
+
+billingRouter.post("/sub-bills/:id/void", requireRole(...OWNER_ONLY), async (req, res) => {
   res.json(await voidSubBill(param(req.params.id), parse(reasonSchema, req.body).reason, req.user));
 });
 
@@ -64,10 +69,15 @@ billingRouter.get("/settings", async (_req, res) => {
   res.json(await getSettings());
 });
 
-billingRouter.put("/settings", async (req, res) => {
+billingRouter.put("/settings", requireRole(...OWNER_ONLY), async (req, res) => {
   const data = parse(settingsSchema, req.body);
-  await prisma.settings.upsert({ where: { id: 1 }, update: data, create: { id: 1, ...data } });
-  await audit(prisma, { entity: "Settings", entityId: "1", action: "update", after: data, userId: req.user?.id });
+  const before = await getSettings();
+  await prisma.settings.upsert({ where: { id: 1 }, update: { ...data, updatedById: req.user?.id }, create: { id: 1, ...data, updatedById: req.user?.id } });
+  const changed = (Object.keys(data) as (keyof typeof data)[]).filter((k) => JSON.stringify(before[k] ?? null) !== JSON.stringify(data[k] ?? null));
+  if (changed.length) {
+    const fields = changed.map((k) => k.replace(/([A-Z])/g, " $1").toLowerCase()).join(", ");
+    await audit(prisma, { entity: "Settings", entityId: "1", action: "update", summary: `Settings changed: ${fields}`, before, after: data, userId: req.user?.id });
+  }
   res.json(await getSettings());
 });
 
@@ -81,22 +91,30 @@ billingRouter.get("/notifications", async (req, res) => {
     orderBy: [{ createdAt: "desc" }, { id: "desc" }],
     take,
   });
-  const voucherIds = rows.filter((r) => r.entity === "SubBill").map((r) => r.entityId);
-  const [vouchers, names] = await Promise.all([
+  const idsOf = (entity: string) => rows.filter((r) => r.entity === entity).map((r) => r.entityId);
+  const [voucherIds, returnIds, dispatchIds] = [idsOf("SubBill"), idsOf("Return"), idsOf("Dispatch")];
+  const [vouchers, returns, dispatches, names] = await Promise.all([
     voucherIds.length ? prisma.subBill.findMany({ where: { id: { in: voucherIds } }, select: { id: true, billNumber: true } }) : [],
+    returnIds.length ? prisma.return.findMany({ where: { id: { in: returnIds } }, select: { id: true, returnNumber: true } }) : [],
+    dispatchIds.length ? prisma.dispatch.findMany({ where: { id: { in: dispatchIds } }, select: { id: true, job: { select: { id: true, jobNumber: true } } } }) : [],
     userNames(prisma, rows.map((r) => r.userId)),
   ]);
-  const voucherNo = new Map(vouchers.map((v) => [v.id, v.billNumber]));
+  // Human reference and page for each logged record.
+  const links = new Map<string, { ref: string; href: string }>([
+    ...vouchers.map((v) => [`SubBill:${v.id}`, { ref: v.billNumber, href: `/bills/sub/${v.id}` }] as const),
+    ...returns.map((x) => [`Return:${x.id}`, { ref: x.returnNumber, href: `/returns/${x.id}` }] as const),
+    ...dispatches.map((d) => [`Dispatch:${d.id}`, { ref: `${d.job.jobNumber} issue`, href: `/jobs/${d.job.id}` }] as const),
+  ]);
   const out: NotificationLogRow[] = rows.map((r) => {
-    const ref = r.entity === "SubBill" ? (voucherNo.get(r.entityId) ?? null) : null;
+    const link = links.get(`${r.entity}:${r.entityId}`) ?? null;
     return {
       id: r.id,
       channel: r.channel,
       kind: r.kind,
       entity: r.entity,
       entityId: r.entityId,
-      ref,
-      href: ref ? `/bills/sub/${r.entityId}` : null,
+      ref: link?.ref ?? null,
+      href: link?.href ?? null,
       recipient: r.recipient,
       status: r.status as NotifyStatus,
       error: r.error,

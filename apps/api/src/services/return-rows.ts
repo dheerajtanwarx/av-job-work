@@ -21,7 +21,7 @@ export function lineNumbers(l: ReturnWithRows["lines"][number]) {
 /** Builds list rows (with live payment state) for already-loaded returns. */
 export async function toReturnRows(db: DB, returns: ReturnWithRows[], today: string): Promise<ReturnRow[]> {
   const jobIds = [...new Set(returns.map((r) => r.jobId))];
-  const [money, names] = await Promise.all([returnMoney(db, jobIds, today), userNames(db, returns.map((r) => r.enteredById))]);
+  const [money, names] = await Promise.all([returnMoney(db, jobIds, today), userNames(db, returns.flatMap((r) => [r.enteredById, r.editedById]))]);
   return returns.map((r) => {
     const lines = r.lines.map((l) => ({ l, n: lineNumbers(l) }));
     const rates = [...new Set(lines.map((x) => x.n.ratePaise))];
@@ -47,6 +47,7 @@ export async function toReturnRows(db: DB, returns: ReturnWithRows[], today: str
       coverPhotoId: r.photos[0]?.id ?? null,
       enteredBy: r.enteredById ? (names.get(r.enteredById) ?? null) : null,
       editedAt: r.editedAt?.toISOString() ?? null,
+      editedBy: r.editedById ? (names.get(r.editedById) ?? null) : null,
       voidedAt: r.voidedAt?.toISOString() ?? null,
       voidReason: r.voidReason,
     };

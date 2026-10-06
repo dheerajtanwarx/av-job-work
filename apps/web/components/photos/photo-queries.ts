@@ -6,9 +6,9 @@ import { api, qs } from "@/lib/api";
 
 /** Same cache entry as the app shell; the session user carries the role. */
 export function usePhotoRole() {
-  const me = useQuery({ queryKey: ["me"], queryFn: () => api.get<{ user: SessionUser }>("/auth/me"), staleTime: Infinity, retry: false });
+  const me = useQuery({ queryKey: ["me"], queryFn: () => api.get<{ user: SessionUser }>("/auth/me"), staleTime: 60_000, retry: false });
   const role = me.data?.user?.role;
-  return { isManager: role === "OWNER" || role === "MANAGER", isOwner: role === "OWNER" };
+  return { isManager: role === "OWNER" || role === "SUB_OWNER", isOwner: role === "OWNER" };
 }
 
 export const photoQs = (f: PhotoFilter) =>

@@ -1,4 +1,4 @@
-# Job Work Ledger
+# AV JOB WORK
 
 Job-work management for a business that sends products to job workers (embroidery, printing, stitching, finishing…) and keeps a record of what it pays them. Money flows **from you to the job worker**. The app keeps your own payment records. It does not issue invoices.
 
@@ -26,6 +26,40 @@ pnpm dev                    # web on http://localhost:3000, API on http://localh
 ```
 
 To email bills, fill in the `SMTP_*` values in `.env` (for Gmail, use `smtp.gmail.com`, port 465, `SMTP_SECURE=true` and an [App Password](https://myaccount.google.com/apppasswords)). Without them, bills are still saved but not emailed.
+
+### WhatsApp receipts
+
+Every return (Receiving Voucher) and every material issue (Material Issue Slip) has a **WhatsApp** button: on the return page, its print page, and on each issue and return in the challan timeline. One tap opens **that job worker's own WhatsApp chat** (`wa.me/<their number>`, with a 10-digit number taken as Indian `+91`) with a ready message: the receipt details and a link to the PDF. You just press Send. The worker taps the link to open the PDF; no login is needed, and each link is signed so it opens only that one receipt.
+
+WhatsApp chat links can carry text only, never a file, which is why the PDF goes as a link. **Set `PUBLIC_WEB_URL`** to the address where the app is deployed, e.g. `https://erp.avcreation.in`. With the default `http://localhost:3000` the link won't open on the worker's phone.
+
+- **Optional: send the actual PDF file from the server (WhatsApp Business Cloud API).** Then the button sends the message with the PDF attached, straight from your business number, without opening WhatsApp. set `WHATSAPP_TOKEN` (a permanent system-user token) and `WHATSAPP_PHONE_NUMBER_ID` from Meta → WhatsApp → API Setup. Messages a business starts must use approved templates, so create these two in WhatsApp Manager (category *Utility*, header type *Document*) with exactly these body parameters:
+
+  `return_receipt`:
+  ```
+  Namaste {{1}} ji, we have received your job work. Thank you!
+
+  Return: {{2}} ({{3}})
+  Challan: {{4}} – {{5}}
+  Received good: {{6}}
+  Damaged / rejected / lost: {{7}}
+  Work value: {{8}}
+
+  The receiving voucher is attached. – {{9}}
+  ```
+  `material_issue`:
+  ```
+  Namaste {{1}} ji, material has been issued to you for job work.
+
+  Issue slip: {{2}} ({{3}})
+  Challan: {{4}} – {{5}}
+  Designs: {{6}}
+  Total: {{7}}
+  Please return by: {{8}}
+
+  The material issue slip is attached. – {{9}}
+  ```
+  Use other names or a language other than `en` through `WHATSAPP_TEMPLATE_RETURN`, `WHATSAPP_TEMPLATE_ISSUE` and `WHATSAPP_TEMPLATE_LANG`. If a send fails, for example because a template is not approved yet, the app shows the error and opens the worker's chat instead.
 
 Log in with `OWNER_EMAIL` / `OWNER_PASSWORD` from `.env` (default `owner@example.com` / `admin123`).
 

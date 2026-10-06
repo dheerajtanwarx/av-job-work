@@ -16,6 +16,7 @@ import { Segmented } from "@/components/ui/segmented";
 import { Tabs } from "@/components/ui/tabs";
 import { SearchInput, Toolbar } from "@/components/ui/toolbar";
 import { useMaterials } from "@/lib/queries";
+import { EditedTag } from "@/components/ui/edited";
 import { cn } from "@/lib/utils";
 
 export default function MaterialsPage() {
@@ -149,6 +150,7 @@ export default function MaterialsPage() {
                             <div className="flex items-center gap-2">
                               <span className="truncate font-medium">{m.name}</span>
                               {!m.isActive && <StatusBadge tone="neutral">Inactive</StatusBadge>}
+                              <EditedTag edited={m.edited} compact />
                             </div>
                             <div className="truncate text-xs text-fg-muted">{[m.fabricType, m.color, m.product?.name].filter(Boolean).join(" · ") || "—"}</div>
                           </td>

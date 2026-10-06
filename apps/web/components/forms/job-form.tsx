@@ -13,23 +13,28 @@ import {
   UNIT_DECIMALS,
   type Design,
   type JobDetail,
+  type JobItemPhotoKind,
+  type JobItemPhotoView,
   type Material,
   type PaymentPolicy,
   type Unit,
 } from "@av/shared";
 import { useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, Plus, Trash2 } from "lucide-react";
+import { AlertTriangle, Eye, ImagePlus, Plus, Trash2, X } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { ClientDialog, DesignDialog, JobWorkTypeDialog, MaterialDialog, ProductDialog } from "@/components/forms/master-dialogs";
 import { PaymentTermsFields, termsLabel } from "@/components/forms/payment-terms";
+import { ChallanPreviewDialog, type ChallanSheetData } from "@/components/jobs/challan-sheet";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Combobox } from "@/components/ui/combobox";
 import { Dialog } from "@/components/ui/dialog";
 import { Field, Input, MoneyInput, Select, Textarea } from "@/components/ui/input";
 import { api, ApiError } from "@/lib/api";
+import { jobPhotoThumb, removeJobItemPhoto, uploadJobItemPhotos } from "@/lib/job-photos";
+import { photoProblem } from "@/lib/returns";
 import { useClients, useDesigns, useJobWorkTypes, useMaterials, useProducts, useSettings } from "@/lib/queries";
 import { cn } from "@/lib/utils";
 
@@ -45,6 +50,17 @@ interface Line {
   locked?: boolean; // material already issued – can't remove or change material
   minQty?: number;
   unit?: Unit; // known unit of an existing line
+  /** Photos picked on this device, uploaded once the challan is saved. */
+  newPhotos: LocalPhoto[];
+  /** Photos already saved on this line. */
+  savedPhotos: JobItemPhotoView[];
+}
+
+interface LocalPhoto {
+  key: string;
+  kind: JobItemPhotoKind;
+  file: File;
+  url: string;
 }
 
 interface StockShort {
@@ -56,7 +72,7 @@ interface StockShort {
 }
 
 let k = 0;
-const newLine = (): Line => ({ key: `l${++k}`, designId: "", materialId: "", jobWorkTypeId: "", quantity: "", rate: "", notes: "" });
+const newLine = (): Line => ({ key: `l${++k}`, designId: "", materialId: "", jobWorkTypeId: "", quantity: "", rate: "", notes: "", newPhotos: [], savedPhotos: [] });
 const stepFor = (u: Unit) => (UNIT_DECIMALS[u] ? 1 / 10 ** UNIT_DECIMALS[u] : 1);
 
 export function JobForm({ job, defaultClientId }: { job?: JobDetail; defaultClientId?: string }) {
@@ -95,6 +111,8 @@ export function JobForm({ job, defaultClientId }: { job?: JobDetail; defaultClie
           locked: started,
           minQty: i.initialSent,
           unit: i.unit,
+          newPhotos: [],
+          savedPhotos: i.photos,
         }))
       : [newLine()],
   );
@@ -102,6 +120,8 @@ export function JobForm({ job, defaultClientId }: { job?: JobDetail; defaultClie
   const [saving, setSaving] = useState(false);
   const [short, setShort] = useState<StockShort[] | null>(null);
   const [overrideReason, setOverrideReason] = useState("");
+  const [removedPhotoIds, setRemovedPhotoIds] = useState<string[]>([]);
+  const [preview, setPreview] = useState(false);
   const [dialog, setDialog] = useState<{ kind: "client" | "product" | "design" | "material" | "type"; name: string; lineKey?: string } | null>(null);
 
   const designById = useMemo(() => new Map((designs.data ?? []).map((d) => [d.id, d])), [designs.data]);
@@ -131,6 +151,38 @@ export function JobForm({ job, defaultClientId }: { job?: JobDetail; defaultClie
   }));
   for (const it of job?.items ?? [])
     if (it.material && !matById.has(it.material.id)) materialOptions.push({ value: it.material.id, label: `${it.material.code} · ${it.material.name}`, sub: <>Inactive material</>, keywords: [] });
+
+  // Local previews are object URLs; release them when the form goes away.
+  const photoUrls = useRef(new Set<string>());
+  useEffect(() => {
+    const urls = photoUrls.current;
+    return () => urls.forEach((u) => URL.revokeObjectURL(u));
+  }, []);
+  function addPhotos(key: string, kind: JobItemPhotoKind, files: FileList) {
+    const rejected: string[] = [];
+    const added: LocalPhoto[] = [];
+    for (const file of Array.from(files)) {
+      const problem = photoProblem(file);
+      if (problem) {
+        rejected.push(`${file.name}: ${problem}`);
+        continue;
+      }
+      const url = URL.createObjectURL(file);
+      photoUrls.current.add(url);
+      added.push({ key: `p${++k}`, kind, file, url });
+    }
+    if (rejected.length) toast.error(rejected.join("\n"));
+    if (added.length) setLines((ls) => ls.map((l) => (l.key === key ? { ...l, newPhotos: [...l.newPhotos, ...added] } : l)));
+  }
+  function dropNewPhoto(key: string, photo: LocalPhoto) {
+    URL.revokeObjectURL(photo.url);
+    photoUrls.current.delete(photo.url);
+    setLines((ls) => ls.map((l) => (l.key === key ? { ...l, newPhotos: l.newPhotos.filter((p) => p.key !== photo.key) } : l)));
+  }
+  const dropSavedPhoto = (key: string, id: string) => {
+    setRemovedPhotoIds((ids) => [...ids, id]);
+    setLines((ls) => ls.map((l) => (l.key === key ? { ...l, savedPhotos: l.savedPhotos.filter((p) => p.id !== id) } : l)));
+  };
 
   const unitOf = (l: Line): Unit => matById.get(l.materialId)?.unit ?? l.unit ?? "PCS";
   const update = (key: string, patch: Partial<Line>) => setLines((ls) => ls.map((l) => (l.key === key ? { ...l, ...patch } : l)));
@@ -195,7 +247,9 @@ export function JobForm({ job, defaultClientId }: { job?: JobDetail; defaultClie
       const saved = editing
         ? await api.patch<JobDetail>(`/jobs/${job!.id}`, { ...body, reason })
         : await api.post<JobDetail>("/jobs", { ...body, items: items.map(({ id: _id, ...i }) => i), dispatchNow, stockOverrideReason: stockOverrideReason || null });
+      const photoFailures = await syncPhotos(filled, saved);
       qc.invalidateQueries();
+      if (photoFailures) toast.error(`${photoFailures} photo upload${photoFailures === 1 ? "" : "s"} failed. The ${L.job.toLowerCase()} is saved – add the photos again from Edit.`);
       toast.success(editing ? `${L.job} updated` : `${L.job} ${saved.jobNumber} created${dispatchNow ? ` · material issued` : " as draft"}`);
       router.push(`/jobs/${saved.id}`);
     } catch (err) {
@@ -211,6 +265,68 @@ export function JobForm({ job, defaultClientId }: { job?: JobDetail; defaultClie
       toast.error(err instanceof Error ? err.message : "Could not save");
     }
   }
+
+  /** Uploads photos picked for each line and removes the ones taken off. Returns how many steps failed. */
+  async function syncPhotos(filled: Line[], saved: JobDetail) {
+    // Draft edits and new challans recreate every line in form order; started challans keep line ids and append new ones.
+    const before = new Set(job?.items.map((i) => i.id) ?? []);
+    const kept = saved.items.filter((i) => before.has(i.id));
+    const fresh = saved.items.filter((i) => !before.has(i.id)).sort((a, b) => a.sortOrder - b.sortOrder);
+    let n = 0;
+    const itemIdFor = (l: Line) => (kept.length && l.id ? l.id : fresh[n++]?.id);
+    let failed = 0;
+    for (const l of filled) {
+      const itemId = itemIdFor(l);
+      if (!itemId) continue;
+      for (const kind of ["ITEM", "DESIGN"] as const) {
+        const files = l.newPhotos.filter((p) => p.kind === kind).map((p) => p.file);
+        if (!files.length) continue;
+        try {
+          await uploadJobItemPhotos(itemId, kind, files);
+        } catch {
+          failed += files.length;
+        }
+      }
+    }
+    for (const id of removedPhotoIds) {
+      try {
+        await removeJobItemPhoto(id);
+      } catch {
+        failed++;
+      }
+    }
+    return failed;
+  }
+
+  const previewData: ChallanSheetData = {
+    jobNumber: job?.jobNumber ?? null,
+    jobDate,
+    expectedReturnDate: expected || null,
+    worker: client ? { name: client.name, workerCode: client.workerCode, phone: client.phone, address: client.address } : null,
+    productName: product?.name ?? null,
+    jobWorkTypeName: types.data?.find((t) => t.id === jobWorkTypeId)?.name ?? job?.jobWorkType?.name ?? null,
+    terms: policy ? termsLabel(policy, Number(days) || 0) : client?.paymentPolicy ? termsLabel(client.paymentPolicy, client.paymentDays) : defaultTerms,
+    notes: notes || null,
+    items: lines
+      .filter((l) => l.designId || Number(l.quantity) > 0)
+      .map((l) => {
+        const d = designById.get(l.designId);
+        const photos = (kind: JobItemPhotoKind) => [...l.savedPhotos.filter((p) => p.kind === kind).map((p) => jobPhotoThumb(p.id)), ...l.newPhotos.filter((p) => p.kind === kind).map((p) => p.url)];
+        return {
+          key: l.key,
+          designName: designOptions.find((o) => o.value === l.designId)?.label ?? "Design not chosen",
+          designCode: d?.code,
+          notes: l.notes || null,
+          material: materialOptions.find((o) => o.value === l.materialId)?.label ?? null,
+          quantity: Number(l.quantity) || 0,
+          unit: unitOf(l),
+          ratePaise: rupeesToPaise(l.rate || 0),
+          valuePaise: lineValue(l),
+          itemPhotos: photos("ITEM"),
+          designPhotos: photos("DESIGN"),
+        };
+      }),
+  };
 
   return (
     <form onSubmit={(e) => submit(e)} className="grid gap-x-10 gap-y-8 lg:grid-cols-[minmax(0,1fr)_17rem]">
@@ -400,6 +516,19 @@ export function JobForm({ job, defaultClientId }: { job?: JobDetail; defaultClie
                       </Select>
                       <Input value={l.notes} onChange={(e) => update(l.key, { notes: e.target.value })} placeholder="Line notes (optional)" aria-label="Line notes" />
                     </div>
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      {(["ITEM", "DESIGN"] as const).map((kind) => (
+                        <LinePhotos
+                          key={kind}
+                          label={kind === "ITEM" ? "Item / material photos" : "Design / sample photos"}
+                          saved={l.savedPhotos.filter((p) => p.kind === kind)}
+                          local={l.newPhotos.filter((p) => p.kind === kind)}
+                          onAdd={(files) => addPhotos(l.key, kind, files)}
+                          onRemoveSaved={(id) => dropSavedPhoto(l.key, id)}
+                          onRemoveLocal={(p) => dropNewPhoto(l.key, p)}
+                        />
+                      ))}
+                    </div>
                   </li>
                 );
               })}
@@ -470,12 +599,17 @@ export function JobForm({ job, defaultClientId }: { job?: JobDetail; defaultClie
             <Button type="submit" size="lg" className="w-full" loading={saving}>
               {editing ? "Save changes" : dispatchNow ? `Create ${L.job.toLowerCase()} & issue` : "Save as draft"}
             </Button>
+            <Button type="button" variant="secondary" className="w-full" onClick={() => setPreview(true)}>
+              <Eye /> Print preview
+            </Button>
             <Button type="button" variant="ghost" className="w-full" onClick={() => router.back()}>
               Cancel
             </Button>
           </div>
         </Card>
       </aside>
+
+      <ChallanPreviewDialog open={preview} onOpenChange={setPreview} data={previewData} biz={settings.data} />
 
       {/* Stock shortage: confirm with a reason, then resubmit */}
       <StockShortDialog
@@ -511,6 +645,72 @@ export function JobForm({ job, defaultClientId }: { job?: JobDetail; defaultClie
         }}
       />
     </form>
+  );
+}
+
+function LinePhotos({
+  label,
+  saved,
+  local,
+  onAdd,
+  onRemoveSaved,
+  onRemoveLocal,
+}: {
+  label: string;
+  saved: JobItemPhotoView[];
+  local: LocalPhoto[];
+  onAdd: (files: FileList) => void;
+  onRemoveSaved: (id: string) => void;
+  onRemoveLocal: (p: LocalPhoto) => void;
+}) {
+  const input = useRef<HTMLInputElement>(null);
+  const thumbs = [
+    ...saved.map((p) => ({ key: p.id, url: jobPhotoThumb(p.id), name: p.name ?? "Photo", remove: () => onRemoveSaved(p.id) })),
+    ...local.map((p) => ({ key: p.key, url: p.url, name: p.file.name, remove: () => onRemoveLocal(p) })),
+  ];
+  return (
+    <div className="min-w-0 rounded-md border border-dashed border-border-strong p-2">
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-xs text-fg-muted">
+          {label}
+          {thumbs.length > 0 && <span className="num"> · {thumbs.length}</span>}
+        </span>
+        <input
+          ref={input}
+          type="file"
+          accept="image/*,.heic,.heif"
+          multiple
+          className="sr-only"
+          tabIndex={-1}
+          aria-hidden
+          onChange={(e) => {
+            if (e.currentTarget.files?.length) onAdd(e.currentTarget.files);
+            e.currentTarget.value = "";
+          }}
+        />
+        <Button type="button" variant="ghost" size="sm" onClick={() => input.current?.click()}>
+          <ImagePlus /> Add photos
+        </Button>
+      </div>
+      {thumbs.length > 0 && (
+        <ul className="mt-2 flex flex-wrap gap-2">
+          {thumbs.map((t) => (
+            <li key={t.key} className="relative size-16 overflow-hidden rounded-md border border-border bg-surface-2">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={t.url} alt={t.name} title={t.name} className="size-full object-cover" />
+              <button
+                type="button"
+                onClick={t.remove}
+                aria-label={`Remove ${t.name}`}
+                className="absolute top-0.5 right-0.5 grid size-6 place-items-center rounded-full bg-black/60 text-white transition-colors hover:bg-black/75"
+              >
+                <X className="size-3.5" />
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
   );
 }
 

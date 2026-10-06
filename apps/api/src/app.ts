@@ -3,7 +3,7 @@ import cors from "cors";
 import express from "express";
 import helmet from "helmet";
 import { env } from "./env.js";
-import { blockViewersFromWriting, requireAuth } from "./middleware/auth.js";
+import { requireAuth } from "./middleware/auth.js";
 import { errorHandler } from "./middleware/error.js";
 import { csrfProtection, loginRateLimit, publicRateLimit } from "./middleware/security.js";
 import { authRouter } from "./routes/auth.js";
@@ -13,6 +13,7 @@ import { clientsRouter, designsRouter, jobWorkTypesRouter, materialsRouter, prod
 import { photosRouter } from "./routes/photos.js";
 import { publicRouter } from "./routes/public.js";
 import { reportsRouter } from "./routes/reports.js";
+import { usersRouter } from "./routes/users.js";
 
 export function createApp() {
   const app = express();
@@ -33,7 +34,6 @@ export function createApp() {
   app.use("/public", publicRateLimit(), publicRouter);
 
   app.use(requireAuth);
-  app.use(blockViewersFromWriting);
   app.use("/clients", clientsRouter);
   app.use("/products", productsRouter);
   app.use("/job-work-types", jobWorkTypesRouter);
@@ -45,6 +45,7 @@ export function createApp() {
   app.use("/", entriesRouter);
   app.use("/", billingRouter);
   app.use("/", reportsRouter);
+  app.use("/", usersRouter);
 
   app.use((_req, res) => {
     res.status(404).json({ message: "Not found" });

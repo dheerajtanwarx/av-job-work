@@ -28,7 +28,7 @@ import {
   jobUpdateSchema,
 } from "@av/shared";
 import type { z } from "zod";
-import { audit, userNames } from "../lib/audit.js";
+import { audit, editedBy, editMark, userNames } from "../lib/audit.js";
 import { nextNumber } from "../lib/counter.js";
 import { iso, toDate, toDateOrNull, today } from "../lib/dates.js";
 import { notFound, unprocessable } from "../lib/http.js";
@@ -52,6 +52,7 @@ export const jobInclude = {
       design: { select: { code: true } },
       material: { select: { id: true, code: true, name: true } },
       jobWorkType: { select: { id: true, name: true } },
+      photos: { where: { removedAt: null }, select: { id: true, kind: true, originalName: true }, orderBy: [{ createdAt: "asc" }, { id: "asc" }] },
     },
   },
 } satisfies Prisma.JobInclude;
@@ -89,6 +90,7 @@ export function summarizeJobItems(job: JobWithLedger): JobItemView[] {
       jobWorkType: it.jobWorkType,
       notes: it.notes,
       sortOrder: it.sortOrder,
+      photos: it.photos.map((p) => ({ id: p.id, kind: p.kind, name: p.originalName })),
       ...summarizeItem({ quantity: num(it.quantity), ratePaise: it.ratePaise, ...a }),
     };
   });
@@ -160,7 +162,7 @@ async function syncMainBill(db: DB, job: JobWithLedger, settled: boolean, qty: n
   if (!settled) {
     if (active) {
       await db.mainBill.update({ where: { id: existing.id }, data: { cancelledAt: new Date(), cancelReason: "Challan is no longer fully paid" } });
-      await audit(db, { entity: "Job", entityId: job.id, action: "update", summary: `Final settlement ${existing.billNumber} cancelled – challan is no longer fully paid`, userId });
+      await audit(db, { entity: "Job", entityId: job.id, action: "settlement", summary: `Final settlement ${existing.billNumber} cancelled – challan is no longer fully paid`, userId });
     }
     return;
   }
@@ -173,12 +175,12 @@ async function syncMainBill(db: DB, job: JobWithLedger, settled: boolean, qty: n
   }
   if (existing) {
     await db.mainBill.update({ where: { id: existing.id }, data: { cancelledAt: null, cancelReason: null, totalPaise: valuePaise, qty, date } });
-    await audit(db, { entity: "Job", entityId: job.id, action: "update", summary: `Final settlement ${existing.billNumber} re-issued for ₹${valuePaise / 100}`, userId });
+    await audit(db, { entity: "Job", entityId: job.id, action: "settlement", summary: `Final settlement ${existing.billNumber} re-issued for ₹${valuePaise / 100}`, userId });
     return;
   }
   const billNumber = await nextNumber(db, "mainBill", "MB");
   await db.mainBill.create({ data: { billNumber, jobId: job.id, clientId: job.clientId, date, qty, totalPaise: valuePaise } });
-  await audit(db, { entity: "Job", entityId: job.id, action: "update", summary: `Challan fully paid – final settlement ${billNumber} issued for ₹${valuePaise / 100}`, userId });
+  await audit(db, { entity: "Job", entityId: job.id, action: "settlement", summary: `Challan fully paid – final settlement ${billNumber} issued for ₹${valuePaise / 100}`, userId });
 }
 
 // ───────────────────────── Create / update ─────────────────────────
@@ -319,7 +321,16 @@ export async function updateJob(jobId: string, input: z.output<typeof jobUpdateS
         });
       }
     }
-    if (Object.keys(header).length) await tx.job.update({ where: { id: jobId }, data: header });
+    // Only fields that really change count as an edit.
+    const same = (k: string, v: unknown) => {
+      const cur = (job as unknown as Record<string, unknown>)[k];
+      return cur instanceof Date || v instanceof Date ? (cur as Date | null)?.getTime() === (v as Date | null)?.getTime() : (cur ?? null) === (v ?? null);
+    };
+    for (const k of Object.keys(header)) if (same(k, header[k as keyof typeof header])) delete header[k as keyof typeof header];
+    const FIELD: Record<string, string> = { clientId: "job worker", productId: "product", jobWorkTypeId: "job work type", jobDate: "challan date", expectedReturnDate: "expected return date", notes: "notes" };
+    const fields = Object.keys(header).filter((k) => FIELD[k]).map((k) => FIELD[k]);
+    if (fields.length) await audit(tx, { entity: "Job", entityId: jobId, action: "update", summary: `${job.jobNumber}: ${fields.join(", ")} changed${input.reason ? ` (Reason: ${input.reason})` : ""}`, reason: input.reason, userId });
+    if (Object.keys(header).length) await tx.job.update({ where: { id: jobId }, data: { ...header, ...editedBy(userId) } });
 
     if (!input.items) return;
     const [designs, materials] = await Promise.all([
@@ -338,21 +349,27 @@ export async function updateJob(jobId: string, input: z.output<typeof jobUpdateS
         assertUnit(it.quantity, unitFor(it, "PCS"), designById.get(it.designId)!.name);
       }
       const before = items.map((i) => ({ design: i.designName, qty: i.quantity, rate: i.ratePaise }));
-      await tx.jobItem.deleteMany({ where: { jobId } });
-      await tx.jobItem.createMany({
-        data: input.items.map((it, idx) => ({
-          jobId,
-          designId: it.designId,
-          designName: designById.get(it.designId)!.name,
-          materialId: it.materialId,
-          jobWorkTypeId: it.jobWorkTypeId ?? job.jobWorkTypeId ?? designById.get(it.designId)!.jobWorkTypeId,
-          unit: unitFor(it, "PCS"),
-          quantity: it.quantity,
-          ratePaise: it.ratePaise,
-          notes: it.notes,
-          sortOrder: idx,
-        })),
-      });
+      const oldIds = items.map((i) => i.id);
+      for (const [idx, it] of input.items.entries()) {
+        const created = await tx.jobItem.create({
+          data: {
+            jobId,
+            designId: it.designId,
+            designName: designById.get(it.designId)!.name,
+            materialId: it.materialId,
+            jobWorkTypeId: it.jobWorkTypeId ?? job.jobWorkTypeId ?? designById.get(it.designId)!.jobWorkTypeId,
+            unit: unitFor(it, "PCS"),
+            quantity: it.quantity,
+            ratePaise: it.ratePaise,
+            notes: it.notes,
+            sortOrder: idx,
+          },
+        });
+        // A kept line keeps its reference photos.
+        if (it.id && oldIds.includes(it.id)) await tx.jobItemPhoto.updateMany({ where: { jobItemId: it.id }, data: { jobItemId: created.id } });
+      }
+      await tx.jobItemPhoto.deleteMany({ where: { jobItemId: { in: oldIds } } });
+      await tx.jobItem.deleteMany({ where: { id: { in: oldIds } } });
       await audit(tx, {
         entity: "Job",
         entityId: jobId,
@@ -413,6 +430,7 @@ export async function updateJob(jobId: string, input: z.output<typeof jobUpdateS
     }
     if (changes.length) {
       await audit(tx, { entity: "Job", entityId: jobId, action: "update", summary: changes.join("; ") + (input.reason ? ` (Reason: ${input.reason})` : ""), reason: input.reason, userId });
+      await tx.job.update({ where: { id: jobId }, data: editedBy(userId) });
     }
     await recomputeJobStatus(tx, jobId, userId);
   });
@@ -533,11 +551,16 @@ export async function getJobDetail(jobId: string): Promise<JobDetail> {
     loadReturnRows(prisma, { jobId }, now),
     prisma.subBill.findMany({ where: { jobId }, include: subBillRowInclude, orderBy: [{ date: "asc" }, { createdAt: "asc" }] }),
     prisma.mainBill.findUnique({ where: { jobId }, include: mainBillRowInclude }),
-    prisma.auditLog.findMany({ where: { entity: "Job", entityId: jobId, action: { in: ["update", "exception", "reopened", "void"] } }, orderBy: { createdAt: "asc" } }),
+    prisma.auditLog.findMany({ where: { entity: "Job", entityId: jobId, action: { in: ["update", "rate", "settlement", "exception", "reopened", "void"] } }, orderBy: { createdAt: "asc" } }),
     defaultTerms(prisma),
   ]);
   const returnLines = await prisma.returnLine.findMany({ where: { return: { jobId } }, select: { returnId: true, jobItemId: true, okQty: true, damagedQty: true, rejectedQty: true, lostQty: true, ratePaise: true, payDamaged: true, payRejected: true, payLost: true, exceptionReason: true } });
-  const names = await userNames(prisma, [...dispatches.map((d) => d.enteredById), ...subBills.map((b) => b.enteredById)]);
+  const names = await userNames(prisma, [
+    ...dispatches.map((d) => d.enteredById),
+    ...subBills.flatMap((b) => [b.enteredById, b.editedById, b.voidedById]),
+    ...audits.map((a) => a.userId),
+    job.editedById,
+  ]);
 
   const timeline: TimelineEvent[] = [];
   const at = (d: Date) => d.toISOString();
@@ -594,7 +617,9 @@ export async function getJobDetail(jobId: string): Promise<JobDetail> {
       amountPaise: b.amountPaise,
       method: b.method,
       returnNumber: sb.returnNumber,
-      voided: b.voidedAt ? { at: at(b.voidedAt), reason: b.voidReason } : null,
+      enteredBy: sb.enteredBy,
+      edited: sb.edited,
+      voided: b.voidedAt ? { at: at(b.voidedAt), reason: b.voidReason, by: sb.voidedBy } : null,
     });
   }
   if (job.completedAt && job.status === "COMPLETED") {
@@ -609,7 +634,7 @@ export async function getJobDetail(jobId: string): Promise<JobDetail> {
   }
   for (const a of audits) {
     if (a.action === "void") continue; // voids are shown on the entry itself
-    timeline.push({ type: "audit", at: at(a.createdAt), date: at(a.createdAt), text: a.summary ?? a.action });
+    timeline.push({ type: "audit", at: at(a.createdAt), date: at(a.createdAt), text: a.summary ?? a.action, by: a.userId ? (names.get(a.userId) ?? null) : null });
   }
   timeline.sort((a, b) => dayOf(a.date).localeCompare(dayOf(b.date)) || a.at.localeCompare(b.at));
 
@@ -629,6 +654,7 @@ export async function getJobDetail(jobId: string): Promise<JobDetail> {
     timeline,
     subBills: subBills.map((b) => toSubBillRow(b, returnNumbers, names)),
     mainBill: mainBill ? toMainBillRow(mainBill) : null,
+    edited: editMark(job, names),
   };
 }
 
@@ -660,7 +686,9 @@ export function toSubBillRow(
     method: b.method,
     reference: b.reference,
     enteredBy: b.enteredById ? (names?.get(b.enteredById) ?? null) : null,
+    edited: editMark(b, names ?? new Map()),
     voidedAt: iso(b.voidedAt),
+    voidedBy: b.voidedById ? (names?.get(b.voidedById) ?? null) : null,
     voidReason: b.voidReason,
   };
 }

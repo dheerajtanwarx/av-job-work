@@ -2,7 +2,7 @@
 
 import { formatDate, formatINR, formatQty, L, OPEN_JOB_STATUSES, PAYMENT_METHOD_LABEL, type ClientSummary } from "@av/shared";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Archive, ArchiveRestore, Boxes, Briefcase, Pencil, Phone, Plus, ReceiptText, StickyNote, Wallet } from "lucide-react";
+import { Archive, ArchiveRestore, Boxes, Briefcase, Eye, Pencil, Phone, Plus, Printer, ReceiptText, StickyNote, Wallet } from "lucide-react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useState } from "react";
@@ -20,8 +20,13 @@ import { DateRangePicker } from "@/components/ui/date-range-picker";
 import { Menu, MenuItem } from "@/components/ui/menu";
 import { EmptyState, ErrorBlock, KeyValues, LoadingBlock, Metric, MetricStrip, Notice, PageSkeleton, StatsSkeleton } from "@/components/ui/misc";
 import { Tabs } from "@/components/ui/tabs";
+import { DocThumb, WorkerAvatar } from "@/components/workers/worker-docs";
+import { WorkerPreviewDialog } from "@/components/workers/worker-sheet";
 import { api } from "@/lib/api";
 import { useClientLedger, useClientMaterial, useClientPerformance, useClientSummary, useSettings } from "@/lib/queries";
+import { useIsManager } from "@/lib/returns";
+import { workerDocDisplay } from "@/lib/worker-docs";
+import { EditedTag } from "@/components/ui/edited";
 import { cn } from "@/lib/utils";
 
 const TABS = ["overview", "material", "financial", "challans", "payments", "ledger", "photos", "performance"] as const;
@@ -49,6 +54,8 @@ export default function ClientPage() {
   const [tab, setTab] = useState<Tab>("overview");
   const [edit, setEdit] = useState(false);
   const [archiveOpen, setArchiveOpen] = useState(false);
+  const [previewOpen, setPreviewOpen] = useState(false);
+  const isManager = useIsManager();
 
   const archive = useMutation({
     mutationFn: (isActive: boolean) => api.put(`/clients/${id}`, { isActive }),
@@ -70,7 +77,15 @@ export default function ClientPage() {
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-start justify-between gap-x-6 gap-y-3">
-        <div className="min-w-0">
+        <div className="flex min-w-0 items-start gap-4">
+          {c.photoId ? (
+            <a href={workerDocDisplay(c.photoId)} target="_blank" rel="noreferrer" className="shrink-0">
+              <WorkerAvatar photoId={c.photoId} name={c.name} className="size-16" />
+            </a>
+          ) : (
+            <WorkerAvatar photoId={null} name={c.name} className="size-16" />
+          )}
+          <div className="min-w-0">
           <div className="mb-1 text-xs text-fg-muted">
             <Link href="/clients" className="hover:text-fg">
               {L.clients}
@@ -80,6 +95,7 @@ export default function ClientPage() {
             <h1 className="text-xl leading-7 font-semibold tracking-[-0.01em]">{c.name}</h1>
             <span className="num text-[13px] text-fg-muted">{c.workerCode}</span>
             {!c.isActive && <StatusBadge tone="neutral">Archived</StatusBadge>}
+            <EditedTag edited={c.edited} />
           </div>
           <div className="mt-0.5 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-[13px] text-fg-muted">
             {[
@@ -113,7 +129,9 @@ export default function ClientPage() {
               .filter(Boolean)
               .flatMap((el, i) => (i ? [<span key={`d${i}`} aria-hidden>·</span>, el] : [el]))}
           </div>
+          {c.workItems && <div className="mt-0.5 text-[13px] text-fg-2">Work: {c.workItems}</div>}
           {c.address && <div className="mt-0.5 text-xs whitespace-pre-line text-fg-muted">{c.address}</div>}
+          </div>
         </div>
         <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
           {c.isActive && (
@@ -132,6 +150,14 @@ export default function ClientPage() {
           )}
           <Button variant="ghost" onClick={() => setEdit(true)}>
             <Pencil /> Edit
+          </Button>
+          <Button variant="ghost" onClick={() => setPreviewOpen(true)}>
+            <Eye /> Print preview
+          </Button>
+          <Button asChild variant="ghost">
+            <Link href={`/clients/${c.id}/print`}>
+              <Printer /> Print
+            </Link>
           </Button>
           <Menu>
             <MenuItem icon={c.isActive ? <Archive /> : <ArchiveRestore />} danger={c.isActive} onSelect={() => setArchiveOpen(true)}>
@@ -154,7 +180,7 @@ export default function ClientPage() {
           onChange={setTab}
           items={TABS.map((x) => ({ value: x, label: TAB_LABEL[x], count: x === "challans" ? q.data.jobs.length : x === "payments" ? q.data.subBills.length : undefined }))}
         />
-        {tab === "overview" && <Overview data={q.data} terms={terms} avgCompletion={perf.data?.avgCompletionDays} onTab={setTab} />}
+        {tab === "overview" && <Overview data={q.data} terms={terms} avgCompletion={perf.data?.avgCompletionDays} onTab={setTab} isManager={isManager} onEdit={() => setEdit(true)} />}
         {tab === "material" && <MaterialTab clientId={id} />}
         {tab === "financial" && <FinancialTab data={q.data} advance={advance} terms={terms} />}
         {tab === "challans" && <Card className="overflow-hidden">{q.data.jobs.length ? <JobsTable rows={q.data.jobs} hideClient /> : <EmptyState icon={Briefcase} title={`No ${L.jobs.toLowerCase()} yet`} />}</Card>}
@@ -165,6 +191,7 @@ export default function ClientPage() {
       </div>
 
       <ClientDialog open={edit} onOpenChange={setEdit} client={c} />
+      <WorkerPreviewDialog open={previewOpen} onOpenChange={setPreviewOpen} printHref={`/clients/${c.id}/print`} data={q.data} terms={terms} biz={settings.data} showAadhaar={isManager} />
       <ConfirmDialog
         open={archiveOpen}
         onOpenChange={setArchiveOpen}
@@ -183,8 +210,23 @@ export default function ClientPage() {
   );
 }
 
-function Overview({ data, terms, avgCompletion, onTab }: { data: ClientSummary; terms: string; avgCompletion: number | null | undefined; onTab: (t: Tab) => void }) {
+function Overview({
+  data,
+  terms,
+  avgCompletion,
+  onTab,
+  isManager,
+  onEdit,
+}: {
+  data: ClientSummary;
+  terms: string;
+  avgCompletion: number | null | undefined;
+  onTab: (t: Tab) => void;
+  isManager: boolean;
+  onEdit: () => void;
+}) {
   const t = data.totals;
+  const c = data.client;
   const open = data.jobs.filter((j) => OPEN_JOB_STATUSES.includes(j.status) && j.status !== "DRAFT");
   return (
     <div className="space-y-6">
@@ -195,6 +237,21 @@ function Overview({ data, terms, avgCompletion, onTab }: { data: ClientSummary; 
         <Metric label="Avg completion" value={avgCompletion == null ? "—" : `${avgCompletion} d`} sub="Challan date → last return" />
         <Metric label="Payment terms" value={<span className="text-[15px]">{terms}</span>} />
       </MetricStrip>
+      <Section
+        title="Aadhaar photos"
+        action={
+          isManager && (
+            <button type="button" onClick={onEdit} className="text-xs font-medium text-fg-muted hover:text-fg">
+              {c.aadhaarFrontId || c.aadhaarBackId ? "Change" : "Add"}
+            </button>
+          )
+        }
+      >
+        <div className="flex flex-wrap gap-3">
+          <DocThumb id={c.aadhaarFrontId} label="Front" locked={!isManager} />
+          <DocThumb id={c.aadhaarBackId} label="Back" locked={!isManager} />
+        </div>
+      </Section>
       <Section
         title={`Active ${L.jobs.toLowerCase()}`}
         action={

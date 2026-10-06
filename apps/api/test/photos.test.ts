@@ -24,7 +24,7 @@ let ret1Detail: ReturnDetail;
 
 const jpeg = (w = 64, h = 48, color = { r: 200, g: 40, b: 90 }) => sharp({ create: { width: w, height: h, channels: 3, background: color } }).jpeg().toBuffer();
 
-async function agentWithRole(email: string, role: "MANAGER" | "DATA_ENTRY" | "VIEWER") {
+async function agentWithRole(email: string, role: "OWNER" | "SUB_OWNER") {
   await prisma.user.create({ data: { email, name: role, role, passwordHash: await bcrypt.hash("secret", 4) } });
   const a = request.agent(createApp());
   await a.post("/auth/login").send({ email, password: "secret" }).expect(200);
@@ -231,32 +231,26 @@ describe("gallery", () => {
 
 describe("void / restore and access", () => {
   let manager: TestAgent;
-  let clerk: TestAgent;
   let photo: PhotoView;
 
   beforeAll(async () => {
-    manager = await agentWithRole("manager@example.com", "MANAGER");
-    clerk = await agentWithRole("clerk@example.com", "DATA_ENTRY");
+    manager = await agentWithRole("sub@example.com", "SUB_OWNER");
     photo = (await api.get(`/photos?returnId=${ret2.id}&take=1`).expect(200)).body.rows[0];
   });
 
-  it("data entry can upload and view but not void", async () => {
-    const res = await clerk.post(`/returns/${ret2.id}/photos`).attach("photos", await jpeg(), { filename: "c.jpg", contentType: "image/jpeg" }).expect(201);
-    expect(res.body[0].uploadedBy).toBe("DATA_ENTRY");
-    await clerk.post(`/photos/${photo.id}/void`).send({ reason: "blurry photo" }).expect(403);
+  it("a sub-owner can upload", async () => {
+    const res = await manager.post(`/returns/${ret2.id}/photos`).attach("photos", await jpeg(), { filename: "c.jpg", contentType: "image/jpeg" }).expect(201);
+    expect(res.body[0].uploadedBy).toBe("SUB_OWNER");
   });
 
-  it("a manager voids with a reason; the photo is hidden from others but kept and recoverable", async () => {
+  it("a sub-owner voids with a reason; the photo is hidden from lists but kept and recoverable by the owner", async () => {
     await manager.post(`/photos/${photo.id}/void`).send({ reason: "x" }).expect(422);
     const v: PhotoView = (await manager.post(`/photos/${photo.id}/void`).send({ reason: "blurry photo" }).expect(200)).body;
     expect(v.voidReason).toBe("blurry photo");
     expect(v.voidedAt).not.toBeNull();
     await manager.post(`/photos/${photo.id}/void`).send({ reason: "blurry photo" }).expect(422);
 
-    // Others: gone (404), not listed. Managers: still served and listed on request.
-    await clerk.get(`/photos/${photo.id}`).expect(404);
-    await clerk.get(`/photos/${photo.id}/thumb`).expect(404);
-    expect((await clerk.get(`/photos?returnId=${ret2.id}&includeVoided=true`).expect(200)).body.rows.map((r: PhotoView) => r.id)).not.toContain(photo.id);
+    // Not listed by default; still served and listed on request.
     await manager.get(`/photos/${photo.id}/original`).expect(200);
     expect((await manager.get(`/photos?returnId=${ret2.id}`).expect(200)).body.rows.map((r: PhotoView) => r.id)).not.toContain(photo.id);
     expect((await manager.get(`/photos?returnId=${ret2.id}&includeVoided=true`).expect(200)).body.rows.map((r: PhotoView) => r.id)).toContain(photo.id);
@@ -266,7 +260,7 @@ describe("void / restore and access", () => {
     await manager.post(`/photos/${photo.id}/restore`).send({ reason: "it was fine" }).expect(403);
     const r: PhotoView = (await api.post(`/photos/${photo.id}/restore`).send({ reason: "it was fine" }).expect(200)).body;
     expect(r.voidedAt).toBeNull();
-    await clerk.get(`/photos/${photo.id}`).expect(200);
+    await manager.get(`/photos/${photo.id}`).expect(200);
     const logs = await prisma.auditLog.findMany({ where: { entity: "ReturnPhoto", entityId: photo.id }, orderBy: { createdAt: "asc" } });
     expect(logs.map((l) => l.action)).toEqual(["create", "void", "restore"]);
     expect(logs[1].reason).toBe("blurry photo");
@@ -281,12 +275,6 @@ describe("void / restore and access", () => {
     await anon.get(`/photos/${photo.id}/share`).expect(401);
     await anon.post(`/returns/${ret2.id}/photos`).attach("photos", await jpeg(), { filename: "a.jpg", contentType: "image/jpeg" }).expect(401);
   });
-
-  it("viewers can look but not upload", async () => {
-    const viewer = await agentWithRole("viewer@example.com", "VIEWER");
-    await viewer.get(`/photos/${photo.id}/thumb`).expect(200);
-    await viewer.post(`/returns/${ret2.id}/photos`).attach("photos", await jpeg(), { filename: "a.jpg", contentType: "image/jpeg" }).expect(403);
-  });
 });
 
 describe("storage", () => {
@@ -297,5 +285,68 @@ describe("storage", () => {
 
   it("writes under UPLOAD_DIR", () => {
     expect(readdirSync(path.join(uploadDir, "photos")).length).toBeGreaterThan(0);
+  });
+});
+
+describe("challan line reference photos", () => {
+  const attach = (jobItemId: string, kind: string | null) => {
+    let req = api.post(`/job-items/${jobItemId}/photos`);
+    if (kind) req = req.field("kind", kind);
+    return req;
+  };
+
+  it("uploads item and design photos to a line and shows them on the challan", async () => {
+    const itemId = job.items[0].id;
+    const item = await attach(itemId, "ITEM").attach("photos", await jpeg(), { filename: "fabric.jpg", contentType: "image/jpeg" }).expect(201);
+    expect(item.body).toEqual([expect.objectContaining({ kind: "ITEM", name: "fabric.jpg" })]);
+    await attach(itemId, "DESIGN")
+      .attach("photos", await jpeg(80, 80), { filename: "sample-1.jpg", contentType: "image/jpeg" })
+      .attach("photos", await jpeg(90, 90), { filename: "sample-2.jpg", contentType: "image/jpeg" })
+      .expect(201);
+
+    const detail: JobDetail = (await api.get(`/jobs/${job.id}`).expect(200)).body;
+    const photos = detail.items.find((i) => i.id === itemId)!.photos;
+    expect(photos.map((p) => [p.kind, p.name])).toEqual([
+      ["ITEM", "fabric.jpg"],
+      ["DESIGN", "sample-1.jpg"],
+      ["DESIGN", "sample-2.jpg"],
+    ]);
+    expect(detail.items[1].photos).toEqual([]);
+
+    const thumb = await api.get(`/job-photos/${photos[0].id}/thumb`).expect(200);
+    expect(thumb.headers["content-type"]).toBe("image/jpeg");
+  });
+
+  it("rejects a missing kind and non-images", async () => {
+    await attach(job.items[1].id, null).attach("photos", await jpeg(), { filename: "a.jpg", contentType: "image/jpeg" }).expect(422);
+    await attach(job.items[1].id, "DESIGN").attach("photos", Buffer.from("hello"), { filename: "a.txt", contentType: "text/plain" }).expect(422);
+    await attach("nope", "ITEM").attach("photos", await jpeg(), { filename: "a.jpg", contentType: "image/jpeg" }).expect(404);
+  });
+
+  it("removes a photo from the challan", async () => {
+    const [p] = (await attach(job.items[1].id, "ITEM").attach("photos", await jpeg(), { filename: "x.jpg", contentType: "image/jpeg" }).expect(201)).body;
+    await api.post(`/job-photos/${p.id}/remove`).send({}).expect(200);
+    await api.get(`/job-photos/${p.id}/thumb`).expect(404);
+    const detail: JobDetail = (await api.get(`/jobs/${job.id}`).expect(200)).body;
+    expect(detail.items[1].photos).toEqual([]);
+  });
+
+  it("keeps photos on lines kept when a draft challan is edited", async () => {
+    const d = job.items[0];
+    const draft: JobDetail = (
+      await api
+        .post("/jobs")
+        .send({ clientId: job.client.id, productId: job.product.id, jobDate: "2026-10-05", dispatchNow: false, items: [{ designId: d.designId, materialId: d.material!.id, quantity: 10, ratePaise: 8000 }] })
+        .expect(201)
+    ).body;
+    await attach(draft.items[0].id, "DESIGN").attach("photos", await jpeg(), { filename: "keep.jpg", contentType: "image/jpeg" }).expect(201);
+    const edited: JobDetail = (
+      await api
+        .patch(`/jobs/${draft.id}`)
+        .send({ items: [{ id: draft.items[0].id, designId: d.designId, materialId: d.material!.id, quantity: 12, ratePaise: 8000 }] })
+        .expect(200)
+    ).body;
+    expect(edited.items[0].quantity).toBe(12);
+    expect(edited.items[0].photos.map((p) => p.name)).toEqual(["keep.jpg"]);
   });
 });

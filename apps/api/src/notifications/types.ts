@@ -9,6 +9,8 @@ export interface OutgoingMessage {
   html?: string;
   replyTo?: string;
   attachments?: Attachment[];
+  /** WhatsApp only: the approved template, its body parameters, and the PDF sent as the document header. */
+  whatsapp?: { template: string; params: string[]; document: { filename: string; content: Buffer } };
 }
 
 /** Outcome of one delivery attempt. `error` carries the reason for skipped / failed. */

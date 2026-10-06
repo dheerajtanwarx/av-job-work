@@ -6,6 +6,7 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { SendWhatsAppButton } from "@/components/whatsapp/send-whatsapp";
 import { ErrorBlock, LoadingBlock } from "@/components/ui/misc";
 import { formatTime, istDay, useReturn } from "@/lib/returns";
 
@@ -40,8 +41,11 @@ export default function ReceivingVoucherPage() {
           </Link>
         </Button>
         <div className="flex flex-wrap gap-2">
-          <Button variant="secondary" onClick={() => window.print()} title="Choose “Save as PDF” as the printer">
-            <FileDown /> Save PDF
+          {!voided && <SendWhatsAppButton target={{ kind: "return", id: r.id }} />}
+          <Button asChild variant="secondary" title="Download the receiving voucher as a PDF">
+            <a href={`/api/returns/${r.id}/pdf`} download>
+              <FileDown /> Save PDF
+            </a>
           </Button>
           <Button onClick={() => window.print()}>
             <Printer /> Print

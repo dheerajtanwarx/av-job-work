@@ -16,7 +16,7 @@ import {
   returnUpdateSchema,
 } from "@av/shared";
 import type { z } from "zod";
-import { audit, userNames } from "../lib/audit.js";
+import { audit, editedBy, userNames } from "../lib/audit.js";
 import { nextNumber } from "../lib/counter.js";
 import { toDate, today } from "../lib/dates.js";
 import { HttpError, notFound, unprocessable } from "../lib/http.js";
@@ -117,7 +117,7 @@ export async function createReturn(jobId: string, input: z.output<typeof returnC
     });
     for (const x of lines) {
       if (x.ratePaise !== x.it.ratePaise) {
-        await audit(tx, { entity: "Job", entityId: jobId, action: "update", summary: `${returnNumber}: ${x.it.designName} received at ${formatINR(x.ratePaise)} (challan rate ${formatINR(x.it.ratePaise)})`, userId });
+        await audit(tx, { entity: "Job", entityId: jobId, action: "rate", summary: `${returnNumber}: ${x.it.designName} received at ${formatINR(x.ratePaise)} (challan rate ${formatINR(x.it.ratePaise)})`, userId });
       }
       if (x.overridden) {
         await audit(tx, { entity: "Job", entityId: jobId, action: "exception", summary: `${returnNumber}: ${x.it.designName} payable quantities: ${flagNames(x.flags)}. Reason: ${x.l.payOverrideReason}`, reason: x.l.payOverrideReason, userId });
@@ -245,7 +245,7 @@ export async function updateReturn(returnId: string, input: z.output<typeof retu
     }
     if (input.notes !== undefined && input.notes !== r.notes) header.notes = input.notes;
     if (!changes.length && !Object.keys(header).length) return;
-    await tx.return.update({ where: { id: returnId }, data: { ...header, editedAt: new Date() } });
+    await tx.return.update({ where: { id: returnId }, data: { ...header, ...editedBy(userId) } });
 
     if (changes.length) {
       const summary = `${r.returnNumber} edited – ${changes.join("; ")}`;

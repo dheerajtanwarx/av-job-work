@@ -3,6 +3,7 @@ import type { JobDetail, NotificationLogRow, SubBillWithEmail } from "@av/shared
 import type { SendMailOptions, Transporter } from "nodemailer";
 import type TestAgent from "supertest/lib/agent.js";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { env } from "../src/env.js";
 import { setTransport } from "../src/lib/mailer.js";
 import { notify } from "../src/notifications/index.js";
 import { emailSubBill } from "../src/services/bill-email.js";
@@ -145,14 +146,22 @@ describe("notification service and payment voucher emails", () => {
     expect(list.map((r) => r.status)).toEqual(["sent", "skipped"]); // newest first
   });
 
-  it("WhatsApp, SMS and in-app are stubs that log skipped", async () => {
-    for (const channel of ["whatsapp", "sms", "in_app"] as const) {
+  it("SMS and in-app are stubs that log skipped; WhatsApp is skipped until its API is set up", async () => {
+    for (const channel of ["sms", "in_app"] as const) {
       const r = await notify({ channel, kind: "payment_voucher", entity: "SubBill", entityId: `x-${channel}`, recipient: "9811111111", auto: false, render: () => ({ text: "hello" }) });
       expect(r.status).toBe("skipped");
       expect(r.error).toMatch(/not configured yet/);
     }
+    const token = env.whatsapp.token;
+    env.whatsapp.token = undefined;
+    try {
+      const r = await notify({ channel: "whatsapp", kind: "payment_voucher", entity: "SubBill", entityId: "x-whatsapp", recipient: "919811111111", auto: false, render: () => ({ text: "hello" }) });
+      expect(r.status).toBe("skipped");
+    } finally {
+      env.whatsapp.token = token;
+    }
     const row = await prisma.notificationLog.findFirstOrThrow({ where: { channel: "whatsapp", entityId: "x-whatsapp" } });
-    expect(row).toMatchObject({ status: "skipped", error: "WhatsApp is not configured yet", recipient: "9811111111" });
+    expect(row).toMatchObject({ status: "skipped", error: "WhatsApp Business API is not set up on the server (WHATSAPP_* settings in .env)", recipient: "919811111111" });
   });
 
   it("never throws when rendering fails – logs failed instead", async () => {

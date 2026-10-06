@@ -70,17 +70,18 @@ describe("security hardening", () => {
   });
 
   describe("roles", () => {
-    it("a VIEWER can read but not write", async () => {
-      await prisma.user.create({ data: { email: "viewer@example.com", name: "Viewer", role: "VIEWER", passwordHash: await bcrypt.hash("secret", 4) } });
-      const viewer = request.agent(createApp());
-      const login = await viewer.post("/auth/login").send({ email: "viewer@example.com", password: "secret" }).expect(200);
-      expect(login.body.user.role).toBe("VIEWER");
-      await viewer.get("/clients").expect(200);
-      await viewer.get("/settings").expect(200);
-      const res = await viewer.post("/clients").send({ name: "Viewer Worker" });
+    it("a sub-owner does daily work but not owner-only things", async () => {
+      await prisma.user.create({ data: { email: "sub@example.com", name: "Sub", role: "SUB_OWNER", passwordHash: await bcrypt.hash("secret", 4) } });
+      const sub = request.agent(createApp());
+      const login = await sub.post("/auth/login").send({ email: "sub@example.com", password: "secret" }).expect(200);
+      expect(login.body.user.role).toBe("SUB_OWNER");
+      await sub.post("/clients").send({ name: "Sub's Worker" }).expect(201);
+      await sub.get("/settings").expect(200);
+      const res = await sub.put("/settings").send({ businessName: "X", defaultPaymentPolicy: "MANUAL" });
       expect(res.status).toBe(403);
-      expect(res.body.message).toMatch(/read-only/);
-      await viewer.put("/settings").send({ businessName: "X", defaultPaymentPolicy: "MANUAL" }).expect(403);
+      expect(res.body.message).toMatch(/owner/i);
+      await sub.get("/users").expect(403);
+      await sub.get("/change-log").expect(403);
     });
   });
 });

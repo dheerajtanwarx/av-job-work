@@ -1,10 +1,12 @@
 "use client";
 
 import { DISPATCH_KIND_LABEL, formatDate, formatTime, formatINR, formatQty, L, PAYMENT_METHOD_LABEL, type TimelineEvent, type Unit } from "@av/shared";
-import { Camera, CheckCircle2, FileCheck2, FilePlus2, History, PackageCheck, Truck, Wallet, XCircle } from "lucide-react";
+import { Camera, CheckCircle2, FileCheck2, FilePlus2, History, MessageCircle, PackageCheck, Truck, Wallet, XCircle } from "lucide-react";
 import Link from "next/link";
 import type { ReactNode } from "react";
 import { PayStatusBadge } from "@/components/ui/badge";
+import { EditedTag } from "@/components/ui/edited";
+import { useWhatsAppSend, type WhatsAppTarget } from "@/components/whatsapp/send-whatsapp";
 import { cn } from "@/lib/utils";
 
 const icon = {
@@ -54,6 +56,7 @@ export function Timeline({
   const list = showAudit ? events : events.filter((e) => e.type !== "audit");
   let returnNo = 0;
   let payNo = 0;
+  const whatsapp = useWhatsAppSend();
   const numbered = list.map((e) => ({ e, n: e.type === "return" && !e.voided ? ++returnNo : e.type === "sub_bill" && !e.voided ? ++payNo : 0 }));
   if (!list.length) return <p className="px-1 py-4 text-[13px] text-fg-muted">Nothing has happened on this challan yet.</p>;
   return (
@@ -66,7 +69,7 @@ export function Timeline({
             <div className="text-[10px] text-fg-faint">{e.date.slice(0, 4)}</div>
           </div>
           <div className={cn("relative border-l pb-6 pl-6", i === numbered.length - 1 ? "border-transparent" : "border-border")}>
-            <Event e={e} n={n} onVoid={onVoid} unit={unit} jobId={jobId} />
+            <Event e={e} n={n} onVoid={onVoid} onWhatsApp={whatsapp.send} sending={whatsapp.pending} unit={unit} jobId={jobId} />
           </div>
         </li>
       ))}
@@ -74,7 +77,23 @@ export function Timeline({
   );
 }
 
-function Event({ e, n, onVoid, unit, jobId }: { e: TimelineEvent; n: number; onVoid?: (e: VoidableEvent) => void; unit?: Unit; jobId?: string }) {
+function Event({
+  e,
+  n,
+  onVoid,
+  onWhatsApp,
+  sending,
+  unit,
+  jobId,
+}: {
+  e: TimelineEvent;
+  n: number;
+  onVoid?: (e: VoidableEvent) => void;
+  onWhatsApp?: (t: WhatsAppTarget) => void;
+  sending?: string | null;
+  unit?: Unit;
+  jobId?: string;
+}) {
   const Icon = icon[e.type];
   const voided = (e.type === "dispatch" || e.type === "return" || e.type === "sub_bill") && e.voided;
   const struck = !!voided || (e.type === "main_bill" && e.cancelled);
@@ -144,10 +163,14 @@ function Event({ e, n, onVoid, unit, jobId }: { e: TimelineEvent; n: number; onV
         </Link>
       );
       meta = (
-        <>
-          {PAYMENT_METHOD_LABEL[e.method]} · {L.subBill} {e.billNumber}
-          {e.returnNumber && ` · for ${e.returnNumber}`}
-        </>
+        <span className="inline-flex flex-wrap items-center gap-x-2 gap-y-1">
+          <span>
+            {PAYMENT_METHOD_LABEL[e.method]} · {L.subBill} {e.billNumber}
+            {e.returnNumber && ` · for ${e.returnNumber}`}
+          </span>
+          {e.enteredBy && <span className="text-fg-faint">by {e.enteredBy}</span>}
+          {!e.voided && <EditedTag edited={e.edited} compact />}
+        </span>
       );
       break;
     case "main_bill":
@@ -168,6 +191,7 @@ function Event({ e, n, onVoid, unit, jobId }: { e: TimelineEvent; n: number; onV
       break;
     default:
       title = e.text;
+      meta = e.by ? `by ${e.by}` : null;
   }
   const isAudit = e.type === "audit";
   return (
@@ -177,13 +201,28 @@ function Event({ e, n, onVoid, unit, jobId }: { e: TimelineEvent; n: number; onV
       </span>
       <div className="flex flex-wrap items-baseline justify-between gap-x-3">
         <div className={cn("num leading-5", isAudit ? "text-xs text-fg-muted" : "text-[13px] font-medium", struck ? "text-fg-muted line-through decoration-fg-faint" : !isAudit && "text-fg")}>{title}</div>
-        {(e.type === "dispatch" || e.type === "return") && !e.voided && onVoid && (
-          <button
-            onClick={() => onVoid(e)}
-            className="rounded px-1.5 py-0.5 text-xs font-medium text-fg-faint transition-colors group-hover:text-fg-muted hover:!text-danger focus-visible:text-fg-muted pointer-coarse:py-2"
-          >
-            Void
-          </button>
+        {(e.type === "dispatch" || e.type === "return") && !e.voided && (onVoid || onWhatsApp) && (
+          <div className="flex items-center gap-0.5">
+            {onWhatsApp && (
+              <button
+                onClick={() => onWhatsApp({ kind: e.type, id: e.id })}
+                disabled={!!sending}
+                title={`Send the ${e.type === "return" ? "receiving voucher" : "material issue slip"} on WhatsApp`}
+                className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-xs font-medium text-fg-faint transition-colors group-hover:text-fg-muted hover:!text-[#1da851] focus-visible:text-fg-muted disabled:opacity-50 pointer-coarse:py-2"
+              >
+                {sending === e.id ? <span className="size-3 animate-spin rounded-full border-[1.5px] border-current border-r-transparent" aria-hidden /> : <MessageCircle className="size-3" />}
+                WhatsApp
+              </button>
+            )}
+            {onVoid && (
+              <button
+                onClick={() => onVoid(e)}
+                className="rounded px-1.5 py-0.5 text-xs font-medium text-fg-faint transition-colors group-hover:text-fg-muted hover:!text-danger focus-visible:text-fg-muted pointer-coarse:py-2"
+              >
+                Void
+              </button>
+            )}
+          </div>
         )}
       </div>
       {meta && <div className="mt-0.5 text-xs text-fg-muted">{meta}</div>}
@@ -191,7 +230,8 @@ function Event({ e, n, onVoid, unit, jobId }: { e: TimelineEvent; n: number; onV
       {(e.type === "dispatch" || e.type === "return") && e.notes && <div className="mt-1 text-xs text-fg-muted">“{e.notes}”</div>}
       {voided && e.voided && (
         <div className="mt-1 text-xs text-danger">
-          VOID · {formatTime(e.voided.at)} {e.voided.reason && `– ${e.voided.reason}`}
+          VOID · {formatTime(e.voided.at)}
+          {"by" in e.voided && e.voided.by && ` by ${e.voided.by}`} {e.voided.reason && `– ${e.voided.reason}`}
         </div>
       )}
     </div>

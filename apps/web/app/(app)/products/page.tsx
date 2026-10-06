@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Card, MobileList, MobileListItem, TableWrap } from "@/components/ui/card";
 import { EmptyState, ErrorBlock, LoadingBlock, PageHeader } from "@/components/ui/misc";
 import { useProducts } from "@/lib/queries";
+import { EditedTag } from "@/components/ui/edited";
 import { cn } from "@/lib/utils";
 
 export default function ProductsPage() {
@@ -86,7 +87,12 @@ export default function ProductsPage() {
                     <td className="num text-fg-muted">{p.code ?? "—"}</td>
                     <td className="text-fg-2">{p.unit}</td>
                     <td className="r">{p.jobCount ?? 0}</td>
-                    <td>{p.isActive ? <Badge tone="success" className="bg-transparent px-0">Active</Badge> : <Badge>Inactive</Badge>}</td>
+                    <td>
+                      <div className="flex items-center gap-1.5">
+                        {p.isActive ? <Badge tone="success" className="bg-transparent px-0">Active</Badge> : <Badge>Inactive</Badge>}
+                        <EditedTag edited={p.edited} compact />
+                      </div>
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -108,6 +114,7 @@ export default function ProductsPage() {
                 </div>
                 <div className="flex justify-between gap-2 text-xs text-fg-muted">
                   <span className="truncate">{[p.code, `${p.jobCount ?? 0} challans`].filter(Boolean).join(" · ")}</span>
+                  <EditedTag edited={p.edited} compact />
                   {!p.isActive && <Badge>Inactive</Badge>}
                 </div>
               </MobileListItem>

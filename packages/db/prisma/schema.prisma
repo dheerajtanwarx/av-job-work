@@ -53,12 +53,11 @@ enum Unit {
   SET
 }
 
+/// OWNER: everything, including users, settings and changing or voiding payments.
+/// SUB_OWNER: all daily work (challans, returns, new payments, masters).
 enum UserRole {
   OWNER
-  MANAGER
-  ACCOUNTS
-  DATA_ENTRY
-  VIEWER
+  SUB_OWNER
 }
 
 /// Warehouse-only stock events. Issues/returns to workers are derived from dispatch and return lines.
@@ -69,12 +68,13 @@ enum StockMovementType {
 }
 
 model User {
-  id           String   @id @default(cuid())
-  email        String   @unique
+  id           String    @id @default(cuid())
+  email        String    @unique
   name         String
-  role         UserRole @default(OWNER)
+  role         UserRole  @default(SUB_OWNER)
   passwordHash String
-  createdAt    DateTime @default(now())
+  disabledAt   DateTime? // can no longer log in; kept so history still shows their name
+  createdAt    DateTime  @default(now())
 }
 
 model Settings {
@@ -90,6 +90,7 @@ model Settings {
   payDamagedDefault    Boolean       @default(false)
   payRejectedDefault   Boolean       @default(false)
   payLostDefault       Boolean       @default(false)
+  updatedById          String?
   updatedAt            DateTime      @updatedAt
 }
 
@@ -100,8 +101,8 @@ model Counter {
 
 /// A job worker.
 model Client {
-  id             String         @id @default(cuid())
-  workerCode     String         @unique
+  id             String           @id @default(cuid())
+  workerCode     String           @unique
   name           String
   businessName   String?
   phone          String?
@@ -113,13 +114,21 @@ model Client {
   notes          String?
   paymentPolicy  PaymentPolicy? // null = Settings default
   paymentDays    Int?
-  isActive       Boolean        @default(true)
-  createdAt      DateTime       @default(now())
-  updatedAt      DateTime       @updatedAt
+  workItems      String? // the kind of work this worker does, e.g. "hand work, jardoji"
+  /// Current WorkerDocument ids (older uploads stay in WorkerDocument for history).
+  photoId        String?
+  aadhaarFrontId String?
+  aadhaarBackId  String?
+  isActive       Boolean          @default(true)
+  editedAt       DateTime? // last change by a person (not automatic status updates)
+  editedById     String?
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
   jobs           Job[]
   subBills       SubBill[]
   mainBills      MainBill[]
   photos         ReturnPhoto[]
+  documents      WorkerDocument[]
 
   @@index([name])
   @@index([phone])
@@ -132,6 +141,8 @@ model Product {
   unit        Unit       @default(PCS)
   description String?
   isActive    Boolean    @default(true)
+  editedAt    DateTime? // last change by a person (not automatic status updates)
+  editedById  String?
   createdAt   DateTime   @default(now())
   updatedAt   DateTime   @updatedAt
   jobs        Job[]
@@ -144,6 +155,8 @@ model JobWorkType {
   code        String?
   description String?
   isActive    Boolean   @default(true)
+  editedAt    DateTime? // last change by a person (not automatic status updates)
+  editedById  String?
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
   designs     Design[]
@@ -160,6 +173,8 @@ model Design {
   jobWorkTypeId    String?
   jobWorkType      JobWorkType?  @relation(fields: [jobWorkTypeId], references: [id])
   isActive         Boolean       @default(true)
+  editedAt         DateTime? // last change by a person (not automatic status updates)
+  editedById       String?
   createdAt        DateTime      @default(now())
   updatedAt        DateTime      @updatedAt
   jobItems         JobItem[]
@@ -185,6 +200,8 @@ model Material {
   location   String?
   notes      String?
   isActive   Boolean         @default(true)
+  editedAt   DateTime? // last change by a person (not automatic status updates)
+  editedById String?
   createdAt  DateTime        @default(now())
   updatedAt  DateTime        @updatedAt
   jobItems   JobItem[]
@@ -232,6 +249,8 @@ model Job {
   completedAt        DateTime?
   cancelledAt        DateTime?
   cancelReason       String?
+  editedAt           DateTime? // last change by a person (not automatic status updates)
+  editedById         String?
   createdAt          DateTime       @default(now())
   updatedAt          DateTime       @updatedAt
   items              JobItem[]
@@ -266,10 +285,63 @@ model JobItem {
   dispatchLines DispatchLine[]
   returnLines   ReturnLine[]
   subBillLines  SubBillLine[]
+  photos        JobItemPhoto[]
 
   @@index([jobId])
   @@index([designId])
   @@index([materialId])
+}
+
+enum WorkerDocumentKind {
+  PHOTO
+  AADHAAR_FRONT
+  AADHAAR_BACK
+}
+
+/// A worker's profile photo or ID document image. Aadhaar images are visible to the owner and managers only.
+model WorkerDocument {
+  id           String             @id @default(cuid())
+  clientId     String
+  client       Client             @relation(fields: [clientId], references: [id])
+  kind         WorkerDocumentKind
+  storageKey   String
+  displayKey   String
+  thumbKey     String
+  originalName String?
+  mimeType     String
+  sizeBytes    Int
+  uploadedById String?
+  createdAt    DateTime           @default(now())
+
+  @@index([clientId])
+}
+
+enum JobItemPhotoKind {
+  ITEM // the fabric / material handed over
+  DESIGN // the design or sample to copy
+}
+
+/// Reference photos attached to a challan line when it is created: what is being sent and what to make.
+model JobItemPhoto {
+  id           String           @id @default(cuid())
+  jobItemId    String
+  jobItem      JobItem          @relation(fields: [jobItemId], references: [id])
+  jobId        String
+  kind         JobItemPhotoKind
+  storageKey   String // original, never modified
+  displayKey   String
+  thumbKey     String
+  originalName String?
+  mimeType     String
+  sizeBytes    Int
+  width        Int?
+  height       Int?
+  uploadedById String?
+  removedAt    DateTime?
+  createdAt    DateTime         @default(now())
+
+  @@index([jobItemId])
+  @@index([jobId])
 }
 
 model Dispatch {
@@ -313,6 +385,7 @@ model Return {
   editedAt       DateTime?
   voidedAt       DateTime?
   voidReason     String?
+  editedById     String?
   createdAt      DateTime      @default(now())
   lines          ReturnLine[]
   photos         ReturnPhoto[]
@@ -403,6 +476,9 @@ model SubBill {
   voidReason     String?
   emailedAt      DateTime? // last successful email to the job worker
   emailedTo      String?
+  voidedById     String?
+  editedAt       DateTime? // last change by the owner
+  editedById     String?
   createdAt      DateTime      @default(now())
   lines          SubBillLine[]
 

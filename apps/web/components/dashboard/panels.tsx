@@ -6,6 +6,7 @@ import Link from "next/link";
 import type { ReactNode } from "react";
 import { Badge, type Tone } from "@/components/ui/badge";
 import { Card, TableWrap } from "@/components/ui/card";
+import { CountUp } from "@/components/ui/count-up";
 import { Metric, MetricStrip } from "@/components/ui/misc";
 import { cn } from "@/lib/utils";
 
@@ -18,20 +19,39 @@ export function qtyList(list: { unit: string; qty: number }[]) {
 
 // ───────── KPI cards ─────────
 
+/** Rupees that count up; whole rupees while moving so paise never flicker. */
+export function Rupees({ paise }: { paise: number }) {
+  return <CountUp value={paise} format={formatINR} tween={(n) => formatINR(Math.round(n / 100) * 100)} />;
+}
+
+export function Qty({ n }: { n: number }) {
+  return <CountUp value={n} format={formatQty} />;
+}
+
+function QtyList({ list }: { list: { unit: string; qty: number }[] }) {
+  if (!list.length) return <>0</>;
+  return list.map((m, i) => (
+    <span key={m.unit}>
+      {i > 0 && " · "}
+      <Qty n={m.qty} /> {m.unit}
+    </span>
+  ));
+}
+
 export function KpiCards({ k, ranged }: { k: DashboardKpis; ranged: boolean }) {
   return (
     <div className="space-y-3">
       <MetricStrip className="grid-cols-2 lg:grid-cols-4">
-        <Metric label="Material outside" value={<span className="text-lg">{qtyList(k.materialOutside)}</span>} tone={k.materialOutside.length ? "warning" : "fg"} sub={`Worth ${formatINR(k.materialValueOutsidePaise)} at challan rates`} href="/reports?report=material-outside" />
-        <Metric label={`Active ${L.jobs.toLowerCase()}`} value={formatQty(k.activeChallans)} sub={`${k.activeWorkers} active worker${k.activeWorkers === 1 ? "" : "s"}`} href="/jobs?status=active" />
-        <Metric label={`Overdue ${L.jobs.toLowerCase()}`} value={formatQty(k.overdueChallans)} tone={k.overdueChallans ? "danger" : "fg"} sub={k.overdueChallans ? "Past expected return" : "None overdue"} href="/jobs?status=overdue" />
-        <Metric label="Overdue payments" value={formatINR(k.overduePayments.amountPaise)} tone={k.overduePayments.count ? "danger" : "fg"} sub={k.overduePayments.count ? `${k.overduePayments.count} return${k.overduePayments.count === 1 ? "" : "s"} past due date` : "Nothing overdue"} href="/reports?report=payment-aging" />
+        <Metric label="Material outside" value={<span className="text-lg"><QtyList list={k.materialOutside} /></span>} tone={k.materialOutside.length ? "warning" : "fg"} sub={`Worth ${formatINR(k.materialValueOutsidePaise)} at challan rates`} href="/reports?report=material-outside" />
+        <Metric label={`Active ${L.jobs.toLowerCase()}`} value={<Qty n={k.activeChallans} />} sub={`${k.activeWorkers} active worker${k.activeWorkers === 1 ? "" : "s"}`} href="/jobs?status=active" />
+        <Metric label={`Overdue ${L.jobs.toLowerCase()}`} value={<Qty n={k.overdueChallans} />} tone={k.overdueChallans ? "danger" : "fg"} sub={k.overdueChallans ? "Past expected return" : "None overdue"} href="/jobs?status=overdue" />
+        <Metric label="Overdue payments" value={<Rupees paise={k.overduePayments.amountPaise} />} tone={k.overduePayments.count ? "danger" : "fg"} sub={k.overduePayments.count ? `${k.overduePayments.count} return${k.overduePayments.count === 1 ? "" : "s"} past due date` : "Nothing overdue"} href="/reports?report=payment-aging" />
       </MetricStrip>
       <MetricStrip className="grid-cols-2 lg:grid-cols-4">
-        <Metric label="Work completed" value={formatINR(k.workValuePaise)} sub={ranged ? "In the selected period" : "All time, at return rates"} href="/reports?report=job-work-by-worker" />
-        <Metric label="Paid" value={formatINR(k.paidPaise)} tone="success" sub={ranged ? "In the selected period" : `All ${L.subBills.toLowerCase()}`} href="/reports?report=payments" />
-        <Metric label="Outstanding" value={formatINR(k.outstandingPaise)} tone={k.outstandingPaise ? "danger" : "fg"} sub={k.outstandingPaise ? "Still payable to workers" : "All paid"} href="/reports?report=payment-outstanding" />
-        <Metric label="Advances" value={formatINR(k.advancePaise)} tone={k.advancePaise ? "warning" : "fg"} sub="Paid ahead of work" href="/reports?report=payment-outstanding" />
+        <Metric label="Work completed" value={<Rupees paise={k.workValuePaise} />} sub={ranged ? "In the selected period" : "All time, at return rates"} href="/reports?report=job-work-by-worker" />
+        <Metric label="Paid" value={<Rupees paise={k.paidPaise} />} tone="success" sub={ranged ? "In the selected period" : `All ${L.subBills.toLowerCase()}`} href="/reports?report=payments" />
+        <Metric label="Outstanding" value={<Rupees paise={k.outstandingPaise} />} tone={k.outstandingPaise ? "danger" : "fg"} sub={k.outstandingPaise ? "Still payable to workers" : "All paid"} href="/reports?report=payment-outstanding" />
+        <Metric label="Advances" value={<Rupees paise={k.advancePaise} />} tone={k.advancePaise ? "warning" : "fg"} sub="Paid ahead of work" href="/reports?report=payment-outstanding" />
       </MetricStrip>
     </div>
   );
@@ -81,7 +101,7 @@ export function AttentionList({ items }: { items: AttentionItem[] }) {
                     <span className="block truncate text-xs text-fg-muted">{a.hint}</span>
                   </span>
                   <span className={cn("num shrink-0 rounded px-1.5 text-xs font-semibold", t.bg, t.text)} title={t.label}>
-                    {a.count}
+                    <CountUp value={a.count} duration={600} />
                   </span>
                   <ChevronRight className="size-4 shrink-0 text-fg-faint transition-transform group-open:rotate-90" />
                 </summary>
@@ -271,7 +291,7 @@ export function RecentPhotos({ photos }: { photos: PhotoView[] }) {
   return (
     <div className="-mx-4 flex snap-x gap-3 overflow-x-auto px-4 pb-1 sm:mx-0 sm:px-0">
       {photos.map((p) => (
-        <Link key={p.id} href={`/gallery?photo=${p.id}`} className="w-36 shrink-0 snap-start overflow-hidden rounded-lg border border-border bg-surface transition-colors hover:border-border-strong">
+        <Link key={p.id} href={`/gallery?photo=${p.id}`} className="lift w-36 shrink-0 snap-start overflow-hidden rounded-lg border border-border bg-surface hover:border-border-strong hover:shadow-overlay">
           <div className="aspect-square bg-surface-2">
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img src={`/api/photos/${p.id}/thumb`} alt={`${p.design?.name ?? "Design"} from ${p.client.name}`} loading="lazy" className="size-full object-cover" />

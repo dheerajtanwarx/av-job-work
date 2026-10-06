@@ -2,12 +2,13 @@
 
 import { formatDate, formatINR, formatQty, L, type JobDetail, type ReturnRow, type TimelineEvent } from "@av/shared";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, ArrowRight, Ban, Camera, FileCheck2, Images, PackageCheck, Pencil, Printer, ReceiptText, Truck, Wallet } from "lucide-react";
+import { AlertTriangle, ArrowRight, Ban, Camera, Eye, FileCheck2, Images, PackageCheck, Pencil, Printer, ReceiptText, Truck, Wallet } from "lucide-react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useState } from "react";
 import { toast } from "sonner";
 import { termsLabel } from "@/components/forms/payment-terms";
+import { ChallanPreviewDialog, sheetFromJob } from "@/components/jobs/challan-sheet";
 import { DispatchDialog } from "@/components/jobs/dispatch-dialog";
 import { LedgerTable } from "@/components/jobs/ledger-table";
 import { PhotoGrid } from "@/components/jobs/photo-grid";
@@ -20,7 +21,9 @@ import { EmptyState, ErrorBlock, FlowBar, KeyValues, LoadingBlock, Metric, Metri
 import { ReasonDialog } from "@/components/ui/reason-dialog";
 import { Tabs } from "@/components/ui/tabs";
 import { api } from "@/lib/api";
-import { useJob, useJobLedger } from "@/lib/queries";
+import { jobPhotoDisplay, jobPhotoThumb } from "@/lib/job-photos";
+import { useClientSummary, useJob, useJobLedger, useSettings } from "@/lib/queries";
+import { EditedTag } from "@/components/ui/edited";
 import { cn } from "@/lib/utils";
 
 const TABS = ["overview", "returns", "ledger", "photos", "timeline"] as const;
@@ -34,6 +37,9 @@ export default function JobPage() {
   const [tab, setTab] = useState<Tab>("overview");
   const [dispatchOpen, setDispatchOpen] = useState(false);
   const [cancelOpen, setCancelOpen] = useState(false);
+  const [previewOpen, setPreviewOpen] = useState(false);
+  const settings = useSettings();
+  const worker = useClientSummary(previewOpen ? q.data?.client.id : undefined);
   const [voiding, setVoiding] = useState<{ type: "return" | "dispatch"; id: string; label: string } | null>(null);
 
   const cancel = useMutation({
@@ -88,6 +94,7 @@ export default function JobPage() {
             </h1>
             <JobStatusBadge status={job.status} overdue={job.overdue} />
             {!cancelled && m.valuePaise > 0 && <PayStatusBadge status={job.payStatus} />}
+            <EditedTag edited={job.edited} />
           </div>
           <div className="mt-1 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-[13px] text-fg-muted">
             <Link href={`/clients/${job.client.id}`} className="font-medium text-fg-2 hover:text-accent">
@@ -131,6 +138,9 @@ export default function JobPage() {
               <Truck /> Issue material
             </Button>
           )}
+          <Button variant="ghost" onClick={() => setPreviewOpen(true)}>
+            <Eye /> Print preview
+          </Button>
           <Button asChild variant="ghost">
             <Link href={`/jobs/${job.id}/print`}>
               <Printer /> Print
@@ -245,6 +255,7 @@ export default function JobPage() {
         loading={voidEntry.isPending}
         onConfirm={(r) => voidEntry.mutate(r)}
       />
+      <ChallanPreviewDialog open={previewOpen} onOpenChange={setPreviewOpen} data={sheetFromJob(job, worker.data?.client)} biz={settings.data} printHref={`/jobs/${job.id}/print`} />
     </div>
   );
 }
@@ -356,6 +367,50 @@ function Overview({ job }: { job: JobDetail }) {
           </MobileList>
         </Card>
       </Section>
+
+      {job.items.some((i) => i.photos.length > 0) && (
+        <Section title="Issued items / designs" description="Reference photos attached to the challan">
+          <Card className="overflow-hidden">
+            <ul className="divide-y divide-border">
+              {job.items.map((i, idx) => (
+                <li key={i.id} className="px-4 py-3">
+                  <div className="flex flex-wrap items-baseline justify-between gap-2">
+                    <span className="text-[13px] font-medium">
+                      {String(idx + 1).padStart(2, "0")} · {i.designName}
+                    </span>
+                    <span className="num text-xs text-fg-muted">
+                      {i.material ? `${i.material.name} · ` : ""}
+                      {formatQty(i.quantity)} {i.unit}
+                    </span>
+                  </div>
+                  <div className="mt-2 grid gap-3 sm:grid-cols-2">
+                    {(["ITEM", "DESIGN"] as const).map((kind) => {
+                      const photos = i.photos.filter((p) => p.kind === kind);
+                      return (
+                        <div key={kind}>
+                          <div className="text-xs text-fg-muted">{kind === "ITEM" ? "Item / material photos" : "Design / sample photos"}</div>
+                          {photos.length ? (
+                            <div className="mt-1 flex flex-wrap gap-2">
+                              {photos.map((p) => (
+                                <a key={p.id} href={jobPhotoDisplay(p.id)} target="_blank" rel="noreferrer" title={p.name ?? undefined}>
+                                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                                  <img src={jobPhotoThumb(p.id)} alt={p.name ?? "Photo"} loading="lazy" className="size-20 rounded-md bg-surface-2 object-cover ring-1 ring-border" />
+                                </a>
+                              ))}
+                            </div>
+                          ) : (
+                            <div className="mt-1 text-xs text-fg-faint">None</div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </Card>
+        </Section>
+      )}
 
       <div className="grid gap-6 lg:grid-cols-2">
         <Section title="Money">

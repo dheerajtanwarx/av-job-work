@@ -56,8 +56,14 @@ export const UNIT_DECIMALS: Record<Unit, number> = { PCS: 0, MTR: 2, KG: 3, ROLL
 
 export const UNIT_LABEL: Record<Unit, string> = { PCS: "PCS", MTR: "MTR", KG: "KG", ROLL: "ROLL", DOZEN: "DOZEN", SET: "SET" };
 
-export const USER_ROLES = ["OWNER", "MANAGER", "ACCOUNTS", "DATA_ENTRY", "VIEWER"] as const;
+export const USER_ROLES = ["OWNER", "SUB_OWNER"] as const;
 export type UserRole = (typeof USER_ROLES)[number];
+
+export const USER_ROLE_LABEL: Record<UserRole, string> = { OWNER: "Owner", SUB_OWNER: "Sub-owner" };
+export const USER_ROLE_HELP: Record<UserRole, string> = {
+  OWNER: "Everything, including users, settings and changing or voiding payments.",
+  SUB_OWNER: "All daily work: challans, returns, new payments, job workers and masters. Can't change or void payments, users or settings.",
+};
 
 export const STOCK_MOVEMENT_TYPES = ["RECEIPT", "ADJUSTMENT_IN", "ADJUSTMENT_OUT"] as const;
 export type StockMovementType = (typeof STOCK_MOVEMENT_TYPES)[number];

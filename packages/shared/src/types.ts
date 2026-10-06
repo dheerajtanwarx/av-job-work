@@ -3,6 +3,12 @@ import type { AgingBucket, DispatchKind, JobStatus, PaymentMethod, PaymentPolicy
 
 /** API response shapes shared by the web app. Dates are ISO strings. */
 
+/** The last hand edit of a record: when, and who made it (null when the user was removed or unknown). */
+export interface EditMark {
+  at: string;
+  by: string | null;
+}
+
 /** A job worker. */
 export interface Client {
   id: string;
@@ -18,9 +24,18 @@ export interface Client {
   notes: string | null;
   paymentPolicy: PaymentPolicy | null;
   paymentDays: number | null;
+  /** The kind of work this worker does ("hand work, jardoji"). */
+  workItems: string | null;
+  /** WorkerDocument ids; Aadhaar images can only be opened by the owner and managers. */
+  photoId: string | null;
+  aadhaarFrontId: string | null;
+  aadhaarBackId: string | null;
   isActive: boolean;
+  edited?: EditMark | null;
   createdAt: string;
 }
+
+export type WorkerDocumentKind = "PHOTO" | "AADHAAR_FRONT" | "AADHAAR_BACK";
 
 export interface ClientListRow extends Client {
   activeJobs: number;
@@ -36,6 +51,7 @@ export interface Product {
   unit: Unit;
   description: string | null;
   isActive: boolean;
+  edited?: EditMark | null;
   jobCount?: number;
 }
 
@@ -45,6 +61,7 @@ export interface JobWorkType {
   code: string | null;
   description: string | null;
   isActive: boolean;
+  edited?: EditMark | null;
   jobCount?: number;
 }
 
@@ -57,6 +74,7 @@ export interface Design {
   jobWorkTypeId: string | null;
   jobWorkType?: { id: string; name: string } | null;
   isActive: boolean;
+  edited?: EditMark | null;
   jobCount?: number;
 }
 
@@ -77,6 +95,7 @@ export interface Material {
   location: string | null;
   notes: string | null;
   isActive: boolean;
+  edited?: EditMark | null;
   createdAt: string;
 }
 
@@ -126,6 +145,16 @@ export interface JobItemView extends ItemSummary {
   jobWorkType: { id: string; name: string } | null;
   notes: string | null;
   sortOrder: number;
+  /** Reference photos attached on the challan: the item/material sent and the design/sample to make. */
+  photos: JobItemPhotoView[];
+}
+
+export type JobItemPhotoKind = "ITEM" | "DESIGN";
+
+export interface JobItemPhotoView {
+  id: string;
+  kind: JobItemPhotoKind;
+  name: string | null;
 }
 
 export interface JobListRow {
@@ -190,12 +219,14 @@ export type TimelineEvent =
       amountPaise: number;
       method: PaymentMethod;
       returnNumber: string | null;
-      voided: { at: string; reason: string | null } | null;
+      enteredBy: string | null;
+      edited: EditMark | null;
+      voided: { at: string; reason: string | null; by: string | null } | null;
     }
   | { type: "main_bill"; at: string; date: string; id: string; billNumber: string; totalPaise: number; cancelled: boolean }
   | { type: "completed"; at: string; date: string; text: string }
   | { type: "cancelled"; at: string; date: string; text: string }
-  | { type: "audit"; at: string; date: string; text: string };
+  | { type: "audit"; at: string; date: string; text: string; by: string | null };
 
 export interface JobDetail extends Omit<JobListRow, "designs"> {
   notes: string | null;
@@ -213,6 +244,7 @@ export interface JobDetail extends Omit<JobListRow, "designs"> {
   timeline: TimelineEvent[];
   subBills: SubBillRow[];
   mainBill: MainBillRow | null;
+  edited: EditMark | null;
 }
 
 /** One job work return in a list. Voided returns have payment = null. */
@@ -239,6 +271,7 @@ export interface ReturnRow {
   coverPhotoId: string | null;
   enteredBy: string | null;
   editedAt: string | null;
+  editedBy: string | null;
   voidedAt: string | null;
   voidReason: string | null;
 }
@@ -360,11 +393,15 @@ export interface SubBillRow {
   method: PaymentMethod;
   reference: string | null;
   enteredBy: string | null;
+  edited: EditMark | null;
   voidedAt: string | null;
+  voidedBy: string | null;
   voidReason: string | null;
 }
 
 export interface SubBillDetail extends SubBillRow {
+  /** Every change to this voucher, newest first (created, edited with old → new values, voided, emailed). */
+  history: { at: string; action: string; summary: string | null; reason: string | null; user: string | null }[];
   notes: string | null;
   createdAt: string;
   client: Client;
@@ -551,4 +588,29 @@ export interface SessionUser {
   email: string;
   name: string;
   role: UserRole;
+}
+
+/** Settings → Users (owner only). */
+export interface UserRow {
+  id: string;
+  name: string;
+  email: string;
+  role: UserRole;
+  disabled: boolean;
+  createdAt: string;
+  isYou: boolean;
+}
+
+/** Settings → Change log: one audit entry, newest first. */
+export interface ChangeLogRow {
+  id: string;
+  at: string;
+  entity: string;
+  /** What kind of record, in words ("Payment voucher"). */
+  entityLabel: string;
+  action: string;
+  summary: string | null;
+  reason: string | null;
+  user: string | null;
+  href: string | null;
 }

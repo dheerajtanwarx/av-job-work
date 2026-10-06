@@ -3,7 +3,7 @@ import { Router, type NextFunction, type Request, type Response } from "express"
 import multer from "multer";
 import { HttpError, param, parse, str, unprocessable } from "../lib/http.js";
 import { MANAGERS, requireRole } from "../middleware/auth.js";
-import { getPhoto, listPhotos, photoFile, restorePhoto, sharePhoto, uploadPhotos, voidPhoto, type PhotoVariant } from "../services/photos.js";
+import { clearWorkerDocument, getPhoto, jobItemPhotoFile, setWorkerDocument, workerDocumentFile, listPhotos, photoFile, removeJobItemPhoto, restorePhoto, sharePhoto, uploadJobItemPhotos, uploadPhotos, voidPhoto, type PhotoVariant } from "../services/photos.js";
 
 /** Return photos: upload, gallery, files, watermarked share copy, void. */
 export const photosRouter = Router();
@@ -33,6 +33,59 @@ function receivePhotos(req: Request, res: Response, next: NextFunction) {
 photosRouter.post("/returns/:id/photos", receivePhotos, async (req, res) => {
   const files = (req.files as Express.Multer.File[] | undefined) ?? [];
   res.status(201).json(await uploadPhotos(param(req.params.id), files, str(req.body?.returnLineId), req.user));
+});
+
+photosRouter.post("/job-items/:id/photos", receivePhotos, async (req, res) => {
+  const files = (req.files as Express.Multer.File[] | undefined) ?? [];
+  res.status(201).json(await uploadJobItemPhotos(param(req.params.id), str(req.body?.kind), files, req.user));
+});
+
+for (const variant of ["thumb", "display", "original"] as PhotoVariant[]) {
+  photosRouter.get(`/job-photos/:id/${variant}`, async (req, res) => {
+    const f = await jobItemPhotoFile(param(req.params.id), variant);
+    res.setHeader("Content-Type", f.contentType);
+    res.setHeader("Cache-Control", "private, max-age=86400");
+    res.setHeader("Content-Disposition", `inline; filename="${f.filename}"`);
+    await new Promise<void>((resolve, reject) => {
+      f.stream.on("error", reject).on("end", resolve);
+      f.stream.pipe(res);
+    });
+  });
+}
+
+// Worker profile photo and Aadhaar images (one current image per slot).
+const receiveOne = multer({ storage: multer.memoryStorage(), limits: { fileSize: PHOTO_LIMITS.maxBytes, files: 1, fields: 5 } }).single("photo");
+function receiveOnePhoto(req: Request, res: Response, next: NextFunction) {
+  receiveOne(req, res, (err: unknown) => {
+    if (!err) return next();
+    if (err instanceof multer.MulterError) return next(unprocessable(err.code === "LIMIT_FILE_SIZE" ? "The photo is larger than 15 MB" : 'Send one photo in the "photo" field'));
+    next(err instanceof HttpError ? err : unprocessable("The upload couldn't be read"));
+  });
+}
+
+photosRouter.post("/clients/:id/documents/:slot", receiveOnePhoto, async (req, res) => {
+  res.json(await setWorkerDocument(param(req.params.id), param(req.params.slot), req.file, req.user));
+});
+
+photosRouter.post("/clients/:id/documents/:slot/remove", async (req, res) => {
+  res.json(await clearWorkerDocument(param(req.params.id), param(req.params.slot), req.user));
+});
+
+for (const variant of ["thumb", "display", "original"] as PhotoVariant[]) {
+  photosRouter.get(`/worker-documents/:id/${variant}`, async (req, res) => {
+    const f = await workerDocumentFile(param(req.params.id), variant, req.user);
+    res.setHeader("Content-Type", f.contentType);
+    res.setHeader("Cache-Control", "private, max-age=86400");
+    res.setHeader("Content-Disposition", `inline; filename="${f.filename}"`);
+    await new Promise<void>((resolve, reject) => {
+      f.stream.on("error", reject).on("end", resolve);
+      f.stream.pipe(res);
+    });
+  });
+}
+
+photosRouter.post("/job-photos/:id/remove", async (req, res) => {
+  res.json(await removeJobItemPhoto(param(req.params.id), req.user));
 });
 
 const intParam = (v: unknown) => {

@@ -9,7 +9,11 @@ import {
   sumQty,
   type PhotoFilter,
   type PhotoPage,
+  type Client,
+  type JobItemPhotoKind,
+  type JobItemPhotoView,
   type PhotoView,
+  type WorkerDocumentKind,
 } from "@av/shared";
 import sharp from "sharp";
 import { env } from "../env.js";
@@ -61,7 +65,7 @@ function cleanName(name: string) {
  * Checks one file (declared type, extension, real content) and renders the display copy and thumbnail.
  * Returns an error message instead of throwing so every file's problem can be reported at once.
  */
-async function prepare(f: UploadFile): Promise<Prepared | string> {
+export async function prepare(f: UploadFile): Promise<Prepared | string> {
   const name = cleanName(f.originalname);
   const label = name ?? "Photo";
   if (!ACCEPTED_MIME.has(f.mimetype.toLowerCase())) return `${label}: ${f.mimetype || "unknown"} files can't be uploaded. Use a JPEG, PNG, WebP or HEIC photo.`;
@@ -187,6 +191,181 @@ export async function uploadPhotos(returnId: string, files: UploadFile[], return
     await Promise.all(stored.flatMap((s) => Object.values(s.keys).map((k) => storage.delete(k).catch(() => undefined))));
     throw e;
   }
+}
+
+// ───────────────────────── Challan line reference photos ─────────────────────────
+
+const PHOTO_KINDS: JobItemPhotoKind[] = ["ITEM", "DESIGN"];
+
+/** Item / material and design / sample photos attached to one challan line. */
+export async function uploadJobItemPhotos(jobItemId: string, kind: string | undefined, files: UploadFile[], actor?: Actor): Promise<JobItemPhotoView[]> {
+  if (!PHOTO_KINDS.includes(kind as JobItemPhotoKind)) throw unprocessable('Photo kind must be "ITEM" or "DESIGN"');
+  if (!files.length) throw unprocessable("Choose at least one photo");
+  if (files.length > PHOTO_LIMITS.maxFiles) throw unprocessable(`Upload at most ${PHOTO_LIMITS.maxFiles} photos at a time`);
+  const item = await prisma.jobItem.findUnique({ where: { id: jobItemId }, include: { job: { select: { id: true, jobNumber: true, cancelledAt: true } } } });
+  if (!item) throw notFound("Challan line");
+  if (item.job.cancelledAt) throw unprocessable("This challan is cancelled. Photos can't be added to it.");
+
+  const prepared = await Promise.all(files.map(prepare));
+  const errors = prepared.flatMap((p, i) => (typeof p === "string" ? [{ index: i, name: cleanName(files[i].originalname), message: p }] : []));
+  if (errors.length) throw new HttpError(422, errors.map((e) => e.message).join(" "), { files: errors });
+
+  const stored: { p: Prepared; keys: { original: string; display: string; thumb: string } }[] = [];
+  try {
+    for (const p of prepared as Prepared[]) {
+      const folder = newPhotoFolder();
+      const keys = { original: `${folder}/original.${p.originalExt}`, display: `${folder}/display.jpg`, thumb: `${folder}/thumb.jpg` };
+      stored.push({ p, keys });
+      await storage.put(keys.original, p.original, p.originalType);
+      await storage.put(keys.display, p.display, "image/jpeg");
+      await storage.put(keys.thumb, p.thumb, "image/jpeg");
+    }
+    return await prisma.$transaction(async (tx) => {
+      const out: JobItemPhotoView[] = [];
+      for (const { p, keys } of stored) {
+        const photo = await tx.jobItemPhoto.create({
+          data: {
+            jobItemId,
+            jobId: item.jobId,
+            kind: kind as JobItemPhotoKind,
+            storageKey: keys.original,
+            displayKey: keys.display,
+            thumbKey: keys.thumb,
+            originalName: p.name,
+            mimeType: p.originalType,
+            sizeBytes: p.original.length,
+            width: p.width,
+            height: p.height,
+            uploadedById: actor?.id ?? null,
+          },
+        });
+        await audit(tx, {
+          entity: "Job",
+          entityId: item.jobId,
+          action: "photo",
+          summary: `${item.job.jobNumber}: ${kind === "ITEM" ? "item" : "design"} photo ${p.name ?? ""} added to ${item.designName}`.replace("photo  ", "photo "),
+          after: { jobItemId, kind, originalName: p.name, mimeType: p.originalType, sizeBytes: p.original.length },
+          userId: actor?.id,
+        });
+        out.push({ id: photo.id, kind: photo.kind, name: photo.originalName });
+      }
+      return out;
+    });
+  } catch (e) {
+    await Promise.all(stored.flatMap((s) => Object.values(s.keys).map((k) => storage.delete(k).catch(() => undefined))));
+    throw e;
+  }
+}
+
+export async function jobItemPhotoFile(id: string, variant: PhotoVariant) {
+  const p = await prisma.jobItemPhoto.findUnique({ where: { id }, select: { storageKey: true, displayKey: true, thumbKey: true, mimeType: true, removedAt: true } });
+  if (!p || p.removedAt) throw notFound("Photo");
+  const key = variant === "original" ? p.storageKey : variant === "display" ? p.displayKey : p.thumbKey;
+  let stream;
+  try {
+    stream = await storage.get(key);
+  } catch {
+    throw notFound("Photo file");
+  }
+  const ext = key.slice(key.lastIndexOf("."));
+  return { stream, contentType: variant === "original" ? p.mimeType : "image/jpeg", filename: `${id}-${variant}${ext}` };
+}
+
+/** Hides a reference photo (the file is kept for the audit trail). */
+export async function removeJobItemPhoto(id: string, actor?: Actor) {
+  const p = await prisma.jobItemPhoto.findUnique({ where: { id }, include: { jobItem: { select: { designName: true, job: { select: { jobNumber: true } } } } } });
+  if (!p || p.removedAt) throw notFound("Photo");
+  await prisma.$transaction(async (tx) => {
+    await tx.jobItemPhoto.update({ where: { id }, data: { removedAt: new Date() } });
+    await audit(tx, {
+      entity: "Job",
+      entityId: p.jobId,
+      action: "photo",
+      summary: `${p.jobItem.job.jobNumber}: ${p.kind === "ITEM" ? "item" : "design"} photo ${p.originalName ?? ""} removed from ${p.jobItem.designName}`.replace("photo  ", "photo "),
+      before: { jobItemId: p.jobItemId, kind: p.kind, originalName: p.originalName },
+      userId: actor?.id,
+    });
+  });
+  return { ok: true };
+}
+
+// ───────────────────────── Worker photo and Aadhaar ─────────────────────────
+
+/** URL segment → document kind and the Client column that points at the current one. */
+export const WORKER_DOCS = {
+  photo: { kind: "PHOTO", field: "photoId", label: "photo" },
+  "aadhaar-front": { kind: "AADHAAR_FRONT", field: "aadhaarFrontId", label: "Aadhaar front" },
+  "aadhaar-back": { kind: "AADHAAR_BACK", field: "aadhaarBackId", label: "Aadhaar back" },
+} as const satisfies Record<string, { kind: WorkerDocumentKind; field: keyof Client; label: string }>;
+export type WorkerDocSlot = keyof typeof WORKER_DOCS;
+
+function docSlot(slot: string) {
+  const d = WORKER_DOCS[slot as WorkerDocSlot];
+  if (!d) throw notFound("Document");
+  return d;
+}
+
+/** Aadhaar images are identity documents: only the owner and managers may add, open or remove them. */
+function assertMayHandle(kind: WorkerDocumentKind, actor?: Actor) {
+  if (kind !== "PHOTO" && !isManager(actor)) throw new HttpError(403, "Only the owner or a manager can handle Aadhaar photos");
+}
+
+/** Stores a new worker photo / Aadhaar image and makes it the current one (the previous file is kept). */
+export async function setWorkerDocument(clientId: string, slot: string, file: UploadFile | undefined, actor?: Actor) {
+  const d = docSlot(slot);
+  assertMayHandle(d.kind, actor);
+  if (!file) throw unprocessable("Choose a photo");
+  const client = await prisma.client.findUnique({ where: { id: clientId } });
+  if (!client) throw notFound("Job worker");
+  const p = await prepare(file);
+  if (typeof p === "string") throw unprocessable(p);
+  const folder = newPhotoFolder();
+  const keys = { original: `${folder}/original.${p.originalExt}`, display: `${folder}/display.jpg`, thumb: `${folder}/thumb.jpg` };
+  try {
+    await storage.put(keys.original, p.original, p.originalType);
+    await storage.put(keys.display, p.display, "image/jpeg");
+    await storage.put(keys.thumb, p.thumb, "image/jpeg");
+    return await prisma.$transaction(async (tx) => {
+      const doc = await tx.workerDocument.create({
+        data: { clientId, kind: d.kind, storageKey: keys.original, displayKey: keys.display, thumbKey: keys.thumb, originalName: p.name, mimeType: p.originalType, sizeBytes: p.original.length, uploadedById: actor?.id ?? null },
+      });
+      const c = await tx.client.update({ where: { id: clientId }, data: { [d.field]: doc.id } });
+      await audit(tx, { entity: "Client", entityId: clientId, action: "document", summary: `${client.name}: ${d.label} ${client[d.field] ? "replaced" : "added"}`, before: { [d.field]: client[d.field] }, after: { [d.field]: doc.id }, userId: actor?.id });
+      return c;
+    });
+  } catch (e) {
+    await Promise.all(Object.values(keys).map((k) => storage.delete(k).catch(() => undefined)));
+    throw e;
+  }
+}
+
+/** Unlinks the current photo / Aadhaar image from the worker (the file stays in history). */
+export async function clearWorkerDocument(clientId: string, slot: string, actor?: Actor) {
+  const d = docSlot(slot);
+  assertMayHandle(d.kind, actor);
+  const client = await prisma.client.findUnique({ where: { id: clientId } });
+  if (!client) throw notFound("Job worker");
+  if (!client[d.field]) return client;
+  return prisma.$transaction(async (tx) => {
+    const c = await tx.client.update({ where: { id: clientId }, data: { [d.field]: null } });
+    await audit(tx, { entity: "Client", entityId: clientId, action: "document", summary: `${client.name}: ${d.label} removed`, before: { [d.field]: client[d.field] }, after: { [d.field]: null }, userId: actor?.id });
+    return c;
+  });
+}
+
+export async function workerDocumentFile(id: string, variant: PhotoVariant, actor?: Actor) {
+  const p = await prisma.workerDocument.findUnique({ where: { id } });
+  if (!p) throw notFound("Photo");
+  assertMayHandle(p.kind, actor);
+  const key = variant === "original" ? p.storageKey : variant === "display" ? p.displayKey : p.thumbKey;
+  let stream;
+  try {
+    stream = await storage.get(key);
+  } catch {
+    throw notFound("Photo file");
+  }
+  const ext = key.slice(key.lastIndexOf("."));
+  return { stream, contentType: variant === "original" ? p.mimeType : "image/jpeg", filename: `${id}-${variant}${ext}` };
 }
 
 // ───────────────────────── Gallery ─────────────────────────

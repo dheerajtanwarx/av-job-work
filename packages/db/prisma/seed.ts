@@ -9,7 +9,7 @@ async function main() {
   await prisma.user.upsert({
     where: { email },
     update: {},
-    create: { email, name, passwordHash: await bcrypt.hash(password, 10) },
+    create: { email, name, role: "OWNER", passwordHash: await bcrypt.hash(password, 10) },
   });
 
   await prisma.settings.upsert({ where: { id: 1 }, update: {}, create: { id: 1 } });

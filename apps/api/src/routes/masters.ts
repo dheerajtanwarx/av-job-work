@@ -15,7 +15,7 @@ import {
   type Unit,
 } from "@av/shared";
 import { Router } from "express";
-import { audit } from "../lib/audit.js";
+import { audit, editedBy, withEdited } from "../lib/audit.js";
 import { nextNumber } from "../lib/counter.js";
 import { toDate, today } from "../lib/dates.js";
 import { notFound, param, parse, str, unprocessable } from "../lib/http.js";
@@ -38,11 +38,11 @@ clientsRouter.get("/", async (req, res) => {
   const clients = await prisma.client.findMany({
     where: {
       isActive: activeFilter(req.query.active),
-      OR: q ? [{ name: ci(q) }, { businessName: ci(q) }, { phone: ci(q) }, { alternatePhone: ci(q) }, { email: ci(q) }, { workerCode: ci(q) }] : undefined,
+      OR: q ? [{ name: ci(q) }, { businessName: ci(q) }, { phone: ci(q) }, { alternatePhone: ci(q) }, { email: ci(q) }, { workerCode: ci(q) }, { workItems: ci(q) }] : undefined,
     },
     orderBy: { name: "asc" },
   });
-  if (req.query.simple === "true") return res.json(clients);
+  if (req.query.simple === "true") return res.json(await withEdited(prisma, clients));
   const ids = clients.map((c) => c.id);
   const jobs = await loadJobs(prisma, { clientId: { in: ids } });
   const stats = new Map(ids.map((id) => [id, { activeJobs: 0, pendingPieces: 0, value: 0, paid: 0 }]));
@@ -55,7 +55,7 @@ clientsRouter.get("/", async (req, res) => {
     s.paid += j.agg.paidPaise;
   }
   res.json(
-    clients.map((c) => {
+    (await withEdited(prisma, clients)).map((c) => {
       const s = stats.get(c.id)!;
       return { ...c, activeJobs: s.activeJobs, pendingPieces: s.pendingPieces, toPayPaise: Math.max(0, s.value - s.paid) };
     }),
@@ -70,7 +70,7 @@ clientsRouter.post("/", async (req, res) => {
     await audit(tx, { entity: "Client", entityId: c.id, action: "create", summary: `Job worker ${c.name} (${workerCode}) added – payment terms: ${termsText(c.paymentPolicy as PaymentPolicy, c.paymentDays)}`, after: c, userId: req.user?.id });
     return c;
   });
-  res.status(201).json(c);
+  res.status(201).json((await withEdited(prisma, [c]))[0]);
 });
 
 clientsRouter.get("/:id", async (req, res) => {
@@ -104,7 +104,7 @@ clientsRouter.put("/:id", async (req, res) => {
   if (!before) throw notFound("Job worker");
   const data = parse(clientSchema.partial(), req.body);
   if (data.paymentPolicy !== undefined) data.paymentDays = data.paymentPolicy ? (data.paymentDays ?? before.paymentDays ?? 0) : null;
-  const c = await prisma.client.update({ where: { id }, data });
+  const c = await prisma.client.update({ where: { id }, data: { ...data, ...editedBy(req.user?.id) } });
   const termsChanged = c.paymentPolicy !== before.paymentPolicy || c.paymentDays !== before.paymentDays;
   await audit(prisma, {
     entity: "Client",
@@ -119,7 +119,7 @@ clientsRouter.put("/:id", async (req, res) => {
     after: c,
     userId: req.user?.id,
   });
-  res.json(c);
+  res.json((await withEdited(prisma, [c]))[0]);
 });
 
 // ───────────── Products ─────────────
@@ -132,7 +132,7 @@ productsRouter.get("/", async (req, res) => {
     include: { _count: { select: { jobs: true } } },
     orderBy: { name: "asc" },
   });
-  res.json(rows.map(({ _count, ...p }) => ({ ...p, jobCount: _count.jobs })));
+  res.json((await withEdited(prisma, rows)).map(({ _count, ...p }) => ({ ...p, jobCount: _count.jobs })));
 });
 
 productsRouter.post("/", async (req, res) => {
@@ -145,9 +145,9 @@ productsRouter.put("/:id", async (req, res) => {
   const id = param(req.params.id);
   const before = await prisma.product.findUnique({ where: { id } });
   if (!before) throw notFound("Product");
-  const p = await prisma.product.update({ where: { id }, data: parse(productSchema.partial(), req.body) });
-  await audit(prisma, { entity: "Product", entityId: id, action: "update", before, after: p, userId: req.user?.id });
-  res.json(p);
+  const p = await prisma.product.update({ where: { id }, data: { ...parse(productSchema.partial(), req.body), ...editedBy(req.user?.id) } });
+  await audit(prisma, { entity: "Product", entityId: id, action: "update", summary: `Product ${p.name} updated`, before, after: p, userId: req.user?.id });
+  res.json((await withEdited(prisma, [p]))[0]);
 });
 
 // ───────────── Job work types ─────────────
@@ -159,7 +159,7 @@ jobWorkTypesRouter.get("/", async (req, res) => {
     include: { _count: { select: { jobs: true } } },
     orderBy: { name: "asc" },
   });
-  res.json(rows.map(({ _count, ...t }) => ({ ...t, jobCount: _count.jobs })));
+  res.json((await withEdited(prisma, rows)).map(({ _count, ...t }) => ({ ...t, jobCount: _count.jobs })));
 });
 
 jobWorkTypesRouter.post("/", async (req, res) => {
@@ -172,9 +172,9 @@ jobWorkTypesRouter.put("/:id", async (req, res) => {
   const id = param(req.params.id);
   const before = await prisma.jobWorkType.findUnique({ where: { id } });
   if (!before) throw notFound("Job work type");
-  const t = await prisma.jobWorkType.update({ where: { id }, data: parse(jobWorkTypeSchema.partial(), req.body) });
-  await audit(prisma, { entity: "JobWorkType", entityId: id, action: "update", before, after: t, userId: req.user?.id });
-  res.json(t);
+  const t = await prisma.jobWorkType.update({ where: { id }, data: { ...parse(jobWorkTypeSchema.partial(), req.body), ...editedBy(req.user?.id) } });
+  await audit(prisma, { entity: "JobWorkType", entityId: id, action: "update", summary: `Job work type ${t.name} updated`, before, after: t, userId: req.user?.id });
+  res.json((await withEdited(prisma, [t]))[0]);
 });
 
 // ───────────── Designs ─────────────
@@ -187,7 +187,7 @@ designsRouter.get("/", async (req, res) => {
     include: { jobItems: { select: { jobId: true } }, jobWorkType: { select: { id: true, name: true } } },
     orderBy: { name: "asc" },
   });
-  res.json(rows.map(({ jobItems, ...d }) => ({ ...d, jobCount: new Set(jobItems.map((j) => j.jobId)).size })));
+  res.json((await withEdited(prisma, rows)).map(({ jobItems, ...d }) => ({ ...d, jobCount: new Set(jobItems.map((j) => j.jobId)).size })));
 });
 
 designsRouter.post("/", async (req, res) => {
@@ -201,17 +201,17 @@ designsRouter.put("/:id", async (req, res) => {
   const before = await prisma.design.findUnique({ where: { id } });
   if (!before) throw notFound("Design");
   // Only the default for future challans changes – existing challan lines and returns keep their own rates.
-  const d = await prisma.design.update({ where: { id }, data: parse(designSchema.partial(), req.body) });
+  const d = await prisma.design.update({ where: { id }, data: { ...parse(designSchema.partial(), req.body), ...editedBy(req.user?.id) } });
   await audit(prisma, {
     entity: "Design",
     entityId: id,
     action: "update",
-    summary: before.defaultRatePaise !== d.defaultRatePaise ? `Default rate ₹${before.defaultRatePaise / 100} → ₹${d.defaultRatePaise / 100} (future challans only)` : undefined,
+    summary: before.defaultRatePaise !== d.defaultRatePaise ? `${d.name}: default rate ₹${before.defaultRatePaise / 100} → ₹${d.defaultRatePaise / 100} (future challans only)` : `Design ${d.name} updated`,
     before,
     after: d,
     userId: req.user?.id,
   });
-  res.json(d);
+  res.json((await withEdited(prisma, [d]))[0]);
 });
 
 // ───────────── Materials & stock ─────────────
@@ -255,9 +255,9 @@ materialsRouter.put("/:id", async (req, res) => {
   const { openingQty: _o, ...data } = parse(materialSchema.partial(), req.body);
   if (data.unit && data.unit !== before.unit && (await prisma.jobItem.count({ where: { materialId: id } }))) throw unprocessable("This material is already on challans – its unit can't change");
   if (data.code && data.code !== before.code && (await prisma.material.findUnique({ where: { code: data.code } }))) throw unprocessable(`Material code ${data.code} is already used`);
-  const m = await prisma.material.update({ where: { id }, data: { ...data, code: data.code ?? undefined } });
-  await audit(prisma, { entity: "Material", entityId: id, action: "update", before, after: m, userId: req.user?.id });
-  res.json(m);
+  const m = await prisma.material.update({ where: { id }, data: { ...data, code: data.code ?? undefined, ...editedBy(req.user?.id) } });
+  await audit(prisma, { entity: "Material", entityId: id, action: "update", summary: `Material ${m.code} ${m.name} updated`, before, after: m, userId: req.user?.id });
+  res.json((await withEdited(prisma, [m]))[0]);
 });
 
 export const stockRouter = Router();

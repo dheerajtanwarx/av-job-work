@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { BillStatusBadge } from "@/components/ui/badge";
 import { MobileList, MobileListItem, TableWrap } from "@/components/ui/card";
+import { EditedTag } from "@/components/ui/edited";
 import { cn } from "@/lib/utils";
 
 /** Payment Vouchers: a table from `sm` up, tappable cards on phones. */
@@ -48,7 +49,11 @@ export function SubBillsTable({ rows, hideClient, hideJob }: { rows: SubBillRow[
                   {b.reference && <div className="max-w-36 truncate text-xs text-fg-muted">{b.reference}</div>}
                 </td>
                 <td className="whitespace-nowrap">
-                  <BillStatusBadge state={b.voidedAt ? "voided" : "paid"} />
+                  <div className="flex items-center gap-1.5">
+                    <BillStatusBadge state={b.voidedAt ? "voided" : "paid"} />
+                    {!b.voidedAt && <EditedTag edited={b.edited} compact />}
+                  </div>
+                  {b.voidedAt && b.voidedBy && <div className="text-xs text-fg-muted">by {b.voidedBy}</div>}
                 </td>
               </tr>
             ))}
@@ -70,7 +75,10 @@ export function SubBillsTable({ rows, hideClient, hideJob }: { rows: SubBillRow[
                 {PAYMENT_METHOD_LABEL[b.method]}
                 {b.reference && <span className="text-fg-muted"> · {b.reference}</span>}
               </span>
-              <BillStatusBadge state={b.voidedAt ? "voided" : "paid"} />
+              <span className="flex items-center gap-1.5">
+                {!b.voidedAt && <EditedTag edited={b.edited} compact />}
+                <BillStatusBadge state={b.voidedAt ? "voided" : "paid"} />
+              </span>
             </div>
           </MobileListItem>
         ))}

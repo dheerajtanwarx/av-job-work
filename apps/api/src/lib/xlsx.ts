@@ -44,7 +44,7 @@ function excelValue(type: CellType | undefined, v: string | number | null | unde
 /** One-sheet workbook: bold frozen header, typed number formats, sensible widths and an optional bold totals row. */
 export async function buildWorkbook<T>(rows: T[], columns: TableColumn<T>[], opts: { title?: string; totals?: TableTotals } = {}) {
   const wb = new ExcelJS.Workbook();
-  wb.creator = "AV Creation – Job Work Ledger";
+  wb.creator = "AV Creation – AV JOB WORK";
   wb.created = new Date();
   const ws = wb.addWorksheet((opts.title ?? "Report").replace(/[\\/?*[\]:]/g, " ").slice(0, 31), { views: [{ state: "frozen", ySplit: 1 }] });
   ws.columns = columns.map((c, i) => ({

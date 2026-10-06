@@ -1,5 +1,6 @@
 import type { UserRole } from "@av/shared";
 import type { NextFunction, Request, Response } from "express";
+import { prisma } from "@av/db";
 import jwt from "jsonwebtoken";
 import { env } from "../env.js";
 
@@ -35,35 +36,38 @@ export function setSessionCookie(res: Response, token: string) {
   });
 }
 
-export function requireAuth(req: Request, res: Response, next: NextFunction) {
+/**
+ * Checks the session cookie, then loads the user so a role change or a disabled account takes effect on the
+ * very next request (the cookie lives 30 days).
+ */
+export async function requireAuth(req: Request, res: Response, next: NextFunction) {
   const token = req.cookies?.[SESSION_COOKIE] ?? req.headers.authorization?.replace(/^Bearer /, "");
   if (!token) return res.status(401).json({ message: "Please log in" });
+  let id: string;
   try {
-    const p = jwt.verify(token, env.jwtSecret) as Partial<SessionUser> & { id: string; email: string; name: string };
-    // Sessions issued before roles existed belong to the owner.
-    req.user = { id: p.id, email: p.email, name: p.name, role: p.role ?? "OWNER" };
-    next();
+    id = (jwt.verify(token, env.jwtSecret) as { id: string }).id;
   } catch {
-    res.status(401).json({ message: "Your session has expired. Please log in again." });
+    return res.status(401).json({ message: "Your session has expired. Please log in again." });
   }
+  const u = await prisma.user.findUnique({ where: { id }, select: { id: true, email: true, name: true, role: true, disabledAt: true } });
+  if (!u || u.disabledAt) {
+    res.clearCookie(SESSION_COOKIE, { path: "/" });
+    return res.status(401).json({ message: "Your account is no longer active. Ask the owner for access." });
+  }
+  req.user = { id: u.id, email: u.email, name: u.name, role: u.role };
+  next();
 }
 
-/** Roles allowed to do sensitive things (overrides, voids of photos, stock adjustments). */
-export const MANAGERS: UserRole[] = ["OWNER", "MANAGER"];
-/** Roles that may record work and payments. */
-export const WRITERS: UserRole[] = ["OWNER", "MANAGER", "ACCOUNTS", "DATA_ENTRY"];
+/** Everyone signed in does daily work; these are the roles allowed to override and adjust (both, today). */
+export const MANAGERS: UserRole[] = ["OWNER", "SUB_OWNER"];
+/** Owner-only: users, settings, and changing or voiding payments. */
+export const OWNER_ONLY: UserRole[] = ["OWNER"];
 
 export const hasRole = (user: SessionUser | undefined, roles: UserRole[]) => !!user && roles.includes(user.role);
 
 export function requireRole(...roles: UserRole[]) {
   return (req: Request, res: Response, next: NextFunction) => {
-    if (!hasRole(req.user, roles)) return res.status(403).json({ message: "You don't have permission to do this" });
+    if (!hasRole(req.user, roles)) return res.status(403).json({ message: roles.length === 1 && roles[0] === "OWNER" ? "Only the owner can do this" : "You don't have permission to do this" });
     next();
   };
-}
-
-/** Viewers can read everything but change nothing. */
-export function blockViewersFromWriting(req: Request, res: Response, next: NextFunction) {
-  if (req.method !== "GET" && req.method !== "HEAD" && req.user?.role === "VIEWER") return res.status(403).json({ message: "Your account is read-only" });
-  next();
 }

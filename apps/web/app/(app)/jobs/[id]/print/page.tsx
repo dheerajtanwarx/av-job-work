@@ -1,6 +1,6 @@
 "use client";
 
-import { formatDate, formatINR, formatQty, L, roundQty, type JobDetail, type Unit } from "@av/shared";
+import { L, type JobDetail } from "@av/shared";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, Download, FileDown, Link2, Printer, RefreshCw, Share2 } from "lucide-react";
 import Link from "next/link";
@@ -8,7 +8,7 @@ import { useParams } from "next/navigation";
 import QRCode from "qrcode";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
-import { termsLabel } from "@/components/forms/payment-terms";
+import { ChallanSheet, sheetFromJob } from "@/components/jobs/challan-sheet";
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { ErrorBlock, PageSkeleton } from "@/components/ui/misc";
@@ -83,10 +83,6 @@ export default function ChallanPrintPage() {
   const c = worker.data?.client;
   const filename = `${job.jobNumber}-challan.html`;
 
-  const qtyByUnit = new Map<Unit, number>();
-  for (const i of job.items) qtyByUnit.set(i.unit, roundQty((qtyByUnit.get(i.unit) ?? 0) + i.quantity));
-  const totalValue = job.items.reduce((s, i) => s + i.expectedValuePaise, 0);
-
   async function share() {
     const data = { title: `${L.jobFull} ${job.jobNumber}`, text: `${L.jobFull} ${job.jobNumber} – ${job.client.name}`, url: publicUrl };
     if (navigator.share) {
@@ -139,126 +135,7 @@ export default function ChallanPrintPage() {
         <p className="w-full text-xs text-fg-muted">To save a PDF, click Save PDF and choose “Save as PDF” as the printer. Download saves a printable copy you can open offline.</p>
       </div>
 
-      <article ref={sheet} className="sheet print-plain overflow-hidden rounded-lg border border-border">
-        <div className="p-6 sm:p-9 print:p-0">
-          {/* Letterhead */}
-          <header className="flex flex-wrap items-start justify-between gap-4 border-b-2 border-[#18181b] pb-4">
-            <div className="flex min-w-0 items-start gap-4">
-              {biz?.logo && <img src={biz.logo} alt="" className="size-16 shrink-0 object-contain" />}
-              <div className="min-w-0">
-                <div className="text-2xl leading-7 font-bold tracking-[-0.01em]">{biz?.businessName ?? "AV Creation"}</div>
-                {biz?.address && <div className="mt-1 max-w-sm text-xs leading-relaxed whitespace-pre-line text-fg-muted">{biz.address}</div>}
-                {(biz?.phone || biz?.email) && <div className="mt-0.5 text-xs text-fg-muted">{[biz.phone && `Mob: ${biz.phone}`, biz.email].filter(Boolean).join(" · ")}</div>}
-              </div>
-            </div>
-            {qr && (
-              <div className="text-center">
-                <img src={qr} alt="QR code for this challan" className="size-24" />
-                <div className="mt-0.5 text-[9px] tracking-wide text-fg-muted uppercase">Scan to view status</div>
-              </div>
-            )}
-          </header>
-
-          <h1 className="mt-4 text-center text-lg font-bold tracking-[0.2em] uppercase">Job Work Challan</h1>
-          {job.status === "CANCELLED" && <div className="mt-1 text-center text-sm font-semibold tracking-widest text-[#c0352a] uppercase">Cancelled</div>}
-
-          {/* Particulars */}
-          <div className="mt-4 grid border border-[#18181b]/40 text-[13px] sm:grid-cols-2">
-            <dl className="divide-y divide-[#18181b]/20 sm:border-r sm:border-[#18181b]/40">
-              <Row label={L.jobNumber} value={<span className="font-semibold">{job.jobNumber}</span>} />
-              <Row label="Date" value={formatDate(job.jobDate)} />
-              <Row label="Worker" value={<span className="font-semibold">{job.client.name}{c?.workerCode ? ` (${c.workerCode})` : ""}</span>} />
-              <Row label="Mobile" value={c?.phone ?? "—"} />
-              {c?.address && <Row label="Address" value={<span className="whitespace-pre-line">{c.address}</span>} />}
-            </dl>
-            <dl className="divide-y divide-[#18181b]/20 max-sm:border-t max-sm:border-[#18181b]/40">
-              <Row label="Product" value={job.product.name} />
-              <Row label={L.jobWorkType} value={job.jobWorkType?.name ?? "—"} />
-              <Row label="Expected return" value={job.expectedReturnDate ? formatDate(job.expectedReturnDate) : "—"} />
-              <Row label="Payment terms" value={termsLabel(job.terms.policy, job.terms.days)} />
-            </dl>
-          </div>
-
-          {/* Design-wise table */}
-          <div className="mt-5 overflow-x-auto">
-            <table className="w-full border-collapse text-[13px] [&_td]:border [&_td]:border-[#18181b]/30 [&_td]:px-2 [&_td]:py-1.5 [&_th]:border [&_th]:border-[#18181b]/40 [&_th]:bg-[#f4f4f2] [&_th]:px-2 [&_th]:py-1.5 [&_th]:text-left [&_th]:text-[11px] [&_th]:font-semibold [&_th]:uppercase">
-              <thead>
-                <tr>
-                  <th className="w-8">#</th>
-                  <th>Design</th>
-                  <th>Material</th>
-                  <th className="!text-right">Qty</th>
-                  <th>Unit</th>
-                  <th className="!text-right">Rate</th>
-                  <th className="!text-right">Value</th>
-                </tr>
-              </thead>
-              <tbody className="num">
-                {job.items.map((i, idx) => (
-                  <tr key={i.id}>
-                    <td className="text-fg-muted">{idx + 1}</td>
-                    <td>
-                      <div className="font-medium">{i.designName}</div>
-                      {i.designCode && <div className="text-[11px] text-fg-muted">{i.designCode}</div>}
-                      {i.notes && <div className="text-[11px] text-fg-muted">{i.notes}</div>}
-                    </td>
-                    <td>{i.material ? `${i.material.code} · ${i.material.name}` : "—"}</td>
-                    <td className="text-right">{formatQty(i.quantity)}</td>
-                    <td>{i.unit}</td>
-                    <td className="text-right">{formatINR(i.ratePaise)}</td>
-                    <td className="text-right font-medium">{formatINR(i.expectedValuePaise)}</td>
-                  </tr>
-                ))}
-                {Array.from({ length: Math.max(0, 5 - job.items.length) }).map((_, i) => (
-                  <tr key={`blank-${i}`} aria-hidden>
-                    <td>&nbsp;</td>
-                    <td />
-                    <td />
-                    <td />
-                    <td />
-                    <td />
-                    <td />
-                  </tr>
-                ))}
-              </tbody>
-              <tfoot className="num font-semibold">
-                <tr>
-                  <td colSpan={3} className="text-right">
-                    Total
-                  </td>
-                  <td colSpan={2} className="text-right">
-                    {[...qtyByUnit].map(([u, n]) => `${formatQty(n)} ${u}`).join(" · ")}
-                  </td>
-                  <td />
-                  <td className="text-right">{formatINR(totalValue)}</td>
-                </tr>
-              </tfoot>
-            </table>
-          </div>
-          <p className="mt-1.5 text-[11px] text-fg-muted">Value = quantity × agreed job work rate. Final payment is on the work actually returned. This is a job work challan, not a sale.</p>
-
-          {job.notes && (
-            <div className="mt-4 text-[13px]">
-              <span className="font-semibold">Notes: </span>
-              <span className="whitespace-pre-wrap">{job.notes}</span>
-            </div>
-          )}
-
-          {/* Signatures */}
-          <div className="mt-14 grid grid-cols-3 gap-6 text-center text-xs">
-            {["Material issued by", "Received by", "Signature"].map((s) => (
-              <div key={s}>
-                <div className="h-10" />
-                <div className="border-t border-[#18181b]/60 pt-1.5 font-medium">{s}</div>
-              </div>
-            ))}
-          </div>
-          <div className="mt-6 flex flex-wrap justify-between gap-2 text-[10px] text-fg-faint">
-            <span>For {biz?.businessName ?? "AV Creation"}</span>
-            {publicUrl && <span className="num break-all">{publicUrl}</span>}
-          </div>
-        </div>
-      </article>
+      <ChallanSheet ref={sheet} data={sheetFromJob(job, c)} biz={biz} qr={qr} publicUrl={publicUrl} />
 
       <ConfirmDialog
         open={confirmRegen}
@@ -270,15 +147,6 @@ export default function ChallanPrintPage() {
         loading={regen.isPending}
         onConfirm={() => regen.mutate()}
       />
-    </div>
-  );
-}
-
-function Row({ label, value }: { label: string; value: React.ReactNode }) {
-  return (
-    <div className="grid grid-cols-[8.5rem_1fr] gap-2 px-3 py-1.5">
-      <dt className="text-fg-muted">{label}</dt>
-      <dd className="min-w-0">{value}</dd>
     </div>
   );
 }

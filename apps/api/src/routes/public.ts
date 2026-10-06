@@ -1,7 +1,9 @@
 import { prisma } from "@av/db";
 import type { PublicChallan } from "@av/shared";
 import { Router } from "express";
+import { verifyReceipt } from "../lib/signed-link.js";
 import { getSettings } from "../services/billing.js";
+import { issueReceiptPdf, returnReceiptPdf, sendPdf } from "../services/receipt-pdf.js";
 import { getJobDetail } from "../services/jobs.js";
 
 /** Unauthenticated, read-only, token-addressed views (QR challan view). Mounted before requireAuth. */
@@ -65,4 +67,22 @@ publicRouter.get("/challans/:token", async (req, res) => {
     generatedAt: new Date().toISOString(),
   };
   res.json(body);
+});
+
+/**
+ * A receipt PDF behind the link in a WhatsApp message (signed, see lib/signed-link). Bad or tampered links and
+ * deleted records all get the same 404.
+ */
+const BAD_LINK = { message: "This receipt link is not valid. Please ask for the receipt again." };
+
+publicRouter.get("/receipts/return/:token", async (req, res) => {
+  const id = verifyReceipt("return", String(req.params.token ?? ""));
+  if (!id || !(await prisma.return.count({ where: { id } }))) return res.status(404).json(BAD_LINK);
+  sendPdf(res, await returnReceiptPdf(id));
+});
+
+publicRouter.get("/receipts/issue/:token", async (req, res) => {
+  const id = verifyReceipt("issue", String(req.params.token ?? ""));
+  if (!id || !(await prisma.dispatch.count({ where: { id } }))) return res.status(404).json(BAD_LINK);
+  sendPdf(res, await issueReceiptPdf(id));
 });

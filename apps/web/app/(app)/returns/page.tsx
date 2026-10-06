@@ -5,7 +5,7 @@ import { Camera, ChevronLeft, ChevronRight, ImageOff, PackageCheck, Plus, Search
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useState } from "react";
-import { PayStatusPill, Pill } from "@/components/returns/status";
+import { PayStatusPill } from "@/components/returns/status";
 import { Button } from "@/components/ui/button";
 import { Card, TableWrap } from "@/components/ui/card";
 import { Combobox } from "@/components/ui/combobox";
@@ -16,6 +16,7 @@ import { DateRange, SearchInput, Toolbar } from "@/components/ui/toolbar";
 import { qs } from "@/lib/api";
 import { useClients, useDesigns } from "@/lib/queries";
 import { formatTime, photoThumb, useAllJobs, useReturns } from "@/lib/returns";
+import { EditedTag } from "@/components/ui/edited";
 import { cn } from "@/lib/utils";
 
 const KEYS = ["q", "clientId", "jobId", "designId", "from", "to", "voided", "page"] as const;
@@ -236,7 +237,7 @@ function MobileList({ rows }: { rows: ReturnRow[] }) {
                 <div className="mt-1 flex flex-wrap items-center gap-1.5">
                   <PayStatusPill payment={r.payment} voided={voided} />
                   {voided && r.voidReason && <span className="truncate text-xs text-fg-muted">{r.voidReason}</span>}
-                  {r.editedAt && !voided && <Pill tone="grey">Edited</Pill>}
+                  {r.editedAt && !voided && <EditedTag edited={{ at: r.editedAt, by: r.editedBy }} compact />}
                   {r.photoCount === 0 && !voided && (
                     <span className="inline-flex items-center gap-1 text-xs text-warning">
                       <Camera className="size-3" /> No photo
@@ -303,7 +304,7 @@ function DesktopTable({ rows, showDate, onOpen }: { rows: ReturnRow[]; showDate:
                 <td className="whitespace-nowrap">
                   <PayStatusPill payment={r.payment} voided={voided} />
                   {voided && r.voidReason && <div className="max-w-40 truncate text-xs text-fg-muted">{r.voidReason}</div>}
-                  {!voided && r.editedAt && <div className="text-xs text-fg-muted">Edited</div>}
+                  {!voided && r.editedAt && <EditedTag edited={{ at: r.editedAt, by: r.editedBy }} compact className="mt-0.5" />}
                 </td>
               </tr>
             );

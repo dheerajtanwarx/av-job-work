@@ -13,18 +13,23 @@ import {
   type Settings,
 } from "@av/shared";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ImageUp, Inbox, RefreshCw, Trash2 } from "lucide-react";
+import { ImageUp, Inbox, Lock, RefreshCw, Trash2 } from "lucide-react";
 import Link from "next/link";
-import { useEffect, useRef, useState } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { Suspense, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { NotificationStatusBadge, formatDateTime } from "@/components/billing/notification-status";
 import { Button } from "@/components/ui/button";
 import { Card, MobileList, MobileListItem, TableWrap } from "@/components/ui/card";
 import { Field, Input, Textarea } from "@/components/ui/input";
-import { EmptyState, ErrorBlock, LoadingBlock, PageHeader } from "@/components/ui/misc";
+import { EmptyState, ErrorBlock, LoadingBlock, Notice, PageHeader } from "@/components/ui/misc";
 import { Segmented } from "@/components/ui/segmented";
+import { Tabs } from "@/components/ui/tabs";
+import { ChangeLogPanel } from "@/components/settings/change-log-panel";
+import { UsersPanel } from "@/components/settings/users-panel";
 import { api, qs } from "@/lib/api";
 import { useSettings } from "@/lib/queries";
+import { useRole } from "@/lib/returns";
 import { cn } from "@/lib/utils";
 
 const policyHelp: Record<PaymentPolicy, string> = {
@@ -55,7 +60,46 @@ const toBody = (f: Settings): SettingsBody => ({
   payLostDefault: f.payLostDefault,
 });
 
+type SettingsTab = "general" | "users" | "changes" | "notifications";
+
 export default function SettingsPage() {
+  return (
+    <Suspense fallback={<LoadingBlock />}>
+      <SettingsTabs />
+    </Suspense>
+  );
+}
+
+function SettingsTabs() {
+  const params = useSearchParams();
+  const router = useRouter();
+  const path = usePathname();
+  const { isOwner, known } = useRole();
+  const items: { value: SettingsTab; label: string }[] = [
+    { value: "general", label: "General" },
+    ...(isOwner
+      ? [
+          { value: "users" as const, label: "Users" },
+          { value: "changes" as const, label: "Change log" },
+        ]
+      : []),
+    { value: "notifications", label: "Notifications" },
+  ];
+  const asked = (params.get("tab") ?? "general") as SettingsTab;
+  const tab = items.some((i) => i.value === asked) ? asked : "general";
+  return (
+    <div className="max-w-5xl space-y-6">
+      <PageHeader title="Settings" />
+      <Tabs value={tab} onChange={(v) => router.replace(v === "general" ? path : `${path}?tab=${v}`, { scroll: false })} items={items} />
+      {tab === "general" && known && <GeneralSettings canEdit={isOwner} />}
+      {tab === "users" && <UsersPanel />}
+      {tab === "changes" && <ChangeLogPanel />}
+      {tab === "notifications" && <NotificationLogSection />}
+    </div>
+  );
+}
+
+function GeneralSettings({ canEdit }: { canEdit: boolean }) {
   const qc = useQueryClient();
   const s = useSettings();
   const [form, setForm] = useState<Settings | null>(null);
@@ -73,12 +117,9 @@ export default function SettingsPage() {
   if (s.isError) return <ErrorBlock error={s.error} onRetry={() => s.refetch()} />;
   if (!form)
     return (
-      <>
-        <PageHeader title="Settings" />
-        <Card className="overflow-hidden">
-          <LoadingBlock />
-        </Card>
-      </>
+      <Card className="overflow-hidden">
+        <LoadingBlock />
+      </Card>
     );
   const set = (k: "businessName" | "address" | "phone" | "email") => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => setForm({ ...form, [k]: e.target.value });
   const toggle = (k: "payDamagedDefault" | "payRejectedDefault" | "payLostDefault" | "emailBills") => (e: React.ChangeEvent<HTMLInputElement>) => setForm({ ...form, [k]: e.target.checked });
@@ -88,18 +129,21 @@ export default function SettingsPage() {
       <form
         onSubmit={(e) => {
           e.preventDefault();
-          save.mutate(toBody(form));
+          if (canEdit) save.mutate(toBody(form));
         }}
       >
-        <PageHeader
-          title="Settings"
-          actions={
+        {canEdit ? (
+          <div className="flex justify-end">
             <Button type="submit" loading={save.isPending}>
               Save settings
             </Button>
-          }
-        />
-        <div className="divide-y divide-border border-t border-border">
+          </div>
+        ) : (
+          <Notice tone="neutral" icon={Lock}>
+            Only an owner can change these settings.
+          </Notice>
+        )}
+        <fieldset disabled={!canEdit} className="min-w-0 divide-y divide-border">
           <SettingsGroup title="Business details" description={`Printed at the top of every ${L.jobFull.toLowerCase()}, ${L.subBill.toLowerCase()} and ${L.mainBill.toLowerCase()}.`}>
             <div className="grid gap-4 sm:grid-cols-2">
               <Field label="Business name" required className="sm:col-span-2">
@@ -188,11 +232,8 @@ export default function SettingsPage() {
               </span>
             </label>
           </SettingsGroup>
-        </div>
+        </fieldset>
       </form>
-      <div className="border-t border-border py-8">
-        <NotificationLogSection />
-      </div>
     </div>
   );
 }

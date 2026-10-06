@@ -14,9 +14,12 @@ import {
   type Unit,
   paymentNowSchema,
   subBillCreateSchema,
+  subBillUpdateSchema,
+  PAYMENT_METHOD_LABEL,
+  formatDate,
 } from "@av/shared";
 import type { z } from "zod";
-import { audit, userNames } from "../lib/audit.js";
+import { audit, editedBy, userNames } from "../lib/audit.js";
 import { nextNumber } from "../lib/counter.js";
 import { iso, toDate } from "../lib/dates.js";
 import { HttpError, notFound, unprocessable } from "../lib/http.js";
@@ -93,7 +96,7 @@ export async function listSubBills(filter: { clientId?: string; jobId?: string; 
     ];
   }
   const rows = await prisma.subBill.findMany({ where, include: subBillRowInclude, orderBy: [{ date: "desc" }, { createdAt: "desc" }], take: filter.take, skip: filter.skip });
-  const names = await userNames(prisma, rows.map((r) => r.enteredById));
+  const names = await userNames(prisma, rows.flatMap((r) => [r.enteredById, r.editedById, r.voidedById]));
   return rows.map((r) => toSubBillRow(r, undefined, names));
 }
 
@@ -104,11 +107,12 @@ export async function getSubBill(id: string): Promise<SubBillDetail> {
   });
   if (!b) throw notFound("Payment voucher");
   const mb = b.job.mainBill;
-  const [job, names, notifications] = await Promise.all([
+  const [job, history, notifications] = await Promise.all([
     loadJob(prisma, b.jobId),
-    userNames(prisma, [b.enteredById]),
+    prisma.auditLog.findMany({ where: { entity: "SubBill", entityId: id }, orderBy: { createdAt: "desc" }, take: 50 }),
     prisma.notificationLog.findMany({ where: { entity: "SubBill", entityId: id }, orderBy: { createdAt: "desc" }, take: 20 }),
   ]);
+  const names = await userNames(prisma, [b.enteredById, b.editedById, b.voidedById, ...history.map((h) => h.userId)]);
   const totals = sumTotals(summarizeJobItems(job));
   return {
     ...toSubBillRow(b, undefined, names),
@@ -125,6 +129,7 @@ export async function getSubBill(id: string): Promise<SubBillDetail> {
     challanMoney: moneyPosition(totals.completedValuePaise, job.agg.paidPaise),
     emailedAt: iso(b.emailedAt),
     emailedTo: b.emailedTo,
+    history: history.map((h) => ({ at: h.createdAt.toISOString(), action: h.action, summary: h.summary, reason: h.reason, user: h.userId ? (names.get(h.userId) ?? null) : null })),
     notifications: notifications.map((n) => ({ id: n.id, channel: n.channel, kind: n.kind, recipient: n.recipient, status: n.status as "sent" | "skipped" | "failed", error: n.error, auto: n.auto, createdAt: n.createdAt.toISOString() })),
     business: await getSettings(),
   };
@@ -233,9 +238,75 @@ export async function voidSubBill(id: string, reason: string, actor?: Actor) {
   if (!b) throw notFound("Payment voucher");
   if (b.voidedAt) throw unprocessable("This payment voucher is already voided");
   await prisma.$transaction(async (tx) => {
-    await tx.subBill.update({ where: { id }, data: { voidedAt: new Date(), voidReason: reason } });
+    await tx.subBill.update({ where: { id }, data: { voidedAt: new Date(), voidReason: reason, voidedById: actor?.id ?? null } });
     await audit(tx, { entity: "SubBill", entityId: id, action: "void", summary: `${b.billNumber} (${formatINR(b.amountPaise)}) voided: ${reason}`, reason, userId: actor?.id });
     await recomputeJobStatus(tx, b.jobId, actor?.id);
+  });
+  return getSubBill(id);
+}
+
+/**
+ * Owner-only change to a recorded payment. A reason is always required; the old and new values go to the
+ * audit log and the voucher is marked "Edited by …". The challan's status and final settlement follow.
+ * Qty-based (legacy) vouchers keep their amount: it is the sum of their design lines.
+ */
+export async function updateSubBill(id: string, input: z.output<typeof subBillUpdateSchema>, actor?: Actor) {
+  const userId = actor?.id;
+  await prisma.$transaction(async (tx) => {
+    const b = await tx.subBill.findUnique({ where: { id }, include: { lines: { select: { id: true } } } });
+    if (!b) throw notFound("Payment voucher");
+    if (b.voidedAt) throw unprocessable("A voided payment can't be changed");
+
+    const data: Prisma.SubBillUncheckedUpdateInput = {};
+    const changes: string[] = [];
+    const before: Record<string, unknown> = {};
+    const after: Record<string, unknown> = {};
+    const note = (field: string, from: unknown, to: unknown, text: string) => {
+      before[field] = from;
+      after[field] = to;
+      changes.push(text);
+    };
+
+    if (input.date && toDate(input.date).getTime() !== b.date.getTime()) {
+      data.date = toDate(input.date);
+      note("date", b.date.toISOString(), input.date, `date ${formatDate(b.date)} → ${formatDate(input.date)}`);
+    }
+    if (input.method && input.method !== b.method) {
+      data.method = input.method;
+      note("method", b.method, input.method, `method ${PAYMENT_METHOD_LABEL[b.method]} → ${PAYMENT_METHOD_LABEL[input.method]}`);
+    }
+    if (input.reference !== undefined && input.reference !== b.reference) {
+      data.reference = input.reference;
+      note("reference", b.reference, input.reference, `reference ${b.reference ?? "—"} → ${input.reference ?? "—"}`);
+    }
+    if (input.notes !== undefined && input.notes !== b.notes) {
+      data.notes = input.notes;
+      note("notes", b.notes, input.notes, "notes changed");
+    }
+    if (input.amountPaise !== undefined && input.amountPaise !== b.amountPaise) {
+      if (b.lines.length) throw unprocessable("This voucher pays for design quantities, so its amount can't be changed. Void it and record a new payment.");
+      // Outstanding as if this voucher were not there; more than that is an advance and needs a reason.
+      const job = await loadJob(tx, b.jobId);
+      const outstanding = moneyPosition(sumTotals(summarizeJobItems(job)).completedValuePaise, job.agg.paidPaise - b.amountPaise).outstandingPaise;
+      const advanceReason = input.advanceReason ?? b.advanceReason;
+      if (input.amountPaise > outstanding && !advanceReason) {
+        throw new HttpError(
+          422,
+          `Only ${formatINR(outstanding)} is payable on ${job.jobNumber}. Add a reason to record ${formatINR(input.amountPaise - outstanding)} as an advance.`,
+          { outstandingPaise: outstanding, needsAdvanceReason: true },
+        );
+      }
+      data.amountPaise = input.amountPaise;
+      data.advanceReason = input.amountPaise > outstanding ? advanceReason : null;
+      note("amountPaise", b.amountPaise, input.amountPaise, `amount ${formatINR(b.amountPaise)} → ${formatINR(input.amountPaise)}`);
+    }
+    if (!changes.length) throw unprocessable("Nothing was changed");
+
+    await tx.subBill.update({ where: { id }, data: { ...data, ...editedBy(userId) } });
+    const summary = `${b.billNumber} edited: ${changes.join("; ")}`;
+    await audit(tx, { entity: "SubBill", entityId: id, action: "update", summary, reason: input.reason, before, after, userId });
+    await audit(tx, { entity: "Job", entityId: b.jobId, action: "update", summary: `${summary}. Reason: ${input.reason}`, reason: input.reason, userId });
+    await recomputeJobStatus(tx, b.jobId, userId);
   });
   return getSubBill(id);
 }

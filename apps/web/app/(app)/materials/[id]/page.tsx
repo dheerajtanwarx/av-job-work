@@ -13,6 +13,7 @@ import { Button } from "@/components/ui/button";
 import { Card, Section } from "@/components/ui/card";
 import { EmptyState, ErrorBlock, Metric, MetricStrip, PageSkeleton } from "@/components/ui/misc";
 import { api, qs } from "@/lib/api";
+import { EditedTag } from "@/components/ui/edited";
 import { cn } from "@/lib/utils";
 
 const OUT = new Set(["INITIAL", "ADDITIONAL", "REWORK"]);
@@ -60,6 +61,7 @@ export default function MaterialPage() {
             <h1 className="text-xl leading-7 font-semibold tracking-[-0.01em]">{m.name}</h1>
             <span className="num text-[13px] text-fg-muted">{m.code}</span>
             {!m.isActive && <StatusBadge tone="neutral">Inactive</StatusBadge>}
+            <EditedTag edited={m.edited} />
           </div>
           <div className="mt-0.5 text-[13px] text-fg-muted">
             {[

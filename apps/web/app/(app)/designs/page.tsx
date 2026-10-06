@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Card, MobileList, MobileListItem, TableWrap } from "@/components/ui/card";
 import { EmptyState, ErrorBlock, LoadingBlock, PageHeader } from "@/components/ui/misc";
 import { useDesigns } from "@/lib/queries";
+import { EditedTag } from "@/components/ui/edited";
 import { cn } from "@/lib/utils";
 
 export default function DesignsPage() {
@@ -87,7 +88,12 @@ export default function DesignsPage() {
                         <span className="text-fg-faint">0</span>
                       )}
                     </td>
-                    <td>{d.isActive ? <Badge tone="success" className="bg-transparent px-0">Active</Badge> : <Badge>Inactive</Badge>}</td>
+                    <td>
+                      <div className="flex items-center gap-1.5">
+                        {d.isActive ? <Badge tone="success" className="bg-transparent px-0">Active</Badge> : <Badge>Inactive</Badge>}
+                        <EditedTag edited={d.edited} compact />
+                      </div>
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -102,7 +108,10 @@ export default function DesignsPage() {
                 </div>
                 <div className="flex justify-between gap-2 text-xs text-fg-muted">
                   <span className="truncate">{[d.code, d.jobWorkType?.name, `${d.jobCount ?? 0} challans`].filter(Boolean).join(" · ")}</span>
-                  {!d.isActive && <Badge>Inactive</Badge>}
+                  <span className="flex shrink-0 items-center gap-1.5">
+                    <EditedTag edited={d.edited} compact />
+                    {!d.isActive && <Badge>Inactive</Badge>}
+                  </span>
                 </div>
               </MobileListItem>
             ))}

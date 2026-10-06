@@ -7,6 +7,8 @@ import { cancelJob, createDispatch, createJob, getJobDetail, loadJobs, regenerat
 import { challanLedger } from "../services/accounts.js";
 import { createReturn, getReturn, listReturns, updateReturn, voidReturn } from "../services/returns.js";
 import { returnUpdateSchema } from "@av/shared";
+import { issueReceiptPdf, returnReceiptPdf, sendPdf } from "../services/receipt-pdf.js";
+import { sendIssueWhatsApp, sendReturnWhatsApp } from "../services/whatsapp-receipts.js";
 
 export const jobsRouter = Router();
 
@@ -100,4 +102,22 @@ entriesRouter.get("/returns/:id", async (req, res) => {
 
 entriesRouter.patch("/returns/:id", async (req, res) => {
   res.json(await updateReturn(param(req.params.id), parse(returnUpdateSchema, req.body), req.user));
+});
+
+// ───────── Receipts: PDF and WhatsApp ─────────
+
+entriesRouter.get("/returns/:id/pdf", async (req, res) => {
+  sendPdf(res, await returnReceiptPdf(param(req.params.id)));
+});
+
+entriesRouter.get("/dispatches/:id/pdf", async (req, res) => {
+  sendPdf(res, await issueReceiptPdf(param(req.params.id)));
+});
+
+entriesRouter.post("/returns/:id/whatsapp", async (req, res) => {
+  res.json(await sendReturnWhatsApp(param(req.params.id), req.user?.id));
+});
+
+entriesRouter.post("/dispatches/:id/whatsapp", async (req, res) => {
+  res.json(await sendIssueWhatsApp(param(req.params.id), req.user?.id));
 });

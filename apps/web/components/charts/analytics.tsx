@@ -27,7 +27,7 @@ export function AnalyticsCharts({ c }: { c: DashboardCharts }) {
   const completion = c.completionDays.slice(0, 10);
 
   return (
-    <div className="grid gap-4 lg:grid-cols-2">
+    <div className="stagger grid gap-4 lg:grid-cols-2">
       <VizStyle />
 
       <ChartCard

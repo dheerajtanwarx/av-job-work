@@ -1,3 +1,4 @@
+import { withEdited } from "../lib/audit.js";
 import { prisma } from "@av/db";
 import {
   AGING_BUCKETS,
@@ -567,7 +568,7 @@ export async function clientProfile(clientId: string): Promise<ClientSummary> {
   timeline.sort((a, b) => b.date.slice(0, 10).localeCompare(a.date.slice(0, 10)) || b.at.localeCompare(a.at));
 
   return {
-    client: { ...client, paymentPolicy: client.paymentPolicy as PaymentPolicy | null, createdAt: client.createdAt.toISOString() },
+    client: { ...(await withEdited(prisma, [client]))[0], paymentPolicy: client.paymentPolicy as PaymentPolicy | null, createdAt: client.createdAt.toISOString() },
     totals: {
       jobs: jobs.length,
       activeJobs: jobRows.filter((r) => r.status === "IN_PROGRESS" || r.status === "PARTIALLY_RECEIVED").length,

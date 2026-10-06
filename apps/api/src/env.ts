@@ -12,6 +12,16 @@ export const env = {
   uploadDir: process.env.UPLOAD_DIR || new URL("../../../uploads/", import.meta.url).pathname,
   /** Public base URL of the web app, used in QR codes. */
   publicWebUrl: process.env.PUBLIC_WEB_URL || process.env.WEB_ORIGIN || "http://localhost:3000",
+  /** WhatsApp Business Cloud API (Meta). Sending is skipped – and the app falls back to sharing from the device – until token and phone number id are set. */
+  whatsapp: {
+    token: process.env.WHATSAPP_TOKEN,
+    phoneNumberId: process.env.WHATSAPP_PHONE_NUMBER_ID,
+    apiVersion: process.env.WHATSAPP_API_VERSION || "v21.0",
+    /** Approved message templates with a DOCUMENT header (see README → WhatsApp). */
+    templateReturn: process.env.WHATSAPP_TEMPLATE_RETURN || "return_receipt",
+    templateIssue: process.env.WHATSAPP_TEMPLATE_ISSUE || "material_issue",
+    templateLang: process.env.WHATSAPP_TEMPLATE_LANG || "en",
+  },
   smtp: {
     host: process.env.SMTP_HOST,
     port: Number(process.env.SMTP_PORT ?? 587),

@@ -13,6 +13,7 @@ export function Dialog({
   children,
   footer,
   wide,
+  size,
 }: {
   open: boolean;
   onOpenChange: (o: boolean) => void;
@@ -21,6 +22,8 @@ export function Dialog({
   children: ReactNode;
   footer?: ReactNode;
   wide?: boolean;
+  /** "xl" fits a full A4 document preview. */
+  size?: "xl";
 }) {
   return (
     <D.Root open={open} onOpenChange={onOpenChange}>
@@ -30,7 +33,7 @@ export function Dialog({
           className={cn(
             "fixed inset-x-0 bottom-0 z-50 flex max-h-[92dvh] flex-col rounded-t-xl bg-surface shadow-overlay data-[state=open]:animate-[sheet-in_180ms_cubic-bezier(0.2,0.8,0.2,1)] focus:outline-none",
             "sm:inset-auto sm:top-1/2 sm:left-1/2 sm:w-[calc(100%-2rem)] sm:-translate-x-1/2 sm:-translate-y-1/2 sm:rounded-xl sm:data-[state=open]:animate-[dialog-in_150ms_cubic-bezier(0.2,0.8,0.2,1)]",
-            wide ? "sm:max-w-[640px]" : "sm:max-w-[440px]",
+            size === "xl" ? "sm:max-w-[920px]" : wide ? "sm:max-w-[640px]" : "sm:max-w-[440px]",
           )}
         >
           <div className="mx-auto mt-2 h-1 w-9 shrink-0 rounded-full bg-border-strong sm:hidden" aria-hidden />

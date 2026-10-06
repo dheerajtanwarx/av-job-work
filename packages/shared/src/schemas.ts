@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { DISPATCH_KINDS, PAYMENT_METHODS, PAYMENT_POLICIES, STOCK_MOVEMENT_TYPES, UNITS, type Unit } from "./enums";
+import { DISPATCH_KINDS, PAYMENT_METHODS, PAYMENT_POLICIES, STOCK_MOVEMENT_TYPES, UNITS, USER_ROLES, type Unit } from "./enums";
 
 const optText = z
   .string()
@@ -60,6 +60,7 @@ export const clientSchema = z.object({
   gstin: optText,
   pan: optText,
   notes: optText,
+  workItems: optText,
   paymentPolicy,
   paymentDays,
   isActive: z.boolean().optional(),
@@ -272,6 +273,38 @@ export const subBillCreateSchema = z
     idempotencyKey: optText,
   })
   .refine((v) => (v.amountPaise ?? 0) > 0 || (v.lines?.length ?? 0) > 0, { message: "Enter the amount paid", path: ["amountPaise"] });
+/** Owner-only change to a payment voucher. Every field optional; a reason is always required. */
+export const subBillUpdateSchema = z.object({
+  date: isoDate.optional(),
+  method: z.enum(PAYMENT_METHODS).optional(),
+  reference: optText,
+  notes: optText,
+  amountPaise: paise.refine((n) => n > 0, "Enter the amount paid").optional(),
+  /** Needed when the new amount is more than the challan has payable. */
+  advanceReason: optText,
+  reason: z.string().trim().min(3, "Please give a short reason for the change"),
+});
+export type SubBillUpdateInput = z.input<typeof subBillUpdateSchema>;
+
+const password = z.string().min(8, "Use at least 8 characters").max(200);
+
+export const userCreateSchema = z.object({
+  name: z.string().trim().min(1, "Name is required").max(100),
+  email: z.string().trim().toLowerCase().email("Enter a valid email"),
+  password,
+  role: z.enum(USER_ROLES),
+});
+export type UserCreateInput = z.input<typeof userCreateSchema>;
+
+export const userUpdateSchema = z.object({
+  name: z.string().trim().min(1, "Name is required").max(100).optional(),
+  role: z.enum(USER_ROLES).optional(),
+  disabled: z.boolean().optional(),
+  /** Set a new password for this user. */
+  password: password.optional(),
+});
+export type UserUpdateInput = z.input<typeof userUpdateSchema>;
+
 export type SubBillCreateInput = z.input<typeof subBillCreateSchema>;
 
 export const settingsSchema = z.preprocess(

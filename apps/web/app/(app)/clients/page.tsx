@@ -7,6 +7,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { ClientDialog } from "@/components/forms/master-dialogs";
+import { WorkerAvatar } from "@/components/workers/worker-docs";
 import { termsLabel } from "@/components/forms/payment-terms";
 import { StatusBadge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -16,6 +17,7 @@ import { Segmented } from "@/components/ui/segmented";
 import { SearchInput, Toolbar } from "@/components/ui/toolbar";
 import { api, qs } from "@/lib/api";
 import { useSettings } from "@/lib/queries";
+import { EditedTag } from "@/components/ui/edited";
 import { cn } from "@/lib/utils";
 
 export default function ClientsPage() {
@@ -89,6 +91,7 @@ export default function ClientsPage() {
                     <th>Code</th>
                     <th>{L.client}</th>
                     <th>Mobile</th>
+                    <th>Work / items</th>
                     <th>Payment terms</th>
                     <th className="r">Active challans</th>
                     <th className="r">Pending qty</th>
@@ -100,15 +103,22 @@ export default function ClientsPage() {
                     <tr key={c.id} className={cn("row-link", !c.isActive && "text-fg-muted")} onClick={() => router.push(`/clients/${c.id}`)}>
                       <td className="num whitespace-nowrap text-fg-muted">{c.workerCode}</td>
                       <td className="max-w-72">
-                        <div className="flex items-center gap-2">
-                          <Link href={`/clients/${c.id}`} className="truncate font-medium hover:text-accent" onClick={(e) => e.stopPropagation()}>
-                            {c.name}
-                          </Link>
-                          {!c.isActive && <StatusBadge tone="neutral">Archived</StatusBadge>}
+                        <div className="flex items-center gap-2.5">
+                          <WorkerAvatar photoId={c.photoId} name={c.name} className="size-8" />
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-2">
+                              <Link href={`/clients/${c.id}`} className="truncate font-medium hover:text-accent" onClick={(e) => e.stopPropagation()}>
+                                {c.name}
+                              </Link>
+                              {!c.isActive && <StatusBadge tone="neutral">Archived</StatusBadge>}
+                              <EditedTag edited={c.edited} compact />
+                            </div>
+                            {c.businessName && <div className="truncate text-xs text-fg-muted">{c.businessName}</div>}
+                          </div>
                         </div>
-                        {c.businessName && <div className="truncate text-xs text-fg-muted">{c.businessName}</div>}
                       </td>
                       <td className="num text-fg-muted">{c.phone ?? "—"}</td>
+                      <td className="max-w-48 truncate text-xs text-fg-2">{c.workItems ?? <span className="text-fg-faint">—</span>}</td>
                       <td className={cn("text-xs", c.paymentPolicy ? "text-fg-2" : "text-fg-muted")}>{terms(c)}</td>
                       <td className="r">{c.activeJobs || <span className="text-fg-faint">0</span>}</td>
                       <td className="r">{c.pendingPieces > 0 ? <span className="font-medium text-warning">{formatQty(c.pendingPieces)}</span> : <span className="text-fg-faint">0</span>}</td>
@@ -122,10 +132,12 @@ export default function ClientsPage() {
               {list.data.map((c) => (
                 <MobileListItem key={c.id} href={`/clients/${c.id}`} className={cn(!c.isActive && "text-fg-muted")}>
                   <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0">
+                    <WorkerAvatar photoId={c.photoId} name={c.name} />
+                    <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-2">
                         <span className="truncate text-[14px] font-semibold">{c.name}</span>
                         {!c.isActive && <StatusBadge tone="neutral">Archived</StatusBadge>}
+                        <EditedTag edited={c.edited} compact />
                       </div>
                       <div className="num truncate text-xs text-fg-muted">
                         {c.workerCode}
@@ -136,6 +148,7 @@ export default function ClientsPage() {
                           </>
                         )}
                       </div>
+                      {c.workItems && <div className="truncate text-xs text-fg-2">{c.workItems}</div>}
                     </div>
                     <span className="shrink-0 text-right text-[11px] text-fg-muted">{terms(c)}</span>
                   </div>

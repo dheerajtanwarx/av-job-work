@@ -10,14 +10,16 @@ import { toast } from "sonner";
 import { SubBillsTable } from "@/components/billing/sub-bills-table";
 import { PhotoButtons, PhotoGrid, UploadSummary, usePhotoQueue } from "@/components/returns/photo-uploader";
 import { ReturnEditDialog } from "@/components/returns/return-edit-dialog";
-import { PayStatusPill, Pill } from "@/components/returns/status";
+import { PayStatusPill } from "@/components/returns/status";
 import { Button } from "@/components/ui/button";
+import { SendWhatsAppButton } from "@/components/whatsapp/send-whatsapp";
 import { Card, Section, TableWrap } from "@/components/ui/card";
 import { Menu, MenuItem } from "@/components/ui/menu";
 import { EmptyState, ErrorBlock, LoadingBlock, Notice } from "@/components/ui/misc";
 import { ReasonDialog } from "@/components/ui/reason-dialog";
 import { api } from "@/lib/api";
 import { formatTime, istDay, photoHref, photoThumb, receivedLabel, useIsManager, useReturn } from "@/lib/returns";
+import { EditedTag } from "@/components/ui/edited";
 import { cn } from "@/lib/utils";
 
 export default function ReturnPage() {
@@ -84,7 +86,7 @@ export default function ReturnPage() {
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
             <h1 className={cn("text-xl leading-7 font-semibold tracking-[-0.01em]", voided && "text-fg-muted line-through")}>{r.returnNumber}</h1>
             <PayStatusPill payment={p} voided={voided} />
-            {r.editedAt && <Pill tone="grey">Edited {formatDate(istDay(r.editedAt))}</Pill>}
+            <EditedTag edited={r.editedAt ? { at: r.editedAt, by: r.editedBy } : null} />
           </div>
           <div className="num mt-0.5 flex flex-wrap items-center gap-x-1.5 text-[13px] text-fg-muted">
             <Link href={`/clients/${r.client.id}`} className="font-medium text-fg-2 hover:text-accent">
@@ -115,6 +117,7 @@ export default function ReturnPage() {
               <Printer /> Receiving voucher
             </Link>
           </Button>
+          {!voided && <SendWhatsAppButton target={{ kind: "return", id: r.id }} />}
           {!voided && (
             <Button variant="ghost" onClick={() => setEditOpen(true)}>
               <Pencil /> Edit
