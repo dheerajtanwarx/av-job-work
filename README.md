@@ -11,17 +11,19 @@ Job-work management for a business that sends products to job workers (embroider
 | Monorepo | pnpm workspaces + Turborepo |
 | `apps/web` | Next.js 16 (App Router), Tailwind CSS 4, TanStack Query, Radix, cmdk |
 | `apps/api` | Express 5 + TypeScript, zod validation, JWT cookie auth |
-| `packages/db` | Prisma 7 schema, migrations, seed (PostgreSQL 16 via Docker) |
+| `packages/db` | MongoDB (Atlas) via Mongoose: schemas, indexes, typed collections, transactions, seed |
 | `packages/shared` | Calculation engine, zod schemas, API types, ₹ formatting |
 
 ## Getting started
 
-Requirements: Node 22.12+ or 24+ (Prisma 7 refuses older versions; run `nvm use` to pick up `.nvmrc`), pnpm, and Docker.
+Requirements: Node 22.12+ or 24+ (run `nvm use` to pick up `.nvmrc`), pnpm, and a MongoDB Atlas cluster (the free M0 tier is enough).
+
+In Atlas: create a database user, add your IP under **Security → Network Access**, and copy the connection string from **Connect → Drivers** into `MONGODB_URI` and `TEST_MONGODB_URI` in `.env`, with the database name in the path (`/av_erp` and `/av_erp_test`). Put the cluster in the same region as the API server: every request talks to it.
 
 ```bash
 cp .env.example .env        # then set JWT_SECRET (and the owner login if you like)
 pnpm install
-pnpm db:setup               # starts Postgres, applies migrations, seeds owner + sample products/designs
+pnpm db:setup               # creates collections + indexes, seeds owner + sample products/designs
 pnpm dev                    # web on http://localhost:3000, API on http://localhost:4000
 ```
 
@@ -69,10 +71,9 @@ The browser only ever calls `/api/*` on the Next.js server, which proxies to Exp
 
 | Command | What it does |
 |---|---|
-| `pnpm db:up` / `pnpm db:down` | Start / stop Postgres (data persists in a Docker volume) |
-| `pnpm db:migrate` | Create + apply a new migration after editing `schema.prisma` |
-| `pnpm db:studio` | Browse the database |
-| `pnpm test` | Calculation unit tests + API integration tests (uses the `av_erp_test` DB) |
+| `pnpm db:indexes` | Create collections and sync indexes with `packages/db/src/models.ts` (run after changing an index) |
+| `pnpm db:seed` | Add the owner login and sample products/designs (safe to re-run) |
+| `pnpm test` | Calculation unit tests + API integration tests (use the `TEST_MONGODB_URI` database, which is wiped) |
 | `pnpm typecheck` | Type-check all packages |
 | `pnpm --filter @av/web e2e` | Playwright acceptance test through the UI (needs `pnpm dev` running) |
 
@@ -112,7 +113,7 @@ Per design line:
   - Pay after each return
   - Pay when the job completes
   - Manual
-- Every create, void, cancel, and quantity or rate change is written to `AuditLog`.
+- Every create, void, cancel, and quantity or rate change is written to the audit log (`auditLogs` collection).
 
 ## Project layout
 
@@ -127,6 +128,7 @@ apps/web/app/(app)
   bills/                  sub bills (new, sub/[id]) and main bills (main/[id])
   clients/, products/, designs/, reports/, settings/
 apps/web/e2e    Playwright acceptance scenario
-packages/db/prisma        schema.prisma, migrations, seed.ts
+packages/db/src           models.ts (schemas + indexes), collection.ts, connection.ts, tx.ts
+packages/db/scripts       seed.ts, sync-indexes.ts
 packages/shared/src       calc.ts, schemas.ts, types.ts, format.ts
 ```

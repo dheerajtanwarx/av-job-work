@@ -1,5 +1,5 @@
 import path from "node:path";
-import { prisma, type Prisma } from "@av/db";
+import { db, transaction, type Filter, type JobItem, type ReturnLine } from "@av/db";
 import {
   formatDateNumeric,
   formatINR,
@@ -24,8 +24,10 @@ import { newPhotoFolder, storage } from "../lib/storage.js";
 import { MANAGERS } from "../middleware/auth.js";
 import type { Actor } from "./jobs.js";
 import { getSettings } from "./billing.js";
-import { photoInclude, toPhotoViews } from "./photo-views.js";
-import { lineNumbers } from "./return-rows.js";
+import { range } from "../lib/mongo.js";
+import { itemIdsWhere, jobIdsWhere } from "./lookups.js";
+import { findPhotos, toPhotoViews } from "./photo-views.js";
+import { lineNumbers, withLineItems } from "./return-rows.js";
 
 const isManager = (actor?: Actor) => !!actor && MANAGERS.includes(actor.role as never);
 
@@ -110,11 +112,13 @@ export async function prepare(f: UploadFile): Promise<Prepared | string> {
 export async function uploadPhotos(returnId: string, files: UploadFile[], returnLineId: string | undefined, actor?: Actor): Promise<PhotoView[]> {
   if (!files.length) throw unprocessable("Choose at least one photo");
   if (files.length > PHOTO_LIMITS.maxFiles) throw unprocessable(`Upload at most ${PHOTO_LIMITS.maxFiles} photos at a time`);
-  const r = await prisma.return.findUnique({
-    where: { id: returnId },
-    include: { job: { select: { id: true, clientId: true, jobNumber: true } }, lines: { include: { jobItem: { select: { designId: true, designName: true, unit: true, ratePaise: true } } } } },
+  type Loaded = { id: string; jobId: string; returnNumber: string; receivedAt: Date; voidedAt: Date | null; lines: ReturnLine[] };
+  type JobPart = { id: string; clientId: string; jobNumber: string; items: Pick<JobItem, "id" | "designId" | "designName" | "unit" | "ratePaise">[] };
+  const loaded = await db.return.findById<Loaded & { job: JobPart }>(returnId, {
+    populate: { path: "job", select: "clientId jobNumber items._id items.designId items.designName items.unit items.ratePaise" },
   });
-  if (!r) throw notFound("Return");
+  if (!loaded) throw notFound("Return");
+  const r = withLineItems(loaded);
   if (r.voidedAt) throw unprocessable("This return has been voided. Photos can't be added to it.");
   const line = returnLineId ? r.lines.find((l) => l.id === returnLineId) : undefined;
   if (returnLineId && !line) throw unprocessable("That design line doesn't belong to this return");
@@ -151,11 +155,10 @@ export async function uploadPhotos(returnId: string, files: UploadFile[], return
       await storage.put(keys.display, p.display, "image/jpeg");
       await storage.put(keys.thumb, p.thumb, "image/jpeg");
     }
-    const ids = await prisma.$transaction(async (tx) => {
+    const ids = await transaction(async (tx) => {
       const out: string[] = [];
       for (const { p, keys } of stored) {
         const photo = await tx.returnPhoto.create({
-          data: {
             returnId,
             returnLineId: line?.id ?? null,
             jobId: r.jobId,
@@ -171,7 +174,6 @@ export async function uploadPhotos(returnId: string, files: UploadFile[], return
             height: p.height,
             meta,
             uploadedById: actor?.id ?? null,
-          },
         });
         await audit(tx, {
           entity: "ReturnPhoto",
@@ -185,8 +187,8 @@ export async function uploadPhotos(returnId: string, files: UploadFile[], return
       }
       return out;
     });
-    const rows = await prisma.returnPhoto.findMany({ where: { id: { in: ids } }, include: photoInclude, orderBy: [{ createdAt: "asc" }, { id: "asc" }] });
-    return toPhotoViews(prisma, rows);
+    const rows = await findPhotos(db, { _id: { $in: ids } }, { sort: { createdAt: 1, _id: 1 } });
+    return toPhotoViews(db, rows);
   } catch (e) {
     await Promise.all(stored.flatMap((s) => Object.values(s.keys).map((k) => storage.delete(k).catch(() => undefined))));
     throw e;
@@ -202,8 +204,13 @@ export async function uploadJobItemPhotos(jobItemId: string, kind: string | unde
   if (!PHOTO_KINDS.includes(kind as JobItemPhotoKind)) throw unprocessable('Photo kind must be "ITEM" or "DESIGN"');
   if (!files.length) throw unprocessable("Choose at least one photo");
   if (files.length > PHOTO_LIMITS.maxFiles) throw unprocessable(`Upload at most ${PHOTO_LIMITS.maxFiles} photos at a time`);
-  const item = await prisma.jobItem.findUnique({ where: { id: jobItemId }, include: { job: { select: { id: true, jobNumber: true, cancelledAt: true } } } });
-  if (!item) throw notFound("Challan line");
+  const owner = await db.job.findOne<{ id: string; jobNumber: string; cancelledAt: Date | null; items: Pick<JobItem, "id" | "designName">[] }>(
+    { "items._id": jobItemId },
+    { select: "jobNumber cancelledAt items._id items.designName" },
+  );
+  const found = owner?.items.find((i) => i.id === jobItemId);
+  if (!owner || !found) throw notFound("Challan line");
+  const item = { ...found, jobId: owner.id, job: owner };
   if (item.job.cancelledAt) throw unprocessable("This challan is cancelled. Photos can't be added to it.");
 
   const prepared = await Promise.all(files.map(prepare));
@@ -220,11 +227,10 @@ export async function uploadJobItemPhotos(jobItemId: string, kind: string | unde
       await storage.put(keys.display, p.display, "image/jpeg");
       await storage.put(keys.thumb, p.thumb, "image/jpeg");
     }
-    return await prisma.$transaction(async (tx) => {
+    return await transaction(async (tx) => {
       const out: JobItemPhotoView[] = [];
       for (const { p, keys } of stored) {
         const photo = await tx.jobItemPhoto.create({
-          data: {
             jobItemId,
             jobId: item.jobId,
             kind: kind as JobItemPhotoKind,
@@ -237,7 +243,6 @@ export async function uploadJobItemPhotos(jobItemId: string, kind: string | unde
             width: p.width,
             height: p.height,
             uploadedById: actor?.id ?? null,
-          },
         });
         await audit(tx, {
           entity: "Job",
@@ -258,7 +263,7 @@ export async function uploadJobItemPhotos(jobItemId: string, kind: string | unde
 }
 
 export async function jobItemPhotoFile(id: string, variant: PhotoVariant) {
-  const p = await prisma.jobItemPhoto.findUnique({ where: { id }, select: { storageKey: true, displayKey: true, thumbKey: true, mimeType: true, removedAt: true } });
+  const p = await db.jobItemPhoto.findById(id, { select: "storageKey displayKey thumbKey mimeType removedAt" });
   if (!p || p.removedAt) throw notFound("Photo");
   const key = variant === "original" ? p.storageKey : variant === "display" ? p.displayKey : p.thumbKey;
   let stream;
@@ -273,10 +278,13 @@ export async function jobItemPhotoFile(id: string, variant: PhotoVariant) {
 
 /** Hides a reference photo (the file is kept for the audit trail). */
 export async function removeJobItemPhoto(id: string, actor?: Actor) {
-  const p = await prisma.jobItemPhoto.findUnique({ where: { id }, include: { jobItem: { select: { designName: true, job: { select: { jobNumber: true } } } } } });
-  if (!p || p.removedAt) throw notFound("Photo");
-  await prisma.$transaction(async (tx) => {
-    await tx.jobItemPhoto.update({ where: { id }, data: { removedAt: new Date() } });
+  const photo = await db.jobItemPhoto.findById<import("@av/db").JobItemPhoto & { job: { jobNumber: string; items: Pick<JobItem, "id" | "designName">[] } }>(id, {
+    populate: { path: "job", select: "jobNumber items._id items.designName" },
+  });
+  if (!photo || photo.removedAt) throw notFound("Photo");
+  const p = { ...photo, jobItem: { designName: photo.job.items.find((i) => i.id === photo.jobItemId)?.designName ?? "", job: photo.job } };
+  await transaction(async (tx) => {
+    await tx.jobItemPhoto.update(id, { removedAt: new Date() });
     await audit(tx, {
       entity: "Job",
       entityId: p.jobId,
@@ -315,7 +323,7 @@ export async function setWorkerDocument(clientId: string, slot: string, file: Up
   const d = docSlot(slot);
   assertMayHandle(d.kind, actor);
   if (!file) throw unprocessable("Choose a photo");
-  const client = await prisma.client.findUnique({ where: { id: clientId } });
+  const client = await db.client.findById(clientId);
   if (!client) throw notFound("Job worker");
   const p = await prepare(file);
   if (typeof p === "string") throw unprocessable(p);
@@ -325,11 +333,9 @@ export async function setWorkerDocument(clientId: string, slot: string, file: Up
     await storage.put(keys.original, p.original, p.originalType);
     await storage.put(keys.display, p.display, "image/jpeg");
     await storage.put(keys.thumb, p.thumb, "image/jpeg");
-    return await prisma.$transaction(async (tx) => {
-      const doc = await tx.workerDocument.create({
-        data: { clientId, kind: d.kind, storageKey: keys.original, displayKey: keys.display, thumbKey: keys.thumb, originalName: p.name, mimeType: p.originalType, sizeBytes: p.original.length, uploadedById: actor?.id ?? null },
-      });
-      const c = await tx.client.update({ where: { id: clientId }, data: { [d.field]: doc.id } });
+    return await transaction(async (tx) => {
+      const doc = await tx.workerDocument.create({ clientId, kind: d.kind, storageKey: keys.original, displayKey: keys.display, thumbKey: keys.thumb, originalName: p.name, mimeType: p.originalType, sizeBytes: p.original.length, uploadedById: actor?.id ?? null });
+      const c = (await tx.client.update(clientId, { [d.field]: doc.id }))!;
       await audit(tx, { entity: "Client", entityId: clientId, action: "document", summary: `${client.name}: ${d.label} ${client[d.field] ? "replaced" : "added"}`, before: { [d.field]: client[d.field] }, after: { [d.field]: doc.id }, userId: actor?.id });
       return c;
     });
@@ -343,18 +349,18 @@ export async function setWorkerDocument(clientId: string, slot: string, file: Up
 export async function clearWorkerDocument(clientId: string, slot: string, actor?: Actor) {
   const d = docSlot(slot);
   assertMayHandle(d.kind, actor);
-  const client = await prisma.client.findUnique({ where: { id: clientId } });
+  const client = await db.client.findById(clientId);
   if (!client) throw notFound("Job worker");
   if (!client[d.field]) return client;
-  return prisma.$transaction(async (tx) => {
-    const c = await tx.client.update({ where: { id: clientId }, data: { [d.field]: null } });
+  return transaction(async (tx) => {
+    const c = (await tx.client.update(clientId, { [d.field]: null }))!;
     await audit(tx, { entity: "Client", entityId: clientId, action: "document", summary: `${client.name}: ${d.label} removed`, before: { [d.field]: client[d.field] }, after: { [d.field]: null }, userId: actor?.id });
     return c;
   });
 }
 
 export async function workerDocumentFile(id: string, variant: PhotoVariant, actor?: Actor) {
-  const p = await prisma.workerDocument.findUnique({ where: { id } });
+  const p = await db.workerDocument.findById(id);
   if (!p) throw notFound("Photo");
   assertMayHandle(p.kind, actor);
   const key = variant === "original" ? p.storageKey : variant === "display" ? p.displayKey : p.thumbKey;
@@ -370,59 +376,79 @@ export async function workerDocumentFile(id: string, variant: PhotoVariant, acto
 
 // ───────────────────────── Gallery ─────────────────────────
 
-export function photoWhere(f: PhotoFilter, actor?: Actor): Prisma.ReturnPhotoWhereInput {
+/** Ids of returns with at least one line matching (lines are embedded in the return). */
+async function returnIdsWithLine(line: Filter): Promise<string[]> {
+  return (await db.return.find<{ id: string }>({ lines: { $elemMatch: line } }, { select: "_id" })).map((r) => r.id);
+}
+
+export async function photoWhere(f: PhotoFilter, actor?: Actor): Promise<Filter> {
   const showVoided = !!f.includeVoided && isManager(actor);
-  const and: Prisma.ReturnPhotoWhereInput[] = [];
-  if (f.designId) and.push({ OR: [{ designId: f.designId }, { designId: null, return: { lines: { some: { jobItem: { designId: f.designId } } } } }] });
-  if (f.jobWorkTypeId) and.push({ OR: [{ job: { jobWorkTypeId: f.jobWorkTypeId } }, { return: { lines: { some: { jobItem: { jobWorkTypeId: f.jobWorkTypeId } } } } }] });
-  if (f.minRate !== undefined || f.maxRate !== undefined) {
-    const rate = { gte: f.minRate, lte: f.maxRate };
-    and.push({ OR: [{ returnLineId: { not: null }, returnLine: { ratePaise: rate } }, { returnLineId: null, return: { lines: { some: { ratePaise: rate } } } }] });
+  const and: Filter[] = [];
+  if (f.designId) {
+    const items = await itemIdsWhere(db, { designId: f.designId });
+    and.push({ $or: [{ designId: f.designId }, { designId: null, returnId: { $in: await returnIdsWithLine({ jobItemId: { $in: items } }) } }] });
   }
-  const returnWhere: Prisma.ReturnWhereInput = {};
+  if (f.jobWorkTypeId) {
+    const items = await itemIdsWhere(db, { jobWorkTypeId: f.jobWorkTypeId });
+    and.push({ $or: [{ jobId: { $in: await jobIdsWhere(db, { jobWorkTypeId: f.jobWorkTypeId }) } }, { returnId: { $in: await returnIdsWithLine({ jobItemId: { $in: items } }) } }] });
+  }
+  if (f.minRate !== undefined || f.maxRate !== undefined) {
+    const rate = range(f.minRate, f.maxRate);
+    const lineIds = (
+      await db.return.aggregate<{ id: string }>([
+        { $match: { lines: { $elemMatch: { ratePaise: rate } } } },
+        { $unwind: "$lines" },
+        { $match: { "lines.ratePaise": rate } },
+        { $project: { _id: "$lines._id" } },
+      ])
+    ).map((l) => l.id);
+    and.push({ $or: [{ returnLineId: { $ne: null, $in: lineIds } }, { returnLineId: null, returnId: { $in: await returnIdsWithLine({ ratePaise: rate }) } }] });
+  }
   // Photos of a voided return stay reachable from that return (and for managers), not in the general gallery.
-  if (!showVoided && !f.returnId) returnWhere.voidedAt = null;
-  if (f.from || f.to) returnWhere.date = { gte: f.from ? toDate(f.from) : undefined, lte: f.to ? toDate(f.to) : undefined };
+  const returnCond: Filter = {};
+  if (!showVoided && !f.returnId) returnCond.voidedAt = null;
+  if (f.from || f.to) returnCond.date = range(f.from ? toDate(f.from) : null, f.to ? toDate(f.to) : null);
+  if (returnCond.date) and.push({ returnId: { $in: await db.return.distinct("_id", returnCond) } });
+  else if (returnCond.voidedAt === null) and.push({ returnId: { $nin: await db.return.distinct("_id", { voidedAt: { $ne: null } }) } });
+  if (f.productId) and.push({ jobId: { $in: await jobIdsWhere(db, { productId: f.productId }) } });
   return {
     clientId: f.clientId,
     jobId: f.jobId,
     returnId: f.returnId,
     voidedAt: showVoided ? undefined : null,
-    job: f.productId ? { productId: f.productId } : undefined,
-    return: Object.keys(returnWhere).length ? returnWhere : undefined,
-    AND: and.length ? and : undefined,
+    ...(and.length && { $and: and }),
   };
 }
 
 export async function listPhotos(f: PhotoFilter, actor?: Actor): Promise<PhotoPage> {
   const take = Math.min(100, Math.max(1, f.take ?? 40));
-  const rows = await prisma.returnPhoto.findMany({
-    where: photoWhere(f, actor),
-    include: photoInclude,
-    orderBy: [{ createdAt: "desc" }, { id: "desc" }],
-    take: take + 1,
-    ...(f.cursor ? { cursor: { id: f.cursor }, skip: 1 } : {}),
-  });
+  const where = await photoWhere(f, actor);
+  if (f.cursor) {
+    // Keyset paging on (createdAt, id), newest first: everything after the cursor photo.
+    const c = await db.returnPhoto.findById(f.cursor, { select: "createdAt" });
+    if (c) where.$and = [...((where.$and as Filter[]) ?? []), { $or: [{ createdAt: { $lt: c.createdAt } }, { createdAt: c.createdAt, _id: { $lt: f.cursor } }] }];
+  }
+  const rows = await findPhotos(db, where, { sort: { createdAt: -1, _id: -1 }, limit: take + 1 });
   const page = rows.slice(0, take);
-  return { rows: await toPhotoViews(prisma, page), nextCursor: rows.length > take ? page[page.length - 1].id : null };
+  return { rows: await toPhotoViews(db, page), nextCursor: rows.length > take ? page[page.length - 1].id : null };
 }
 
 /** A photo the actor may see: voided photos are only visible to the owner / managers. */
 async function loadVisible(id: string, actor?: Actor) {
-  const p = await prisma.returnPhoto.findUnique({ where: { id }, include: photoInclude });
+  const [p] = await findPhotos(db, { _id: id });
   if (!p || (p.voidedAt && !isManager(actor))) throw notFound("Photo");
   return p;
 }
 
 export async function getPhoto(id: string, actor?: Actor): Promise<PhotoView> {
-  return (await toPhotoViews(prisma, [await loadVisible(id, actor)]))[0];
+  return (await toPhotoViews(db, [await loadVisible(id, actor)]))[0];
 }
 
 export type PhotoVariant = "thumb" | "display" | "original";
 
 /** The stored file for one variant, as a stream plus its headers. */
 export async function photoFile(id: string, variant: PhotoVariant, actor?: Actor) {
-  const p = await prisma.returnPhoto.findUnique({ where: { id }, select: { storageKey: true, displayKey: true, thumbKey: true, mimeType: true, originalName: true, voidedAt: true } });
+  const p = await db.returnPhoto.findById(id, { select: "storageKey displayKey thumbKey mimeType originalName voidedAt" });
   if (!p || (p.voidedAt && !isManager(actor))) throw notFound("Photo");
   const key = variant === "original" ? p.storageKey : variant === "display" ? p.displayKey : p.thumbKey;
   let stream;
@@ -472,7 +498,7 @@ export function watermarkLines(v: PhotoView, businessName: string, tz = env.busi
 /** A JPEG of the display copy with a small details band along the bottom. Generated per request, never stored. */
 export async function sharePhoto(id: string, actor?: Actor) {
   const p = await loadVisible(id, actor);
-  const [view] = await toPhotoViews(prisma, [p]);
+  const [view] = await toPhotoViews(db, [p]);
   const [settings, display, rupee] = await Promise.all([getSettings(), storage.getBuffer(p.displayKey).catch(() => null), canDrawRupee()]);
   if (!display) throw notFound("Photo file");
   // Tiny photos are enlarged so the text stays readable.
@@ -509,11 +535,11 @@ ${text.right.map((s, i) => `<text x="${colX}" y="${row(i + 1)}"${i === 1 ? ' fon
 // ───────────────────────── Void / restore ─────────────────────────
 
 export async function voidPhoto(id: string, reason: string, actor?: Actor): Promise<PhotoView> {
-  const p = await prisma.returnPhoto.findUnique({ where: { id }, include: { return: { select: { returnNumber: true } } } });
+  const p = await db.returnPhoto.findById<import("@av/db").ReturnPhoto & { return: { returnNumber: string } }>(id, { populate: { path: "return", select: "returnNumber" } });
   if (!p) throw notFound("Photo");
   if (p.voidedAt) throw unprocessable("This photo is already voided");
-  await prisma.$transaction(async (tx) => {
-    await tx.returnPhoto.update({ where: { id }, data: { voidedAt: new Date(), voidReason: reason, voidedById: actor?.id ?? null } });
+  await transaction(async (tx) => {
+    await tx.returnPhoto.update(id, { voidedAt: new Date(), voidReason: reason, voidedById: actor?.id ?? null });
     await audit(tx, {
       entity: "ReturnPhoto",
       entityId: id,
@@ -529,11 +555,11 @@ export async function voidPhoto(id: string, reason: string, actor?: Actor): Prom
 }
 
 export async function restorePhoto(id: string, reason: string, actor?: Actor): Promise<PhotoView> {
-  const p = await prisma.returnPhoto.findUnique({ where: { id }, include: { return: { select: { returnNumber: true } } } });
+  const p = await db.returnPhoto.findById<import("@av/db").ReturnPhoto & { return: { returnNumber: string } }>(id, { populate: { path: "return", select: "returnNumber" } });
   if (!p) throw notFound("Photo");
   if (!p.voidedAt) throw unprocessable("This photo isn't voided");
-  await prisma.$transaction(async (tx) => {
-    await tx.returnPhoto.update({ where: { id }, data: { voidedAt: null, voidReason: null, voidedById: null } });
+  await transaction(async (tx) => {
+    await tx.returnPhoto.update(id, { voidedAt: null, voidReason: null, voidedById: null });
     await audit(tx, {
       entity: "ReturnPhoto",
       entityId: id,

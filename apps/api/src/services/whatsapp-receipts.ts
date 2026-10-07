@@ -1,4 +1,4 @@
-import { prisma } from "@av/db";
+import { db } from "@av/db";
 import { DISPATCH_KIND_LABEL, formatDate, formatINR, formatQty, PAY_STATUS_LABEL, roundQty, type ReturnDetail, type WhatsAppSendResult } from "@av/shared";
 import { audit } from "../lib/audit.js";
 import { displayWhatsAppNumber, toWhatsAppNumber } from "../lib/phone.js";
@@ -21,7 +21,7 @@ import { getReturn } from "./returns.js";
 
 export async function sendReturnWhatsApp(returnId: string, userId?: string): Promise<WhatsAppSendResult> {
   const r = await getReturn(returnId);
-  const worker = await prisma.client.findUnique({ where: { id: r.client.id }, select: { phone: true } });
+  const worker = await db.client.findById(r.client.id, { select: "phone" });
   return send({
     kind: "return_receipt",
     entity: "Return",
@@ -184,7 +184,7 @@ async function send(i: SendInput): Promise<WhatsAppSendResult> {
   // Nothing is sent from here, so nothing goes in the notification log – just note it on the record.
   if (!channels.whatsapp.isConfigured()) {
     if (reason) return { status: "skipped", reason, to, message: skipReason!, worker, share };
-    await audit(prisma, { entity: i.entity, entityId: i.entityId, action: "whatsapp", summary: `${i.ref} WhatsApp chat opened for ${shown}`, userId: i.userId }).catch((e) => console.error("could not record WhatsApp share", e));
+    await audit(db, { entity: i.entity, entityId: i.entityId, action: "whatsapp", summary: `${i.ref} WhatsApp chat opened for ${shown}`, userId: i.userId }).catch((e) => console.error("could not record WhatsApp share", e));
     return { status: "skipped", reason: "not_configured", to, message: `Opening WhatsApp chat with ${shown}`, worker, share };
   }
 
@@ -204,7 +204,7 @@ async function send(i: SendInput): Promise<WhatsAppSendResult> {
   });
 
   if (r.status === "sent") {
-    await audit(prisma, { entity: i.entity, entityId: i.entityId, action: "whatsapp", summary: `${i.ref} sent on WhatsApp to ${shown}`, userId: i.userId }).catch((e) => console.error("could not record WhatsApp send", e));
+    await audit(db, { entity: i.entity, entityId: i.entityId, action: "whatsapp", summary: `${i.ref} sent on WhatsApp to ${shown}`, userId: i.userId }).catch((e) => console.error("could not record WhatsApp send", e));
     return { status: "sent", reason: null, to, message: `Sent on WhatsApp to ${shown}`, worker, share };
   }
   if (r.status === "failed") return { status: "failed", reason: null, to, message: r.error ?? "WhatsApp send failed", worker, share };

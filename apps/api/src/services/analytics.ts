@@ -1,9 +1,12 @@
-import { Prisma, prisma } from "@av/db";
+import { all, db, type Filter } from "@av/db";
 import { dayOf, diffDays, holdingStatus, roundQty, type ArrivalRow, type MaterialHolderRow, type Unit } from "@av/shared";
-import { PAYABLE_SQL, VALUE_SQL } from "./ledger.js";
+import type { PipelineStage } from "mongoose";
+import { toDate } from "../lib/dates.js";
+import { range, roundHalfUp } from "../lib/mongo.js";
+import { payableExpr, returnValueExpr, valueExpr } from "./ledger.js";
 
 /**
- * SQL aggregates for the dashboard, charts and reports. Every query groups in Postgres (dispatch lines,
+ * Aggregates for the dashboard, charts and reports. Every figure is grouped inside MongoDB (dispatch lines,
  * return lines and vouchers are summed per design line / challan / worker) so nothing loads every row of
  * every challan into memory. The formulas mirror calc.ts: pending = max(0, sent − accounted),
  * value = Σ round(payable × return rate), pending value = round(pending × challan rate) per design line.
@@ -27,114 +30,175 @@ export interface Page {
   take: number;
 }
 
-type Cond = Prisma.Sql | false | "" | undefined | null;
+const OPEN = ["DRAFT", "IN_PROGRESS", "PARTIALLY_RECEIVED"];
+const ACTIVE = ["IN_PROGRESS", "PARTIALLY_RECEIVED"];
 
-const and = (parts: Cond[]) => {
-  const xs = parts.filter((p): p is Prisma.Sql => !!p);
-  return xs.length ? Prisma.sql` AND ${Prisma.join(xs, " AND ")}` : Prisma.empty;
-};
-
-const OPEN_SQL = Prisma.sql`j.status::text IN ('DRAFT', 'IN_PROGRESS', 'PARTIALLY_RECEIVED')`;
-const ACTIVE_SQL = Prisma.sql`j.status::text IN ('IN_PROGRESS', 'PARTIALLY_RECEIVED')`;
-/** isOverdue(): an issued, not-finished challan past its expected return date. */
-const overdueSql = (today: string) => Prisma.sql`(${ACTIVE_SQL} AND j."expectedReturnDate" < ${today}::date)`;
-const JWT_SQL = Prisma.sql`COALESCE(ji."jobWorkTypeId", j."jobWorkTypeId")`;
-
-function statusSql(status: string | undefined, today: string) {
-  if (!status) return null;
-  if (status === "OPEN") return OPEN_SQL;
-  if (status === "ACTIVE") return ACTIVE_SQL;
-  if (status === "OVERDUE") return overdueSql(today);
-  return Prisma.sql`j.status::text = ${status}`;
+function statusCond(status: string | undefined, today: string): Filter {
+  if (!status) return {};
+  if (status === "OPEN") return { status: { $in: OPEN } };
+  if (status === "ACTIVE") return { status: { $in: ACTIVE } };
+  // isOverdue(): an issued, not-finished challan past its expected return date.
+  if (status === "OVERDUE") return { status: { $in: ACTIVE }, expectedReturnDate: { $lt: toDate(today) } };
+  return { status };
 }
 
-/** Challan-level filters on alias j (and ji when `item` is set; otherwise design / job type / material match any line). */
-export function jobConds(f: Filters, today: string, opts: { item?: boolean; jobDate?: boolean } = {}): Cond[] {
-  const anyItem = (cond: Prisma.Sql) => Prisma.sql`EXISTS (SELECT 1 FROM "JobItem" ji WHERE ji."jobId" = j.id AND ${cond})`;
-  const itemCond = (cond: Prisma.Sql) => (opts.item ? cond : anyItem(cond));
+/** A design line whose effective job work type (its own, else the challan's) is `id`. */
+const jwtOnJob = (id: string): Filter => ({ $or: [{ items: { $elemMatch: { jobWorkTypeId: id } } }, { jobWorkTypeId: id, items: { $elemMatch: { jobWorkTypeId: null } } }] });
+
+/**
+ * Challan-level filters (a match on job documents). Design / material / job work type filters keep challans
+ * with at least one matching line; with `item` the lines themselves are filtered later (see itemMatch).
+ */
+export function jobMatch(f: Filters, today: string, opts: { jobDate?: boolean; excludeCancelled?: boolean } = {}): Filter {
+  const and: Filter[] = [];
+  if (f.clientId) and.push({ clientId: f.clientId });
+  if (f.jobId) and.push({ _id: f.jobId });
+  if (f.productId) and.push({ productId: f.productId });
+  if (f.designId) and.push({ items: { $elemMatch: { designId: f.designId } } });
+  if (f.materialId) and.push({ items: { $elemMatch: { materialId: f.materialId } } });
+  if (f.jobWorkTypeId) and.push(jwtOnJob(f.jobWorkTypeId));
+  const s = statusCond(f.status, today);
+  if (Object.keys(s).length) and.push(s);
+  if (opts.excludeCancelled) and.push({ status: { $ne: "CANCELLED" } });
+  if (opts.jobDate && (f.from || f.to)) and.push({ jobDate: range(f.from ? toDate(f.from) : null, f.to ? toDate(f.to) : null) });
+  return and.length ? { $and: and } : {};
+}
+
+/** Line-level filters on the rows produced by itemRows(). */
+function itemMatch(f: Filters): Filter {
+  const m: Filter = {};
+  if (f.designId) m.designId = f.designId;
+  if (f.materialId) m.materialId = f.materialId;
+  if (f.jobWorkTypeId) m.jobWorkTypeId = f.jobWorkTypeId;
+  return m;
+}
+
+/** Σ over the looked-up entries' lines of this design line: `of` gives the value per line ($$l), `when` filters the entries ($$d). */
+function sumLines(entries: string, of: unknown, when?: unknown) {
+  const docs = when ? { $filter: { input: entries, as: "d", cond: when } } : entries;
+  return {
+    $sum: {
+      $map: {
+        input: docs,
+        as: "d",
+        in: { $sum: { $map: { input: { $filter: { input: "$$d.lines", as: "l", cond: { $eq: ["$$l.jobItemId", "$items._id"] } } }, as: "l", in: of } } },
+      },
+    },
+  };
+}
+
+const notRework = { $ne: ["$$d.kind", "REWORK"] };
+const isRework = { $eq: ["$$d.kind", "REWORK"] };
+
+/**
+ * One row per design line: issued (initial + additional), rework, sent, returned by kind, value at return rates,
+ * pending and excess, with the challan fields reports group by. Each challan's non-voided issues and returns
+ * are looked up once (indexed on jobId), then summed per line.
+ */
+function itemRows(where: Filter, f?: Filters): PipelineStage[] {
   return [
-    f.clientId && Prisma.sql`j."clientId" = ${f.clientId}`,
-    f.jobId && Prisma.sql`j.id = ${f.jobId}`,
-    f.productId && Prisma.sql`j."productId" = ${f.productId}`,
-    f.designId && itemCond(Prisma.sql`ji."designId" = ${f.designId}`),
-    f.materialId && itemCond(Prisma.sql`ji."materialId" = ${f.materialId}`),
-    f.jobWorkTypeId && itemCond(Prisma.sql`${JWT_SQL} = ${f.jobWorkTypeId}`),
-    statusSql(f.status, today),
-    opts.jobDate && f.from && Prisma.sql`j."jobDate" >= ${f.from}::date`,
-    opts.jobDate && f.to && Prisma.sql`j."jobDate" <= ${f.to}::date`,
+    { $match: where },
+    { $lookup: { from: "dispatches", localField: "_id", foreignField: "jobId", pipeline: [{ $match: { voidedAt: null } }, { $project: { kind: 1, lines: 1 } }], as: "ds" } },
+    { $lookup: { from: "returns", localField: "_id", foreignField: "jobId", pipeline: [{ $match: { voidedAt: null } }, { $project: { lines: 1 } }], as: "rs" } },
+    { $lookup: { from: "clients", localField: "clientId", foreignField: "_id", pipeline: [{ $project: { name: 1 } }], as: "c" } },
+    { $unwind: "$items" },
+    {
+      $project: {
+        _id: "$items._id",
+        jobId: "$_id",
+        jobNumber: 1,
+        clientId: 1,
+        clientName: { $first: "$c.name" },
+        jobDate: 1,
+        expectedReturnDate: 1,
+        status: 1,
+        productId: 1,
+        jobWorkTypeId: { $ifNull: ["$items.jobWorkTypeId", "$jobWorkTypeId"] },
+        materialId: "$items.materialId",
+        unit: "$items.unit",
+        ratePaise: "$items.ratePaise",
+        designId: "$items.designId",
+        designName: "$items.designName",
+        sortOrder: "$items.sortOrder",
+        quantity: "$items.quantity",
+        issued: sumLines("$ds", "$$l.qty", notRework),
+        rework: sumLines("$ds", "$$l.qty", isRework),
+        sent: sumLines("$ds", "$$l.qty"),
+        ok: sumLines("$rs", "$$l.okQty"),
+        damaged: sumLines("$rs", "$$l.damagedQty"),
+        rejected: sumLines("$rs", "$$l.rejectedQty"),
+        lost: sumLines("$rs", "$$l.lostQty"),
+        payable: sumLines("$rs", payableExpr("$$l")),
+        value: sumLines("$rs", valueExpr("$$l")),
+      },
+    },
+    { $set: { accounted: { $add: ["$ok", "$damaged", "$rejected", "$lost"] } } },
+    { $set: { pending: { $max: [{ $subtract: ["$sent", "$accounted"] }, 0] }, excess: { $max: [{ $subtract: ["$accounted", "$sent"] }, 0] } } },
+    ...(f && Object.keys(itemMatch(f)).length ? [{ $match: itemMatch(f) }] : []),
   ];
 }
 
-/**
- * Per design line: issued (initial + additional), rework, sent, returned by kind, value at return rates,
- * pending and excess. `where` filters design lines (aliases j, ji).
- */
-function itemsCte(where: Prisma.Sql) {
-  return Prisma.sql`
-    WITH s AS (
-      SELECT dl."jobItemId" AS id,
-        SUM(CASE WHEN d.kind::text = 'REWORK' THEN 0 ELSE dl.qty END) AS issued,
-        SUM(CASE WHEN d.kind::text = 'REWORK' THEN dl.qty ELSE 0 END) AS rework,
-        SUM(dl.qty) AS sent
-      FROM "DispatchLine" dl JOIN "Dispatch" d ON d.id = dl."dispatchId"
-      WHERE d."voidedAt" IS NULL
-      GROUP BY 1
-    ), b AS (
-      SELECT rl."jobItemId" AS id, SUM(rl."okQty") AS ok, SUM(rl."damagedQty") AS damaged, SUM(rl."rejectedQty") AS rejected,
-        SUM(rl."lostQty") AS lost, SUM(${PAYABLE_SQL}) AS payable, SUM(${VALUE_SQL}) AS value
-      FROM "ReturnLine" rl JOIN "Return" r ON r.id = rl."returnId"
-      WHERE r."voidedAt" IS NULL
-      GROUP BY 1
-    ), it AS (
-      SELECT ji.id, ji."jobId", j."jobNumber", j."clientId", c.name AS "clientName", j."jobDate", j."expectedReturnDate",
-        j.status::text AS status, j."productId", ${JWT_SQL} AS "jobWorkTypeId", ji."materialId", ji.unit::text AS unit,
-        ji."ratePaise", ji."designId", ji."designName", ji.quantity,
-        COALESCE(s.issued, 0) AS issued, COALESCE(s.rework, 0) AS rework, COALESCE(s.sent, 0) AS sent,
-        COALESCE(b.ok, 0) AS ok, COALESCE(b.damaged, 0) AS damaged, COALESCE(b.rejected, 0) AS rejected, COALESCE(b.lost, 0) AS lost,
-        COALESCE(b.payable, 0) AS payable, COALESCE(b.value, 0) AS value,
-        GREATEST(COALESCE(s.sent, 0) - COALESCE(b.ok + b.damaged + b.rejected + b.lost, 0), 0) AS pending,
-        GREATEST(COALESCE(b.ok + b.damaged + b.rejected + b.lost, 0) - COALESCE(s.sent, 0), 0) AS excess
-      FROM "JobItem" ji JOIN "Job" j ON j.id = ji."jobId" JOIN "Client" c ON c.id = j."clientId"
-        LEFT JOIN s ON s.id = ji.id LEFT JOIN b ON b.id = ji.id
-      WHERE TRUE ${where}
-    )`;
-}
+/** round(pending × challan rate) for one design line. */
+const pendingValue = roundHalfUp({ $multiply: ["$pending", "$ratePaise"] });
 
 const q = (n: number | string | null | undefined) => roundQty(Number(n ?? 0));
 const money = (n: number | string | null | undefined) => Math.round(Number(n ?? 0));
+
+/** Byte-order string compare with null after every string (the order these reports have always used). */
+function cmp(a: string | null | undefined, b: string | null | undefined) {
+  if (a == null || b == null) return a == null ? (b == null ? 0 : 1) : -1;
+  return a < b ? -1 : a > b ? 1 : 0;
+}
+
+/** Names of these materials (lookups after grouping). */
+async function materialNames(ids: (string | null)[]) {
+  const unique = [...new Set(ids.filter((x): x is string => !!x))];
+  if (!unique.length) return new Map<string, string>();
+  return new Map((await db.material.find({ _id: { $in: unique } }, { select: "name" })).map((m) => [m.id, m.name]));
+}
 
 // ───────────────────────── Material outside ─────────────────────────
 
 /** "Who has my material?": pending quantity per worker × material (lines without a material grouped by unit). */
 export async function materialHolders(f: Filters, today: string): Promise<MaterialHolderRow[]> {
-  const rows = await prisma.$queryRaw<
-    { clientId: string; clientName: string; materialId: string | null; materialName: string | null; unit: string; qty: number; challans: number; overdue: number; oldest: Date | null; value: number }[]
-  >`
-    ${itemsCte(and(jobConds(f, today, { item: true })))}
-    SELECT it."clientId", it."clientName", it."materialId", m.name AS "materialName", it.unit,
-      SUM(it.pending)::float8 AS qty, COUNT(DISTINCT it."jobId")::int AS challans,
-      COUNT(DISTINCT CASE WHEN it.status IN ('IN_PROGRESS', 'PARTIALLY_RECEIVED') AND it."expectedReturnDate" < ${today}::date THEN it."jobId" END)::int AS overdue,
-      MIN(it."jobDate") AS oldest, SUM(ROUND(it.pending * it."ratePaise"))::float8 AS value
-    FROM it LEFT JOIN "Material" m ON m.id = it."materialId"
-    WHERE it.pending > 0
-    GROUP BY it."clientId", it."clientName", it."materialId", m.name, it.unit`;
+  const todayDate = toDate(today);
+  const rows = await db.job.aggregate<{ id: { clientId: string; materialId: string | null; unit: string }; clientName: string; qty: number; jobs: string[]; overdueJobs: (string | null)[]; oldest: Date | null; value: number }>([
+    ...itemRows(jobMatch(f, today), f),
+    { $match: { pending: { $gt: 0 } } },
+    {
+      $group: {
+        _id: { clientId: "$clientId", materialId: "$materialId", unit: "$unit" },
+        clientName: { $first: "$clientName" },
+        qty: { $sum: "$pending" },
+        jobs: { $addToSet: "$jobId" },
+        overdueJobs: {
+          $addToSet: { $cond: [{ $and: [{ $in: ["$status", ACTIVE] }, { $gt: ["$expectedReturnDate", null] }, { $lt: ["$expectedReturnDate", todayDate] }] }, "$jobId", null] },
+        },
+        oldest: { $min: "$jobDate" },
+        value: { $sum: pendingValue },
+      },
+    },
+  ]);
+  const names = await materialNames(rows.map((r) => r.id.materialId));
   return rows
     .map((r) => {
+      const overdue = r.overdueJobs.filter(Boolean).length;
       const oldest = r.oldest ? dayOf(r.oldest) : null;
       const daysOutside = oldest ? Math.max(0, diffDays(today, oldest)) : 0;
+      const materialName = r.id.materialId ? names.get(r.id.materialId) : undefined;
       return {
-        clientId: r.clientId,
+        clientId: r.id.clientId,
         clientName: r.clientName,
-        materialId: r.materialId,
-        materialName: r.materialName ?? `No material linked (${r.unit})`,
-        unit: r.unit as Unit,
+        materialId: r.id.materialId,
+        materialName: materialName ?? `No material linked (${r.id.unit})`,
+        unit: r.id.unit as Unit,
         qty: q(r.qty),
-        challans: r.challans,
-        overdueChallans: r.overdue,
+        challans: r.jobs.length,
+        overdueChallans: overdue,
         oldestIssueDate: oldest,
         daysOutside,
         valuePaise: money(r.value),
-        status: holdingStatus(daysOutside, r.overdue > 0),
+        status: holdingStatus(daysOutside, overdue > 0),
       };
     })
     .sort((a, b) => b.daysOutside - a.daysOutside || b.valuePaise - a.valuePaise);
@@ -158,33 +222,54 @@ export interface PositionRow {
   challans: number;
 }
 
+const sums = {
+  issued: { $sum: "$issued" },
+  rework: { $sum: "$rework" },
+  ok: { $sum: "$ok" },
+  damaged: { $sum: "$damaged" },
+  rejected: { $sum: "$rejected" },
+  lost: { $sum: "$lost" },
+  pending: { $sum: "$pending" },
+  valuePaise: { $sum: "$value" },
+  pendingValuePaise: { $sum: pendingValue },
+  jobs: { $addToSet: "$jobId" },
+};
+type Sums = { issued: number; rework: number; ok: number; damaged: number; rejected: number; lost: number; pending: number; valuePaise: number; pendingValuePaise: number; jobs: string[] };
+
 /** Issued / returned / damaged / rejected / lost / pending per worker × material (challans dated in the range). */
 export async function workerMaterialPositions(f: Filters, today: string): Promise<PositionRow[]> {
-  const rows = await prisma.$queryRaw<(Omit<PositionRow, "materialName" | "unit"> & { materialName: string | null; unit: string })[]>`
-    ${itemsCte(and([...jobConds(f, today, { item: true, jobDate: true }), Prisma.sql`j.status::text <> 'CANCELLED'`]))}
-    SELECT it."clientId", it."clientName", it."materialId", m.name AS "materialName", it.unit,
-      SUM(it.issued)::float8 AS issued, SUM(it.rework)::float8 AS rework, SUM(it.ok)::float8 AS returned, SUM(it.damaged)::float8 AS damaged,
-      SUM(it.rejected)::float8 AS rejected, SUM(it.lost)::float8 AS lost, SUM(it.pending)::float8 AS pending,
-      SUM(it.value)::float8 AS "valuePaise", SUM(ROUND(it.pending * it."ratePaise"))::float8 AS "pendingValuePaise",
-      COUNT(DISTINCT it."jobId")::int AS challans
-    FROM it LEFT JOIN "Material" m ON m.id = it."materialId"
-    WHERE it.sent > 0
-    GROUP BY it."clientId", it."clientName", it."materialId", m.name, it.unit
-    ORDER BY it."clientName", m.name`;
-  return rows.map((r) => ({
-    ...r,
-    materialName: r.materialName ?? `No material linked (${r.unit})`,
-    unit: r.unit as Unit,
-    issued: q(r.issued),
-    rework: q(r.rework),
-    returned: q(r.returned),
-    damaged: q(r.damaged),
-    rejected: q(r.rejected),
-    lost: q(r.lost),
-    pending: q(r.pending),
-    valuePaise: money(r.valuePaise),
-    pendingValuePaise: money(r.pendingValuePaise),
-  }));
+  const rows = await db.job.aggregate<Sums & { id: { clientId: string; materialId: string | null; unit: string }; clientName: string }>([
+    ...itemRows(jobMatch(f, today, { jobDate: true, excludeCancelled: true }), f),
+    { $match: { sent: { $gt: 0 } } },
+    { $group: { _id: { clientId: "$clientId", materialId: "$materialId", unit: "$unit" }, clientName: { $first: "$clientName" }, ...sums } },
+  ]);
+  const names = await materialNames(rows.map((r) => r.id.materialId));
+  return rows
+    .map((r) => {
+      const name = r.id.materialId ? (names.get(r.id.materialId) ?? null) : null;
+      return {
+        row: {
+          clientId: r.id.clientId,
+          clientName: r.clientName,
+          materialId: r.id.materialId,
+          materialName: name ?? `No material linked (${r.id.unit})`,
+          unit: r.id.unit as Unit,
+          issued: q(r.issued),
+          rework: q(r.rework),
+          returned: q(r.ok),
+          damaged: q(r.damaged),
+          rejected: q(r.rejected),
+          lost: q(r.lost),
+          pending: q(r.pending),
+          valuePaise: money(r.valuePaise),
+          pendingValuePaise: money(r.pendingValuePaise),
+          challans: r.jobs.length,
+        },
+        name,
+      };
+    })
+    .sort((a, b) => cmp(a.row.clientName, b.row.clientName) || cmp(a.name, b.name))
+    .map((x) => x.row);
 }
 
 // ───────────────────────── Job work grouped ─────────────────────────
@@ -207,56 +292,62 @@ export interface WorkGroupRow {
 
 /** Job work per design or per worker (and unit), for challans dated in the range. Cancelled challans are left out. */
 export async function workGrouped(by: "design" | "worker" | "jobWorkType", f: Filters, today: string): Promise<WorkGroupRow[]> {
-  const key = by === "design" ? Prisma.sql`it."designId"` : by === "worker" ? Prisma.sql`it."clientId"` : Prisma.sql`it."jobWorkTypeId"`;
-  const name =
+  const key = by === "design" ? "$designId" : by === "worker" ? "$clientId" : "$jobWorkTypeId";
+  const rows = await db.job.aggregate<Sums & { id: { key: string | null; unit: string }; designName: string; clientName: string }>([
+    ...itemRows(jobMatch(f, today, { jobDate: true, excludeCancelled: true }), f),
+    { $group: { _id: { key, unit: "$unit" }, designName: { $min: "$designName" }, clientName: { $min: "$clientName" }, ...sums } },
+  ]);
+  const keys = [...new Set(rows.map((r) => r.id.key).filter((k): k is string => !!k))];
+  const names =
     by === "design"
-      ? Prisma.sql`COALESCE(d.name, MIN(it."designName"))`
-      : by === "worker"
-        ? Prisma.sql`MIN(it."clientName")`
-        : Prisma.sql`COALESCE(MIN(t.name), 'No job work type')`;
-  const rows = await prisma.$queryRaw<(Omit<WorkGroupRow, "unit"> & { unit: string })[]>`
-    ${itemsCte(and([...jobConds(f, today, { item: true, jobDate: true }), Prisma.sql`j.status::text <> 'CANCELLED'`]))}
-    SELECT ${key} AS key, ${name} AS name, it.unit, COUNT(DISTINCT it."jobId")::int AS challans,
-      SUM(it.issued)::float8 AS issued, SUM(it.rework)::float8 AS rework, SUM(it.ok)::float8 AS ok, SUM(it.damaged)::float8 AS damaged,
-      SUM(it.rejected)::float8 AS rejected, SUM(it.lost)::float8 AS lost, SUM(it.pending)::float8 AS pending,
-      SUM(it.value)::float8 AS "valuePaise", SUM(ROUND(it.pending * it."ratePaise"))::float8 AS "pendingValuePaise"
-    FROM it LEFT JOIN "Design" d ON d.id = it."designId" LEFT JOIN "JobWorkType" t ON t.id = it."jobWorkTypeId"
-    GROUP BY ${key}, ${by === "design" ? Prisma.sql`d.name, ` : Prisma.empty}it.unit
-    ORDER BY "valuePaise" DESC, name`;
-  return rows.map((r) => ({
-    ...r,
-    unit: r.unit as Unit,
-    issued: q(r.issued),
-    rework: q(r.rework),
-    ok: q(r.ok),
-    damaged: q(r.damaged),
-    rejected: q(r.rejected),
-    lost: q(r.lost),
-    pending: q(r.pending),
-    valuePaise: money(r.valuePaise),
-    pendingValuePaise: money(r.pendingValuePaise),
-  }));
+      ? new Map((await db.design.find({ _id: { $in: keys } }, { select: "name" })).map((d) => [d.id, d.name]))
+      : by === "jobWorkType"
+        ? new Map((await db.jobWorkType.find({ _id: { $in: keys } }, { select: "name" })).map((t) => [t.id, t.name]))
+        : new Map<string, string>();
+  return rows
+    .map((r) => ({
+      key: r.id.key,
+      name:
+        by === "design"
+          ? ((r.id.key && names.get(r.id.key)) ?? r.designName)
+          : by === "worker"
+            ? r.clientName
+            : ((r.id.key && names.get(r.id.key)) ?? "No job work type"),
+      unit: r.id.unit as Unit,
+      challans: r.jobs.length,
+      issued: q(r.issued),
+      rework: q(r.rework),
+      ok: q(r.ok),
+      damaged: q(r.damaged),
+      rejected: q(r.rejected),
+      lost: q(r.lost),
+      pending: q(r.pending),
+      valuePaise: money(r.valuePaise),
+      pendingValuePaise: money(r.pendingValuePaise),
+    }))
+    .sort((a, b) => b.valuePaise - a.valuePaise || cmp(a.name, b.name));
 }
 
 /** Design lines where more came back than was sent (an approved over-return). */
 export async function quantityMismatches() {
-  const rows = await prisma.$queryRaw<{ jobId: string; jobNumber: string; clientName: string; designName: string; unit: string; excess: number }[]>`
-    ${itemsCte(Prisma.empty)}
-    SELECT it."jobId", it."jobNumber", it."clientName", it."designName", it.unit, it.excess::float8 AS excess
-    FROM it WHERE it.excess > 0 AND it.status <> 'CANCELLED'
-    ORDER BY it."jobDate" DESC`;
+  const rows = await db.job.aggregate<{ jobId: string; jobNumber: string; clientName: string; designName: string; unit: string; excess: number }>([
+    ...itemRows({ status: { $ne: "CANCELLED" } }),
+    { $match: { excess: { $gt: 0 } } },
+    { $sort: { jobDate: -1 } },
+    { $project: { _id: 0, jobId: 1, jobNumber: 1, clientName: 1, designName: 1, unit: 1, excess: 1 } },
+  ]);
   return rows.map((r) => ({ ...r, excess: q(r.excess) }));
 }
 
 /** Pending quantity per design across every challan (the legacy dashboard list). */
 export async function pendingByDesign() {
-  const rows = await prisma.$queryRaw<{ designId: string; designName: string; jobs: number; pending: number }[]>`
-    ${itemsCte(Prisma.empty)}
-    SELECT it."designId", MIN(it."designName") AS "designName", COUNT(DISTINCT it."jobId")::int AS jobs, SUM(it.pending)::float8 AS pending
-    FROM it WHERE it.pending > 0
-    GROUP BY it."designId"
-    ORDER BY pending DESC`;
-  return rows.map((r) => ({ ...r, pending: q(r.pending) }));
+  const rows = await db.job.aggregate<{ id: string; designName: string; jobs: string[]; pending: number }>([
+    ...itemRows({}),
+    { $match: { pending: { $gt: 0 } } },
+    { $group: { _id: "$designId", designName: { $min: "$designName" }, jobs: { $addToSet: "$jobId" }, pending: { $sum: "$pending" } } },
+    { $sort: { pending: -1 } },
+  ]);
+  return rows.map((r) => ({ designId: r.id, designName: r.designName, jobs: r.jobs.length, pending: q(r.pending) }));
 }
 
 // ───────────────────────── Challans: open with material outside ─────────────────────────
@@ -281,22 +372,48 @@ export interface OpenChallanRow {
 
 /** Challans (not cancelled) that still have material outside; quantities are per challan (single unit when `units` = 1). */
 export async function challansOutside(f: Filters, today: string, opts: { includeCancelled?: boolean } = {}): Promise<OpenChallanRow[]> {
-  const rows = await prisma.$queryRaw<
-    { jobId: string; jobNumber: string; clientId: string; clientName: string; jobDate: Date; expectedReturnDate: Date | null; status: string; pending: number; unit: string; units: number; value: number; sent: number; ok: number; exceptions: number }[]
-  >`
-    ${itemsCte(and([...jobConds(f, today), !opts.includeCancelled && Prisma.sql`j.status::text <> 'CANCELLED'`]))}
-    SELECT it."jobId", it."jobNumber", it."clientId", it."clientName", it."jobDate", it."expectedReturnDate", it.status,
-      SUM(it.pending)::float8 AS pending, MIN(it.unit) AS unit, COUNT(DISTINCT it.unit)::int AS units,
-      SUM(ROUND(it.pending * it."ratePaise"))::float8 AS value, SUM(it.sent)::float8 AS sent, SUM(it.ok)::float8 AS ok,
-      SUM(it.damaged + it.rejected + it.lost)::float8 AS exceptions
-    FROM it
-    GROUP BY it."jobId", it."jobNumber", it."clientId", it."clientName", it."jobDate", it."expectedReturnDate", it.status
-    HAVING SUM(it.pending) > 0
-    ORDER BY it."jobDate", it."jobNumber"`;
+  const rows = await db.job.aggregate<{
+    id: string;
+    jobNumber: string;
+    clientId: string;
+    clientName: string;
+    jobDate: Date;
+    expectedReturnDate: Date | null;
+    status: string;
+    pending: number;
+    unit: string;
+    units: string[];
+    value: number;
+    sent: number;
+    ok: number;
+    exceptions: number;
+  }>([
+    ...itemRows(jobMatch(f, today, { excludeCancelled: !opts.includeCancelled })),
+    {
+      $group: {
+        _id: "$jobId",
+        jobNumber: { $first: "$jobNumber" },
+        clientId: { $first: "$clientId" },
+        clientName: { $first: "$clientName" },
+        jobDate: { $first: "$jobDate" },
+        expectedReturnDate: { $first: "$expectedReturnDate" },
+        status: { $first: "$status" },
+        pending: { $sum: "$pending" },
+        unit: { $min: "$unit" },
+        units: { $addToSet: "$unit" },
+        value: { $sum: pendingValue },
+        sent: { $sum: "$sent" },
+        ok: { $sum: "$ok" },
+        exceptions: { $sum: { $add: ["$damaged", "$rejected", "$lost"] } },
+      },
+    },
+    { $match: { pending: { $gt: 0 } } },
+    { $sort: { jobDate: 1, jobNumber: 1 } },
+  ]);
   return rows.map((r) => {
     const expected = r.expectedReturnDate ? dayOf(r.expectedReturnDate) : null;
     return {
-      jobId: r.jobId,
+      jobId: r.id,
       jobNumber: r.jobNumber,
       clientId: r.clientId,
       clientName: r.clientName,
@@ -306,7 +423,7 @@ export async function challansOutside(f: Filters, today: string, opts: { include
       overdue: !!expected && expected < today && (r.status === "IN_PROGRESS" || r.status === "PARTIALLY_RECEIVED"),
       pending: q(r.pending),
       unit: r.unit as Unit,
-      units: r.units,
+      units: r.units.length,
       pendingValuePaise: money(r.value),
       sent: q(r.sent),
       ok: q(r.ok),
@@ -328,22 +445,27 @@ export interface JobMoneyRow {
   paidPaise: number;
 }
 
-/** Work value and paid per challan that has either (filters on alias j). */
+/** Work value and paid per challan that has either. */
 export async function jobMoney(f: Filters, today: string): Promise<JobMoneyRow[]> {
-  const rows = await prisma.$queryRaw<{ jobId: string; jobNumber: string; clientId: string; clientName: string; jobDate: Date; status: string; value: number; paid: number }[]>`
-    WITH v AS (
-      SELECT r."jobId" AS id, SUM(${VALUE_SQL}) AS value
-      FROM "ReturnLine" rl JOIN "Return" r ON r.id = rl."returnId"
-      WHERE r."voidedAt" IS NULL GROUP BY 1
-    ), p AS (
-      SELECT sb."jobId" AS id, SUM(sb."amountPaise") AS paid FROM "SubBill" sb WHERE sb."voidedAt" IS NULL GROUP BY 1
-    )
-    SELECT j.id AS "jobId", j."jobNumber", j."clientId", c.name AS "clientName", j."jobDate", j.status::text AS status,
-      COALESCE(v.value, 0)::float8 AS value, COALESCE(p.paid, 0)::float8 AS paid
-    FROM "Job" j JOIN "Client" c ON c.id = j."clientId" LEFT JOIN v ON v.id = j.id LEFT JOIN p ON p.id = j.id
-    WHERE (v.id IS NOT NULL OR p.id IS NOT NULL) ${and(jobConds(f, today))}
-    ORDER BY j."jobDate", j."jobNumber"`;
-  return rows.map((r) => ({ ...r, jobDate: dayOf(r.jobDate), valuePaise: money(r.value), paidPaise: money(r.paid) }));
+  const rows = await db.job.aggregate<{ id: string; jobNumber: string; clientId: string; clientName: string; jobDate: Date; status: string; value: number; paid: number }>([
+    { $match: jobMatch(f, today) },
+    {
+      $lookup: {
+        from: "returns",
+        localField: "_id",
+        foreignField: "jobId",
+        // Returns with at least one line, like the old inner join on return lines.
+        pipeline: [{ $match: { voidedAt: null, "lines.0": { $exists: true } } }, { $project: { value: returnValueExpr() } }],
+        as: "v",
+      },
+    },
+    { $lookup: { from: "subBills", localField: "_id", foreignField: "jobId", pipeline: [{ $match: { voidedAt: null } }, { $project: { amountPaise: 1 } }], as: "p" } },
+    { $match: { $or: [{ "v.0": { $exists: true } }, { "p.0": { $exists: true } }] } },
+    { $lookup: { from: "clients", localField: "clientId", foreignField: "_id", pipeline: [{ $project: { name: 1 } }], as: "c" } },
+    { $sort: { jobDate: 1, jobNumber: 1 } },
+    { $project: { jobNumber: 1, clientId: 1, clientName: { $first: "$c.name" }, jobDate: 1, status: 1, value: { $sum: "$v.value" }, paid: { $sum: "$p.amountPaise" } } },
+  ]);
+  return rows.map((r) => ({ jobId: r.id, jobNumber: r.jobNumber, clientId: r.clientId, clientName: r.clientName, jobDate: dayOf(r.jobDate), status: r.status, valuePaise: money(r.value), paidPaise: money(r.paid) }));
 }
 
 /** Per worker: value − paid netted across their challans (the "to pay" figure), and any net advance. */
@@ -359,65 +481,141 @@ export function workerMoney(rows: JobMoneyRow[]) {
   return [...map.values()].map((w) => ({ ...w, outstandingPaise: Math.max(0, w.valuePaise - w.paidPaise), advancePaise: Math.max(0, w.paidPaise - w.valuePaise) }));
 }
 
+/** `{ jobId: { $in } }` for the challans matching the filters, or nothing when no challan filter is set. */
+async function jobScope(f: Filters, today: string): Promise<Filter> {
+  const where = jobMatch(f, today);
+  if (!Object.keys(where).length) return {};
+  return { jobId: { $in: (await db.job.find<{ id: string }>(where, { select: "_id" })).map((j) => j.id) } };
+}
+
 /** Work value (return date) and payments (voucher date) inside a range. */
 export async function periodMoney(f: Filters, today: string) {
-  const [[work], [paid]] = await Promise.all([
-    prisma.$queryRaw<{ value: number; ok: number }[]>`
-      SELECT COALESCE(SUM(${VALUE_SQL}), 0)::float8 AS value, COALESCE(SUM(rl."okQty"), 0)::float8 AS ok
-      FROM "ReturnLine" rl JOIN "Return" r ON r.id = rl."returnId" JOIN "Job" j ON j.id = r."jobId"
-      WHERE r."voidedAt" IS NULL ${and([...jobConds(f, today), f.from && Prisma.sql`r.date >= ${f.from}::date`, f.to && Prisma.sql`r.date <= ${f.to}::date`])}`,
-    prisma.$queryRaw<{ paid: number; n: number }[]>`
-      SELECT COALESCE(SUM(sb."amountPaise"), 0)::float8 AS paid, COUNT(*)::int AS n
-      FROM "SubBill" sb JOIN "Job" j ON j.id = sb."jobId"
-      WHERE sb."voidedAt" IS NULL ${and([...jobConds(f, today), f.from && Prisma.sql`sb.date >= ${f.from}::date`, f.to && Prisma.sql`sb.date <= ${f.to}::date`])}`,
+  const scope = await jobScope(f, today);
+  const dates = f.from || f.to ? { date: range(f.from ? toDate(f.from) : null, f.to ? toDate(f.to) : null) } : {};
+  const [[work], [paid]] = await all([
+    () =>
+      db.return.aggregate<{ value: number; ok: number }>([
+        { $match: { voidedAt: null, ...scope, ...dates } },
+        { $unwind: "$lines" },
+        { $group: { _id: null, value: { $sum: valueExpr() }, ok: { $sum: "$lines.okQty" } } },
+      ]),
+    () =>
+      db.subBill.aggregate<{ paid: number; n: number }>([
+        { $match: { voidedAt: null, ...scope, ...dates } },
+        { $group: { _id: null, paid: { $sum: "$amountPaise" }, n: { $sum: 1 } } },
+      ]),
   ]);
-  return { valuePaise: money(work.value), okQty: q(work.ok), paidPaise: money(paid.paid), vouchers: paid.n };
+  return { valuePaise: money(work?.value), okQty: q(work?.ok), paidPaise: money(paid?.paid), vouchers: paid?.n ?? 0 };
 }
 
 // ───────────────────────── Return lines (arrivals, rate history) ─────────────────────────
 
-function returnLineConds(f: Filters, today: string, dateMode: "range" | "day") {
-  return and([
-    Prisma.sql`r."voidedAt" IS NULL`,
-    ...jobConds({ ...f, designId: undefined, jobWorkTypeId: undefined, materialId: undefined }, today),
-    f.designId && Prisma.sql`ji."designId" = ${f.designId}`,
-    f.materialId && Prisma.sql`ji."materialId" = ${f.materialId}`,
-    f.jobWorkTypeId && Prisma.sql`${JWT_SQL} = ${f.jobWorkTypeId}`,
-    dateMode === "day" && Prisma.sql`r.date = ${f.date ?? today}::date`,
-    dateMode === "range" && f.from && Prisma.sql`r.date >= ${f.from}::date`,
-    dateMode === "range" && f.to && Prisma.sql`r.date <= ${f.to}::date`,
-  ]);
-}
-
-const RL_FROM = Prisma.sql`FROM "ReturnLine" rl JOIN "Return" r ON r.id = rl."returnId" JOIN "Job" j ON j.id = r."jobId" JOIN "Client" c ON c.id = j."clientId" JOIN "JobItem" ji ON ji.id = rl."jobItemId"`;
-
-/** Non-voided return lines, newest first (or oldest first), one page at a time, with totals over the whole set. */
+/** Non-voided return lines, newest first, one page at a time, with totals over the whole set. */
 export async function returnLines(f: Filters, today: string, dateMode: "range" | "day", page?: Page) {
-  const where = returnLineConds(f, today, dateMode);
-  const limit = page ? Prisma.sql`LIMIT ${page.take} OFFSET ${page.skip}` : Prisma.empty;
-  const [rows, totals] = await Promise.all([
-    prisma.$queryRaw<
-      { returnLineId: string; returnId: string; returnNumber: string; date: Date; receivedAt: Date; clientId: string; clientName: string; jobId: string; jobNumber: string; designId: string; designName: string; unit: string; okQty: number; damagedQty: number; rejectedQty: number; lostQty: number; ratePaise: number; challanRatePaise: number; payable: number; value: number; photoId: string | null; photoCount: number }[]
-    >`
-      SELECT rl.id AS "returnLineId", r.id AS "returnId", r."returnNumber", r.date, r."receivedAt", c.id AS "clientId", c.name AS "clientName",
-        j.id AS "jobId", j."jobNumber", ji."designId", ji."designName", ji.unit::text AS unit,
-        rl."okQty"::float8 AS "okQty", rl."damagedQty"::float8 AS "damagedQty", rl."rejectedQty"::float8 AS "rejectedQty", rl."lostQty"::float8 AS "lostQty",
-        rl."ratePaise", ji."ratePaise" AS "challanRatePaise", (${PAYABLE_SQL})::float8 AS payable, (${VALUE_SQL})::float8 AS value,
-        (SELECT p.id FROM "ReturnPhoto" p WHERE p."returnId" = r.id AND p."voidedAt" IS NULL AND (p."returnLineId" IS NULL OR p."returnLineId" = rl.id)
-          ORDER BY (p."returnLineId" IS NOT NULL) DESC, p."createdAt" LIMIT 1) AS "photoId",
-        (SELECT COUNT(*) FROM "ReturnPhoto" p WHERE p."returnId" = r.id AND p."voidedAt" IS NULL AND (p."returnLineId" IS NULL OR p."returnLineId" = rl.id))::int AS "photoCount"
-      ${RL_FROM}
-      WHERE TRUE ${where}
-      ORDER BY r.date DESC, r."receivedAt" DESC, r."returnNumber" DESC, ji."sortOrder"
-      ${limit}`,
-    prisma.$queryRaw<{ unit: string; n: number; qty: number; ok: number; payable: number; value: number }[]>`
-      SELECT ji.unit::text AS unit, COUNT(*)::int AS n,
-        SUM(rl."okQty" + rl."damagedQty" + rl."rejectedQty" + rl."lostQty")::float8 AS qty, SUM(rl."okQty")::float8 AS ok,
-        SUM(${PAYABLE_SQL})::float8 AS payable, SUM(${VALUE_SQL})::float8 AS value
-      ${RL_FROM}
-      WHERE TRUE ${where}
-      GROUP BY 1`,
+  const scope = await jobScope({ ...f, designId: undefined, jobWorkTypeId: undefined, materialId: undefined }, today);
+  const dates =
+    dateMode === "day" ? { date: toDate(f.date ?? today) } : f.from || f.to ? { date: range(f.from ? toDate(f.from) : null, f.to ? toDate(f.to) : null) } : {};
+  const lineMatch: Filter = {};
+  if (f.designId) lineMatch["item.designId"] = f.designId;
+  if (f.materialId) lineMatch["item.materialId"] = f.materialId;
+  if (f.jobWorkTypeId) lineMatch.jobWorkTypeId = f.jobWorkTypeId;
+  type Row = {
+    returnLineId: string;
+    returnId: string;
+    returnNumber: string;
+    date: Date;
+    receivedAt: Date;
+    clientId: string;
+    clientName: string;
+    jobId: string;
+    jobNumber: string;
+    designId: string;
+    designName: string;
+    unit: string;
+    okQty: number;
+    damagedQty: number;
+    rejectedQty: number;
+    lostQty: number;
+    ratePaise: number;
+    challanRatePaise: number;
+    payable: number;
+    value: number;
+    photoId: string | null;
+    photoCount: number;
+  };
+  const [result] = await db.return.aggregate<{ rows: Row[]; totals: { id: string; n: number; qty: number; ok: number; payable: number; value: number }[] }>([
+    { $match: { voidedAt: null, ...scope, ...dates } },
+    { $lookup: { from: "jobs", localField: "jobId", foreignField: "_id", pipeline: [{ $project: { jobNumber: 1, clientId: 1, jobWorkTypeId: 1, items: 1 } }], as: "j" } },
+    { $unwind: "$j" },
+    { $unwind: "$lines" },
+    { $set: { item: { $first: { $filter: { input: "$j.items", as: "i", cond: { $eq: ["$$i._id", "$lines.jobItemId"] } } } } } },
+    { $set: { jobWorkTypeId: { $ifNull: ["$item.jobWorkTypeId", "$j.jobWorkTypeId"] } } },
+    ...(Object.keys(lineMatch).length ? [{ $match: lineMatch }] : []),
+    {
+      $facet: {
+        rows: [
+          { $sort: { date: -1, receivedAt: -1, returnNumber: -1, "item.sortOrder": 1 } },
+          ...(page ? [{ $skip: page.skip }, { $limit: page.take }] : []),
+          { $lookup: { from: "clients", localField: "j.clientId", foreignField: "_id", pipeline: [{ $project: { name: 1 } }], as: "c" } },
+          // Photos of this return that show this line or the whole return; a line's own photo comes first.
+          {
+            $lookup: {
+              from: "returnPhotos",
+              let: { lineId: "$lines._id" },
+              localField: "_id",
+              foreignField: "returnId",
+              pipeline: [
+                { $match: { voidedAt: null, $expr: { $or: [{ $eq: ["$returnLineId", null] }, { $eq: ["$returnLineId", "$$lineId"] }] } } },
+                { $sort: { returnLineId: -1, createdAt: 1 } },
+                { $project: { _id: 1 } },
+              ],
+              as: "ph",
+            },
+          },
+          {
+            $project: {
+              _id: 0,
+              returnLineId: "$lines._id",
+              returnId: "$_id",
+              returnNumber: 1,
+              date: 1,
+              receivedAt: 1,
+              clientId: "$j.clientId",
+              clientName: { $first: "$c.name" },
+              jobId: "$j._id",
+              jobNumber: "$j.jobNumber",
+              designId: "$item.designId",
+              designName: "$item.designName",
+              unit: "$item.unit",
+              okQty: "$lines.okQty",
+              damagedQty: "$lines.damagedQty",
+              rejectedQty: "$lines.rejectedQty",
+              lostQty: "$lines.lostQty",
+              ratePaise: "$lines.ratePaise",
+              challanRatePaise: "$item.ratePaise",
+              payable: payableExpr(),
+              value: valueExpr(),
+              photoId: { $ifNull: [{ $first: "$ph._id" }, null] },
+              photoCount: { $size: "$ph" },
+            },
+          },
+        ],
+        totals: [
+          {
+            $group: {
+              _id: "$item.unit",
+              n: { $sum: 1 },
+              qty: { $sum: { $add: ["$lines.okQty", "$lines.damagedQty", "$lines.rejectedQty", "$lines.lostQty"] } },
+              ok: { $sum: "$lines.okQty" },
+              payable: { $sum: payableExpr() },
+              value: { $sum: valueExpr() },
+            },
+          },
+        ],
+      },
+    },
   ]);
+  const { rows, totals } = result ?? { rows: [], totals: [] };
   const lines: (ArrivalRow & { damagedQty: number; rejectedQty: number; lostQty: number; challanRatePaise: number })[] = rows.map((r) => ({
     returnLineId: r.returnLineId,
     returnId: r.returnId,
@@ -445,7 +643,7 @@ export async function returnLines(f: Filters, today: string, dateMode: "range" |
     rows: lines,
     total: totals.reduce((s, t) => s + t.n, 0),
     valuePaise: totals.reduce((s, t) => s + money(t.value), 0),
-    byUnit: totals.map((t) => ({ unit: t.unit as Unit, qty: q(t.qty), ok: q(t.ok), payable: q(t.payable), value: money(t.value) })),
+    byUnit: totals.map((t) => ({ unit: t.id as Unit, qty: q(t.qty), ok: q(t.ok), payable: q(t.payable), value: money(t.value) })),
   };
 }
 
@@ -468,19 +666,20 @@ export interface CompletionRow {
 
 /** Challans dated in the range that have at least one return. */
 export async function completionRows(f: Filters, today: string): Promise<CompletionRow[]> {
-  const rows = await prisma.$queryRaw<{ jobId: string; jobNumber: string; clientId: string; clientName: string; jobDate: Date; status: string; first: Date; last: Date; n: number }[]>`
-    SELECT j.id AS "jobId", j."jobNumber", j."clientId", c.name AS "clientName", j."jobDate", j.status::text AS status,
-      MIN(r.date) AS first, MAX(r.date) AS last, COUNT(*)::int AS n
-    FROM "Return" r JOIN "Job" j ON j.id = r."jobId" JOIN "Client" c ON c.id = j."clientId"
-    WHERE r."voidedAt" IS NULL AND j.status::text <> 'CANCELLED' ${and(jobConds(f, today, { jobDate: true }))}
-    GROUP BY j.id, c.name
-    ORDER BY j."jobDate" DESC, j."jobNumber" DESC`;
+  const rows = await db.job.aggregate<{ id: string; jobNumber: string; clientId: string; clientName: string; jobDate: Date; status: string; first: Date; last: Date; n: number }>([
+    { $match: jobMatch(f, today, { jobDate: true, excludeCancelled: true }) },
+    { $lookup: { from: "returns", localField: "_id", foreignField: "jobId", pipeline: [{ $match: { voidedAt: null } }, { $project: { date: 1 } }], as: "r" } },
+    { $match: { "r.0": { $exists: true } } },
+    { $lookup: { from: "clients", localField: "clientId", foreignField: "_id", pipeline: [{ $project: { name: 1 } }], as: "c" } },
+    { $sort: { jobDate: -1, jobNumber: -1 } },
+    { $project: { jobNumber: 1, clientId: 1, clientName: { $first: "$c.name" }, jobDate: 1, status: 1, first: { $min: "$r.date" }, last: { $max: "$r.date" }, n: { $size: "$r" } } },
+  ]);
   return rows.map((r) => {
     const jobDate = dayOf(r.jobDate);
     const first = dayOf(r.first);
     const last = dayOf(r.last);
     return {
-      jobId: r.jobId,
+      jobId: r.id,
       jobNumber: r.jobNumber,
       clientId: r.clientId,
       clientName: r.clientName,

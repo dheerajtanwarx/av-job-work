@@ -1,4 +1,4 @@
-import { prisma, type DB, type Prisma } from "@av/db";
+import { all, db, isDuplicateKey, transaction, type Client, type DB, type Filter, type MainBill, type Product, type SubBill } from "@av/db";
 import {
   formatINR,
   lineAmount,
@@ -23,13 +23,27 @@ import { audit, editedBy, userNames } from "../lib/audit.js";
 import { nextNumber } from "../lib/counter.js";
 import { iso, toDate } from "../lib/dates.js";
 import { HttpError, notFound, unprocessable } from "../lib/http.js";
-import { type Actor, loadJob, loadJobs, mainBillRowInclude, recomputeJobStatus, subBillRowInclude, summarizeJobItems, toMainBillRow, toSubBillRow } from "./jobs.js";
+import { ci, range } from "../lib/mongo.js";
+import {
+  type Actor,
+  loadJob,
+  loadJobs,
+  mainBillRowPopulate,
+  recomputeJobStatus,
+  subBillRowPopulate,
+  summarizeJobItems,
+  toMainBillRow,
+  toSubBillRow,
+  type MainBillWithRow,
+  type SubBillWithRow,
+} from "./jobs.js";
 import { num } from "./ledger.js";
+import { clientIdsNamed, jobIdsWhere, productIdsNamed } from "./lookups.js";
 
 // ───────────────────────── Work waiting to be paid (qty view, legacy) ─────────────────────────
 
 export async function getUnpaid(db: DB, filter: { clientId?: string; jobId?: string } = {}): Promise<UnpaidLine[]> {
-  const jobs = await loadJobs(db, { clientId: filter.clientId, id: filter.jobId });
+  const jobs = await loadJobs(db, { clientId: filter.clientId, _id: filter.jobId });
   const out: UnpaidLine[] = [];
   for (const job of jobs.slice().reverse()) {
     for (const it of summarizeJobItems(job)) {
@@ -56,8 +70,8 @@ export async function getUnpaid(db: DB, filter: { clientId?: string; jobId?: str
 
 // ───────────────────────── Settings ─────────────────────────
 
-export async function getSettings(db: DB = prisma): Promise<Settings> {
-  const s = await db.settings.upsert({ where: { id: 1 }, update: {}, create: { id: 1 } });
+export async function getSettings(): Promise<Settings> {
+  const s = (await db.settings.update({ _id: 1 }, { $setOnInsert: {} }, { upsert: true }))!;
   const policy = s.defaultPaymentPolicy as PaymentPolicy;
   return {
     businessName: s.businessName,
@@ -78,41 +92,42 @@ export async function getSettings(db: DB = prisma): Promise<Settings> {
 // ───────────────────────── Payment vouchers ─────────────────────────
 
 export async function listSubBills(filter: { clientId?: string; jobId?: string; from?: Date; to?: Date; q?: string; includeVoided?: boolean; take?: number; skip?: number }) {
-  const where: Prisma.SubBillWhereInput = {
+  const where: Filter = {
     clientId: filter.clientId,
     jobId: filter.jobId,
     voidedAt: filter.includeVoided === false ? null : undefined,
-    date: filter.from || filter.to ? { gte: filter.from, lte: filter.to } : undefined,
+    date: filter.from || filter.to ? range(filter.from, filter.to) : undefined,
   };
   if (filter.q) {
-    const ci = { contains: filter.q, mode: "insensitive" as const };
-    where.OR = [
-      { billNumber: ci },
-      { reference: ci },
-      { client: { name: ci } },
-      { job: { jobNumber: ci } },
-      { return: { returnNumber: ci } },
-      { lines: { some: { designName: ci } } },
-    ];
+    const q = ci(filter.q);
+    const [clientIds, jobIds, returnIds] = await all([
+      () => clientIdsNamed(db, filter.q!),
+      () => jobIdsWhere(db, { jobNumber: q }),
+      () => db.return.find<{ id: string }>({ returnNumber: q }, { select: "_id" }).then((r) => r.map((x) => x.id)),
+    ]);
+    where.$or = [{ billNumber: q }, { reference: q }, { clientId: { $in: clientIds } }, { jobId: { $in: jobIds } }, { returnId: { $in: returnIds } }, { "lines.designName": q }];
   }
-  const rows = await prisma.subBill.findMany({ where, include: subBillRowInclude, orderBy: [{ date: "desc" }, { createdAt: "desc" }], take: filter.take, skip: filter.skip });
-  const names = await userNames(prisma, rows.flatMap((r) => [r.enteredById, r.editedById, r.voidedById]));
+  const rows = await db.subBill.find<SubBillWithRow>(where, { populate: subBillRowPopulate, sort: { date: -1, createdAt: -1 }, limit: filter.take, skip: filter.skip });
+  const names = await userNames(db, rows.flatMap((r) => [r.enteredById, r.editedById, r.voidedById]));
   return rows.map((r) => toSubBillRow(r, undefined, names));
 }
 
 export async function getSubBill(id: string): Promise<SubBillDetail> {
-  const b = await prisma.subBill.findUnique({
-    where: { id },
-    include: { ...subBillRowInclude, client: true, lines: true, job: { select: { id: true, jobNumber: true, product: { select: { name: true } }, mainBill: true } } },
+  const b = await db.subBill.findById<Omit<SubBillWithRow, "client" | "job"> & { client: Client; job: SubBillWithRow["job"] & { mainBill?: MainBill | null } }>(id, {
+    populate: [
+      { path: "client" },
+      { path: "job", select: "jobNumber productId", populate: [{ path: "product", select: "name" }, { path: "mainBill" }] },
+      { path: "return", select: "returnNumber" },
+    ],
   });
   if (!b) throw notFound("Payment voucher");
   const mb = b.job.mainBill;
-  const [job, history, notifications] = await Promise.all([
-    loadJob(prisma, b.jobId),
-    prisma.auditLog.findMany({ where: { entity: "SubBill", entityId: id }, orderBy: { createdAt: "desc" }, take: 50 }),
-    prisma.notificationLog.findMany({ where: { entity: "SubBill", entityId: id }, orderBy: { createdAt: "desc" }, take: 20 }),
+  const [job, history, notifications] = await all([
+    () => loadJob(db, b.jobId),
+    () => db.auditLog.find({ entity: "SubBill", entityId: id }, { sort: { createdAt: -1 }, limit: 50 }),
+    () => db.notificationLog.find({ entity: "SubBill", entityId: id }, { sort: { createdAt: -1 }, limit: 20 }),
   ]);
-  const names = await userNames(prisma, [b.enteredById, b.editedById, b.voidedById, ...history.map((h) => h.userId)]);
+  const names = await userNames(db, [b.enteredById, b.editedById, b.voidedById, ...history.map((h) => h.userId)]);
   const totals = sumTotals(summarizeJobItems(job));
   return {
     ...toSubBillRow(b, undefined, names),
@@ -146,7 +161,7 @@ type VoucherInput = z.output<typeof subBillCreateSchema>;
 export async function createVoucherTx(tx: DB, input: VoucherInput, actor?: Actor): Promise<{ id: string; created: boolean }> {
   const userId = actor?.id;
   if (input.idempotencyKey) {
-    const existing = await tx.subBill.findUnique({ where: { idempotencyKey: input.idempotencyKey }, select: { id: true, jobId: true } });
+    const existing = await tx.subBill.findOne({ idempotencyKey: input.idempotencyKey }, { select: "jobId" });
     if (existing) {
       if (existing.jobId !== input.jobId) throw unprocessable("This payment form was already used for another challan. Reload and try again.");
       return { id: existing.id, created: false };
@@ -156,7 +171,7 @@ export async function createVoucherTx(tx: DB, input: VoucherInput, actor?: Actor
     throw unprocessable("Choose a valid challan");
   });
   if (input.returnId) {
-    const r = await tx.return.findUnique({ where: { id: input.returnId }, select: { jobId: true, voidedAt: true, returnNumber: true } });
+    const r = await tx.return.findById(input.returnId, { select: "jobId voidedAt returnNumber" });
     if (!r || r.jobId !== job.id) throw unprocessable("That return doesn't belong to this challan");
     if (r.voidedAt) throw unprocessable(`${r.returnNumber} is voided`);
   }
@@ -186,7 +201,6 @@ export async function createVoucherTx(tx: DB, input: VoucherInput, actor?: Actor
 
   const billNumber = await nextNumber(tx, "subBill", "SB");
   const b = await tx.subBill.create({
-    data: {
       billNumber,
       clientId: job.clientId,
       jobId: job.id,
@@ -199,8 +213,7 @@ export async function createVoucherTx(tx: DB, input: VoucherInput, actor?: Actor
       advanceReason: amountPaise > outstanding ? input.advanceReason : null,
       idempotencyKey: input.idempotencyKey,
       enteredById: userId,
-      lines: { create: lines },
-    },
+      lines,
   });
   await audit(tx, {
     entity: "SubBill",
@@ -217,11 +230,11 @@ export async function createVoucherTx(tx: DB, input: VoucherInput, actor?: Actor
 
 export async function createSubBill(input: VoucherInput, actor?: Actor) {
   try {
-    return await prisma.$transaction((tx) => createVoucherTx(tx, input, actor));
+    return await transaction((tx) => createVoucherTx(tx, input, actor));
   } catch (e) {
     // Two identical submits racing: the loser hits the unique key – hand back the winner.
-    if (input.idempotencyKey && (e as { code?: string }).code === "P2002") {
-      const existing = await prisma.subBill.findUnique({ where: { idempotencyKey: input.idempotencyKey }, select: { id: true } });
+    if (input.idempotencyKey && isDuplicateKey(e, "idempotencyKey")) {
+      const existing = await db.subBill.findOne({ idempotencyKey: input.idempotencyKey }, { select: "_id" });
       if (existing) return { id: existing.id, created: false };
     }
     throw e;
@@ -234,11 +247,13 @@ export function voucherFromReturn(jobId: string, returnId: string, date: string,
 }
 
 export async function voidSubBill(id: string, reason: string, actor?: Actor) {
-  const b = await prisma.subBill.findUnique({ where: { id } });
+  const b = await db.subBill.findById(id);
   if (!b) throw notFound("Payment voucher");
   if (b.voidedAt) throw unprocessable("This payment voucher is already voided");
-  await prisma.$transaction(async (tx) => {
-    await tx.subBill.update({ where: { id }, data: { voidedAt: new Date(), voidReason: reason, voidedById: actor?.id ?? null } });
+  await transaction(async (tx) => {
+    // Re-checked inside the transaction so two concurrent voids can't both go through.
+    if (!(await tx.subBill.update({ _id: id, voidedAt: null }, { voidedAt: new Date(), voidReason: reason, voidedById: actor?.id ?? null })))
+      throw unprocessable("This payment voucher is already voided");
     await audit(tx, { entity: "SubBill", entityId: id, action: "void", summary: `${b.billNumber} (${formatINR(b.amountPaise)}) voided: ${reason}`, reason, userId: actor?.id });
     await recomputeJobStatus(tx, b.jobId, actor?.id);
   });
@@ -252,12 +267,12 @@ export async function voidSubBill(id: string, reason: string, actor?: Actor) {
  */
 export async function updateSubBill(id: string, input: z.output<typeof subBillUpdateSchema>, actor?: Actor) {
   const userId = actor?.id;
-  await prisma.$transaction(async (tx) => {
-    const b = await tx.subBill.findUnique({ where: { id }, include: { lines: { select: { id: true } } } });
+  await transaction(async (tx) => {
+    const b = await tx.subBill.findById(id);
     if (!b) throw notFound("Payment voucher");
     if (b.voidedAt) throw unprocessable("A voided payment can't be changed");
 
-    const data: Prisma.SubBillUncheckedUpdateInput = {};
+    const data: Partial<Pick<SubBill, "date" | "method" | "reference" | "notes" | "amountPaise" | "advanceReason">> = {};
     const changes: string[] = [];
     const before: Record<string, unknown> = {};
     const after: Record<string, unknown> = {};
@@ -302,7 +317,7 @@ export async function updateSubBill(id: string, input: z.output<typeof subBillUp
     }
     if (!changes.length) throw unprocessable("Nothing was changed");
 
-    await tx.subBill.update({ where: { id }, data: { ...data, ...editedBy(userId) } });
+    await tx.subBill.update(id, { ...data, ...editedBy(userId) });
     const summary = `${b.billNumber} edited: ${changes.join("; ")}`;
     await audit(tx, { entity: "SubBill", entityId: id, action: "update", summary, reason: input.reason, before, after, userId });
     await audit(tx, { entity: "Job", entityId: b.jobId, action: "update", summary: `${summary}. Reason: ${input.reason}`, reason: input.reason, userId });
@@ -314,25 +329,31 @@ export async function updateSubBill(id: string, input: z.output<typeof subBillUp
 // ───────────────────────── Final settlements ─────────────────────────
 
 export async function listMainBills(filter: { clientId?: string; from?: Date; to?: Date; q?: string }) {
-  const where: Prisma.MainBillWhereInput = {
+  const where: Filter = {
     clientId: filter.clientId,
-    date: filter.from || filter.to ? { gte: filter.from, lte: filter.to } : undefined,
+    date: filter.from || filter.to ? range(filter.from, filter.to) : undefined,
   };
   if (filter.q) {
-    const ci = { contains: filter.q, mode: "insensitive" as const };
-    where.OR = [{ billNumber: ci }, { client: { name: ci } }, { job: { jobNumber: ci } }, { job: { product: { name: ci } } }];
+    const q = ci(filter.q);
+    const [clientIds, jobIds] = await all([
+      () => clientIdsNamed(db, filter.q!),
+      async () => jobIdsWhere(db, { $or: [{ jobNumber: q }, { productId: { $in: await productIdsNamed(db, filter.q!) } }] }),
+    ]);
+    where.$or = [{ billNumber: q }, { clientId: { $in: clientIds } }, { jobId: { $in: jobIds } }];
   }
-  const rows = await prisma.mainBill.findMany({ where, include: mainBillRowInclude, orderBy: [{ date: "desc" }, { createdAt: "desc" }] });
+  const rows = await db.mainBill.find<MainBillWithRow>(where, { populate: mainBillRowPopulate, sort: { date: -1, createdAt: -1 } });
   return rows.map(toMainBillRow);
 }
 
 export async function getMainBill(id: string): Promise<MainBillDetail> {
-  const m = await prisma.mainBill.findUnique({ where: { id }, include: { ...mainBillRowInclude, client: true } });
+  const m = await db.mainBill.findById<Omit<MainBillWithRow, "client"> & { client: Client }>(id, {
+    populate: [{ path: "client" }, ...(mainBillRowPopulate as object[]).filter((p) => (p as { path: string }).path !== "client")] as never,
+  });
   if (!m) throw notFound("Final settlement");
-  const [job, details, subBills] = await Promise.all([
-    loadJob(prisma, m.jobId),
-    prisma.job.findUniqueOrThrow({ where: { id: m.jobId }, include: { product: true } }),
-    prisma.subBill.findMany({ where: { jobId: m.jobId, voidedAt: null }, include: subBillRowInclude, orderBy: [{ date: "asc" }, { createdAt: "asc" }] }),
+  const [job, details, subBills] = await all([
+    () => loadJob(db, m.jobId),
+    async () => (await db.job.findById<{ jobDate: Date; expectedReturnDate: Date | null; completedAt: Date | null; notes: string | null; product: Product }>(m.jobId, { populate: { path: "product" } }))!,
+    () => db.subBill.find<SubBillWithRow>({ jobId: m.jobId, voidedAt: null }, { populate: subBillRowPopulate, sort: { date: 1, createdAt: 1 } }),
   ]);
   const items = summarizeJobItems(job);
   const settled = !m.cancelledAt;

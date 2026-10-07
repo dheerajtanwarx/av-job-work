@@ -1,4 +1,4 @@
-import { prisma, type Prisma } from "@av/db";
+import { all as inTurn, db, type Filter, type SubBill } from "@av/db";
 import {
   buildLedger,
   dayOf,
@@ -19,20 +19,23 @@ import {
 import { today } from "../lib/dates.js";
 import { notFound } from "../lib/http.js";
 import { loadJob, loadJobs, summarizeJobItems, toJobRow } from "./jobs.js";
+import { jobIdsWhere } from "./lookups.js";
 import { loadReturnRows } from "./return-rows.js";
 
 /**
  * Running ledgers. Debit = job work value payable to the worker (each non-voided return, at its own rates),
  * Credit = payment made (each non-voided voucher). Balance = still payable (negative = advance).
  */
-async function ledgerFor(jobWhere: Prisma.JobWhereInput, range: { from?: string; to?: string }): Promise<Ledger> {
+async function ledgerFor(jobWhere: Filter, range: { from?: string; to?: string }): Promise<Ledger> {
   const now = today();
-  const [returns, vouchers] = await Promise.all([
-    loadReturnRows(prisma, { job: jobWhere, voidedAt: null }, now),
-    prisma.subBill.findMany({
-      where: { job: jobWhere, voidedAt: null },
-      include: { job: { select: { id: true, jobNumber: true } }, return: { select: { returnNumber: true } } },
-    }),
+  const jobIds = await jobIdsWhere(db, jobWhere);
+  const [returns, vouchers] = await inTurn([
+    () => loadReturnRows(db, { jobId: { $in: jobIds }, voidedAt: null }, now),
+    () =>
+      db.subBill.find<SubBill & { job: { id: string; jobNumber: string }; return?: { returnNumber: string } | null }>(
+        { jobId: { $in: jobIds }, voidedAt: null },
+        { populate: [{ path: "job", select: "jobNumber" }, { path: "return", select: "returnNumber" }] },
+      ),
   ]);
   type Entry = Omit<LedgerRow, "balancePaise">;
   const entries: Entry[] = [
@@ -56,7 +59,7 @@ async function ledgerFor(jobWhere: Prisma.JobWhereInput, range: { from?: string;
         type: "payment",
         ref: v.billNumber,
         href: `/bills/sub/${v.id}`,
-        job: v.job,
+        job: { id: v.job.id, jobNumber: v.job.jobNumber },
         particular: `Payment ${v.method.toLowerCase()}${v.reference ? ` (${v.reference})` : ""}${v.return ? ` for ${v.return.returnNumber}` : ""}${v.advanceReason ? " – advance" : ""}`,
         debitPaise: 0,
         creditPaise: v.amountPaise,
@@ -74,7 +77,7 @@ async function ledgerFor(jobWhere: Prisma.JobWhereInput, range: { from?: string;
 }
 
 export async function workerLedger(clientId: string, range: { from?: string; to?: string } = {}) {
-  if (!(await prisma.client.findUnique({ where: { id: clientId }, select: { id: true } }))) throw notFound("Job worker");
+  if (!(await db.client.exists({ _id: clientId }))) throw notFound("Job worker");
   return ledgerFor({ clientId }, range);
 }
 
@@ -85,16 +88,16 @@ export interface ChallanLedger extends Ledger {
 }
 
 export async function challanLedger(jobId: string): Promise<ChallanLedger> {
-  const job = await loadJob(prisma, jobId);
+  const job = await loadJob(db, jobId);
   const totals = sumTotals(summarizeJobItems(job));
-  const ledger = await ledgerFor({ id: jobId }, {});
+  const ledger = await ledgerFor({ _id: jobId }, {});
   return { ...ledger, issuedValuePaise: totals.expectedValuePaise, money: moneyPosition(totals.completedValuePaise, job.agg.paidPaise) };
 }
 
 /** What each material this worker has received looks like now. Lines without a material are grouped by unit. */
 export async function workerMaterial(clientId: string): Promise<WorkerMaterialRow[]> {
   const now = today();
-  const jobs = await loadJobs(prisma, { clientId, status: { not: "CANCELLED" } });
+  const jobs = await loadJobs(db, { clientId, status: { $ne: "CANCELLED" } });
   const rows = new Map<string, WorkerMaterialRow & { jobIds: Set<string> }>();
   for (const j of jobs) {
     for (const it of summarizeJobItems(j)) {
@@ -131,7 +134,7 @@ export async function workerMaterial(clientId: string): Promise<WorkerMaterialRo
 
 export async function workerPerformance(clientId: string): Promise<WorkerPerformance> {
   const now = today();
-  const jobs = await loadJobs(prisma, { clientId });
+  const jobs = await loadJobs(db, { clientId });
   let work = 0;
   let paid = 0;
   const perf = jobs.map((j) => {

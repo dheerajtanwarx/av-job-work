@@ -10,13 +10,9 @@
     "build": "turbo run build",
     "test": "turbo run test",
     "typecheck": "turbo run typecheck",
-    "db:up": "docker compose up -d --wait",
-    "db:down": "docker compose down",
-    "db:migrate": "pnpm --filter @av/db run migrate",
-    "db:deploy": "pnpm --filter @av/db run migrate:deploy",
     "db:seed": "pnpm --filter @av/db run seed",
-    "db:studio": "pnpm --filter @av/db run studio",
-    "db:setup": "pnpm db:up && pnpm db:deploy && pnpm db:seed"
+    "db:setup": "pnpm db:indexes && pnpm db:seed",
+    "db:indexes": "pnpm --filter @av/db run indexes"
   },
   "devDependencies": {
     "turbo": "^2.11.7",

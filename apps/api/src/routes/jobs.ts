@@ -1,7 +1,9 @@
-import { prisma, type Prisma } from "@av/db";
+import { db, type Filter } from "@av/db";
 import { dispatchCreateSchema, JOB_STATUSES, jobCreateSchema, jobUpdateSchema, OPEN_JOB_STATUSES, reasonSchema, returnCreateSchema, type JobStatus } from "@av/shared";
 import { Router } from "express";
 import { toDate } from "../lib/dates.js";
+import { ci, range } from "../lib/mongo.js";
+import { clientIdsNamed, itemIdsWhere, productIdsNamed } from "../services/lookups.js";
 import { param, parse, str } from "../lib/http.js";
 import { cancelJob, createDispatch, createJob, getJobDetail, loadJobs, regeneratePublicToken, toJobRow, updateJob, voidDispatch } from "../services/jobs.js";
 import { challanLedger } from "../services/accounts.js";
@@ -15,22 +17,23 @@ export const jobsRouter = Router();
 jobsRouter.get("/", async (req, res) => {
   const q = str(req.query.q);
   const statusParam = str(req.query.status);
-  const where: Prisma.JobWhereInput = {
+  const designId = str(req.query.designId);
+  const where: Filter = {
     clientId: str(req.query.clientId),
     productId: str(req.query.productId),
-    items: str(req.query.designId) ? { some: { designId: str(req.query.designId) } } : undefined,
+    items: designId ? { $elemMatch: { designId } } : undefined,
   };
   const from = str(req.query.from);
   const to = str(req.query.to);
-  if (from || to) where.jobDate = { gte: from ? toDate(from) : undefined, lte: to ? toDate(to) : undefined };
-  if (statusParam === "open") where.status = { in: OPEN_JOB_STATUSES };
-  else if (statusParam === "active" || statusParam === "overdue") where.status = { in: ["IN_PROGRESS", "PARTIALLY_RECEIVED"] };
+  if (from || to) where.jobDate = range(from ? toDate(from) : null, to ? toDate(to) : null);
+  if (statusParam === "open") where.status = { $in: OPEN_JOB_STATUSES };
+  else if (statusParam === "active" || statusParam === "overdue") where.status = { $in: ["IN_PROGRESS", "PARTIALLY_RECEIVED"] };
   else if (statusParam && (JOB_STATUSES as readonly string[]).includes(statusParam)) where.status = statusParam as JobStatus;
   if (q) {
-    const ci = { contains: q, mode: "insensitive" as const };
-    where.OR = [{ jobNumber: ci }, { client: { name: ci } }, { product: { name: ci } }, { items: { some: { designName: ci } } }, { notes: ci }];
+    const [clientIds, productIds, itemIds] = await Promise.all([clientIdsNamed(db, q), productIdsNamed(db, q), itemIdsWhere(db, { designName: ci(q) })]);
+    where.$or = [{ jobNumber: ci(q) }, { clientId: { $in: clientIds } }, { productId: { $in: productIds } }, { "items._id": { $in: itemIds } }, { notes: ci(q) }];
   }
-  let rows = (await loadJobs(prisma, where)).map((j) => toJobRow(j));
+  let rows = (await loadJobs(db, where)).map((j) => toJobRow(j));
   if (statusParam === "overdue") rows = rows.filter((r) => r.overdue);
   if (req.query.pending === "true") rows = rows.filter((r) => r.totals.pending > 0);
   res.json(rows);

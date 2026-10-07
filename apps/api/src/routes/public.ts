@@ -1,4 +1,4 @@
-import { prisma } from "@av/db";
+import { db } from "@av/db";
 import type { PublicChallan } from "@av/shared";
 import { Router } from "express";
 import { verifyReceipt } from "../lib/signed-link.js";
@@ -24,7 +24,7 @@ publicRouter.use((_req, res, next) => {
  */
 publicRouter.get("/challans/:token", async (req, res) => {
   const token = String(req.params.token ?? "").toLowerCase();
-  const job = TOKEN.test(token) ? await prisma.job.findUnique({ where: { publicToken: token }, select: { id: true } }) : null;
+  const job = TOKEN.test(token) ? await db.job.findOne({ publicToken: token }, { select: "_id" }) : null;
   if (!job) return res.status(404).json({ message: "This challan link is not valid. Please ask for a new QR code." });
 
   const [d, business] = await Promise.all([getJobDetail(job.id), getSettings()]);
@@ -77,12 +77,12 @@ const BAD_LINK = { message: "This receipt link is not valid. Please ask for the 
 
 publicRouter.get("/receipts/return/:token", async (req, res) => {
   const id = verifyReceipt("return", String(req.params.token ?? ""));
-  if (!id || !(await prisma.return.count({ where: { id } }))) return res.status(404).json(BAD_LINK);
+  if (!id || !(await db.return.exists({ _id: id }))) return res.status(404).json(BAD_LINK);
   sendPdf(res, await returnReceiptPdf(id));
 });
 
 publicRouter.get("/receipts/issue/:token", async (req, res) => {
   const id = verifyReceipt("issue", String(req.params.token ?? ""));
-  if (!id || !(await prisma.dispatch.count({ where: { id } }))) return res.status(404).json(BAD_LINK);
+  if (!id || !(await db.dispatch.exists({ _id: id }))) return res.status(404).json(BAD_LINK);
   sendPdf(res, await issueReceiptPdf(id));
 });

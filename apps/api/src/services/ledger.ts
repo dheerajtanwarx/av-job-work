@@ -1,4 +1,4 @@
-import { Prisma, type DB } from "@av/db";
+import { all, type DB } from "@av/db";
 import {
   allocatePayments,
   dayOf,
@@ -10,24 +10,36 @@ import {
   type PaymentTerms,
   type ReturnPayment,
 } from "@av/shared";
+import { roundHalfUp } from "../lib/mongo.js";
 
 /**
- * Data access for every derived figure. Quantities and values are aggregated in SQL (one grouped query per
- * source table, however many challans) and handed to the pure functions in @av/shared/calc.
+ * Data access for every derived figure. Quantities and values are aggregated in MongoDB (one grouped pipeline
+ * per source collection, however many challans) and handed to the pure functions in @av/shared/calc.
  * Nothing here is cached or stored, so a change to any dispatch, return or voucher is reflected everywhere.
  */
 
-/** Prisma Decimal / number / null → number. */
-export function num(d: Prisma.Decimal | number | string | null | undefined): number {
+/** Stored quantity (already a number when read through @av/db) / null → number. */
+export function num(d: number | string | null | undefined): number {
   if (d === null || d === undefined) return 0;
-  if (typeof d === "number") return d;
-  if (typeof d === "string") return Number(d);
-  return d.toNumber();
+  return typeof d === "number" ? d : Number(d);
 }
 
-/** SQL for the payable quantity and value of a ReturnLine aliased `rl`. Mirrors payableQty()/returnLineValue(). */
-export const PAYABLE_SQL = Prisma.sql`(rl."okQty" + CASE WHEN rl."payDamaged" THEN rl."damagedQty" ELSE 0 END + CASE WHEN rl."payRejected" THEN rl."rejectedQty" ELSE 0 END + CASE WHEN rl."payLost" THEN rl."lostQty" ELSE 0 END)`;
-export const VALUE_SQL = Prisma.sql`ROUND(${PAYABLE_SQL} * rl."ratePaise")`;
+/**
+ * Pipeline expression for the payable quantity of a return line (`l` = "$lines" after $unwind, or "$$l" in $map).
+ * Mirrors payableQty(). Exact: quantities are Decimal128.
+ */
+export const payableExpr = (l = "$lines") => ({
+  $add: [
+    `${l}.okQty`,
+    { $cond: [`${l}.payDamaged`, `${l}.damagedQty`, 0] },
+    { $cond: [`${l}.payRejected`, `${l}.rejectedQty`, 0] },
+    { $cond: [`${l}.payLost`, `${l}.lostQty`, 0] },
+  ],
+});
+/** round(payable × return rate) for one return line, rounded per line like returnLineValue(). */
+export const valueExpr = (l = "$lines") => roundHalfUp({ $multiply: [payableExpr(l), `${l}.ratePaise`] });
+/** Σ line values of a whole return document (0 when it has no lines). */
+export const returnValueExpr = () => ({ $sum: { $map: { input: "$lines", as: "l", in: valueExpr("$$l") } } });
 
 export interface ItemAgg {
   initialSent: number;
@@ -63,24 +75,37 @@ export async function itemAggregates(db: DB, jobIds: string[]): Promise<Map<stri
     if (!a) out.set(id, (a = emptyAgg()));
     return a;
   };
-  const [dispatched, returned, billed] = await Promise.all([
-    db.$queryRaw<{ id: string; kind: string; q: number }[]>`
-      SELECT dl."jobItemId" AS id, d.kind::text AS kind, SUM(dl.qty)::float8 AS q
-      FROM "DispatchLine" dl JOIN "Dispatch" d ON d.id = dl."dispatchId"
-      WHERE d."voidedAt" IS NULL AND d."jobId" = ANY(${jobIds}::text[])
-      GROUP BY 1, 2`,
-    db.$queryRaw<{ id: string; ok: number; damaged: number; rejected: number; lost: number; payable: number; value: number }[]>`
-      SELECT rl."jobItemId" AS id, SUM(rl."okQty")::float8 AS ok, SUM(rl."damagedQty")::float8 AS damaged,
-        SUM(rl."rejectedQty")::float8 AS rejected, SUM(rl."lostQty")::float8 AS lost,
-        SUM(${PAYABLE_SQL})::float8 AS payable, SUM(${VALUE_SQL})::float8 AS value
-      FROM "ReturnLine" rl JOIN "Return" r ON r.id = rl."returnId"
-      WHERE r."voidedAt" IS NULL AND r."jobId" = ANY(${jobIds}::text[])
-      GROUP BY 1`,
-    db.$queryRaw<{ id: string; q: number }[]>`
-      SELECT sl."jobItemId" AS id, SUM(sl.qty)::float8 AS q
-      FROM "SubBillLine" sl JOIN "SubBill" sb ON sb.id = sl."subBillId"
-      WHERE sb."voidedAt" IS NULL AND sb."jobId" = ANY(${jobIds}::text[])
-      GROUP BY 1`,
+  const live = { jobId: { $in: jobIds }, voidedAt: null };
+  const [dispatched, returned, billed] = await all([
+    () =>
+      db.dispatch.aggregate<{ id: string; kind: string; q: number }>([
+        { $match: live },
+        { $unwind: "$lines" },
+        { $group: { _id: { id: "$lines.jobItemId", kind: "$kind" }, q: { $sum: "$lines.qty" } } },
+        { $project: { _id: 0, id: "$_id.id", kind: "$_id.kind", q: 1 } },
+      ]),
+    () =>
+      db.return.aggregate<{ id: string; ok: number; damaged: number; rejected: number; lost: number; payable: number; value: number }>([
+        { $match: live },
+        { $unwind: "$lines" },
+        {
+          $group: {
+            _id: "$lines.jobItemId",
+            ok: { $sum: "$lines.okQty" },
+            damaged: { $sum: "$lines.damagedQty" },
+            rejected: { $sum: "$lines.rejectedQty" },
+            lost: { $sum: "$lines.lostQty" },
+            payable: { $sum: payableExpr() },
+            value: { $sum: valueExpr() },
+          },
+        },
+      ]),
+    () =>
+      db.subBill.aggregate<{ id: string; q: number }>([
+        { $match: live },
+        { $unwind: "$lines" },
+        { $group: { _id: "$lines.jobItemId", q: { $sum: "$lines.qty" } } },
+      ]),
   ]);
   for (const d of dispatched) {
     const a = get(d.id);
@@ -105,20 +130,21 @@ export async function itemAggregates(db: DB, jobIds: string[]): Promise<Map<stri
 export async function jobAggregates(db: DB, jobIds: string[]): Promise<Map<string, JobAgg>> {
   const out = new Map<string, JobAgg>(jobIds.map((id) => [id, { paidPaise: 0, voucherCount: 0, returnCount: 0, firstReturnDate: null, lastReturnDate: null }]));
   if (!jobIds.length) return out;
-  const [paid, rets] = await Promise.all([
-    db.subBill.groupBy({ by: ["jobId"], where: { jobId: { in: jobIds }, voidedAt: null }, _sum: { amountPaise: true }, _count: true }),
-    db.return.groupBy({ by: ["jobId"], where: { jobId: { in: jobIds }, voidedAt: null }, _count: true, _min: { date: true }, _max: { date: true } }),
+  const live = { $match: { jobId: { $in: jobIds }, voidedAt: null } };
+  const [paid, rets] = await all([
+    () => db.subBill.aggregate<{ id: string; paid: number; n: number }>([live, { $group: { _id: "$jobId", paid: { $sum: "$amountPaise" }, n: { $sum: 1 } } }]),
+    () => db.return.aggregate<{ id: string; n: number; first: Date; last: Date }>([live, { $group: { _id: "$jobId", n: { $sum: 1 }, first: { $min: "$date" }, last: { $max: "$date" } } }]),
   ]);
   for (const p of paid) {
-    const a = out.get(p.jobId)!;
-    a.paidPaise = p._sum.amountPaise ?? 0;
-    a.voucherCount = p._count;
+    const a = out.get(p.id)!;
+    a.paidPaise = p.paid;
+    a.voucherCount = p.n;
   }
   for (const r of rets) {
-    const a = out.get(r.jobId)!;
-    a.returnCount = r._count;
-    a.firstReturnDate = r._min.date ? dayOf(r._min.date) : null;
-    a.lastReturnDate = r._max.date ? dayOf(r._max.date) : null;
+    const a = out.get(r.id)!;
+    a.returnCount = r.n;
+    a.firstReturnDate = r.first ? dayOf(r.first) : null;
+    a.lastReturnDate = r.last ? dayOf(r.last) : null;
   }
   return out;
 }
@@ -126,7 +152,7 @@ export async function jobAggregates(db: DB, jobIds: string[]): Promise<Map<strin
 // ───────────────────────── Payment terms ─────────────────────────
 
 export async function defaultTerms(db: DB): Promise<PaymentTerms & { payDamaged: boolean; payRejected: boolean; payLost: boolean }> {
-  const s = await db.settings.upsert({ where: { id: 1 }, update: {}, create: { id: 1 } });
+  const s = (await db.settings.update({ _id: 1 }, { $setOnInsert: {} }, { upsert: true }))!;
   return {
     policy: s.defaultPaymentPolicy as PaymentPolicy,
     days: s.defaultPaymentDays,
@@ -160,19 +186,21 @@ export interface ReturnMoney extends ReturnPayment {
 export async function returnMoney(db: DB, jobIds: string[], today: string): Promise<Map<string, ReturnMoney>> {
   const out = new Map<string, ReturnMoney>();
   if (!jobIds.length) return out;
-  const [jobs, values, vouchers, defaults] = await Promise.all([
-    db.job.findMany({
-      where: { id: { in: jobIds } },
-      select: { id: true, status: true, completedAt: true, paymentPolicy: true, paymentDays: true, client: { select: { paymentPolicy: true, paymentDays: true } } },
-    }),
-    db.$queryRaw<{ id: string; jobId: string; date: Date; receivedAt: Date; value: number }[]>`
-      SELECT r.id, r."jobId", r.date, r."receivedAt", COALESCE(SUM(${VALUE_SQL}), 0)::float8 AS value
-      FROM "Return" r LEFT JOIN "ReturnLine" rl ON rl."returnId" = r.id
-      WHERE r."voidedAt" IS NULL AND r."jobId" = ANY(${jobIds}::text[])
-      GROUP BY r.id
-      ORDER BY r.date, r."receivedAt"`,
-    db.subBill.findMany({ where: { jobId: { in: jobIds }, voidedAt: null }, select: { jobId: true, amountPaise: true, returnId: true }, orderBy: [{ date: "asc" }, { createdAt: "asc" }] }),
-    defaultTerms(db),
+  type JobTerms = { id: string; status: string; completedAt: Date | null; paymentPolicy: PaymentPolicy | null; paymentDays: number | null; client: { paymentPolicy: PaymentPolicy | null; paymentDays: number | null } };
+  const [jobs, values, vouchers, defaults] = await all([
+    () =>
+      db.job.find<JobTerms>(
+        { _id: { $in: jobIds } },
+        { select: "status completedAt paymentPolicy paymentDays clientId", populate: { path: "client", select: "paymentPolicy paymentDays" } },
+      ),
+    () =>
+      db.return.aggregate<{ id: string; jobId: string; date: Date; receivedAt: Date; value: number }>([
+        { $match: { jobId: { $in: jobIds }, voidedAt: null } },
+        { $sort: { date: 1, receivedAt: 1 } },
+        { $project: { jobId: 1, date: 1, receivedAt: 1, value: returnValueExpr() } },
+      ]),
+    () => db.subBill.find<{ jobId: string; amountPaise: number; returnId: string | null }>({ jobId: { $in: jobIds }, voidedAt: null }, { select: "jobId amountPaise returnId", sort: { date: 1, createdAt: 1 } }),
+    () => defaultTerms(db),
   ]);
   const byJob = new Map<string, typeof values>();
   for (const v of values) byJob.set(v.jobId, [...(byJob.get(v.jobId) ?? []), v]);

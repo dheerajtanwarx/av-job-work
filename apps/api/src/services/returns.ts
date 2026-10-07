@@ -1,4 +1,4 @@
-import { prisma, type Prisma } from "@av/db";
+import { all, db, isDuplicateKey, transaction, type Filter, type Return } from "@av/db";
 import {
   exceedsPending,
   formatINR,
@@ -23,10 +23,12 @@ import { HttpError, notFound, unprocessable } from "../lib/http.js";
 import { MANAGERS } from "../middleware/auth.js";
 import { emailSubBill } from "./bill-email.js";
 import { createVoucherTx, getSettings, getSubBill, voucherFromReturn } from "./billing.js";
-import { type Actor, getJobDetail, loadJob, recomputeJobStatus, subBillRowInclude, summarizeJobItems, toSubBillRow } from "./jobs.js";
+import { type Actor, getJobDetail, loadJob, recomputeJobStatus, subBillRowPopulate, summarizeJobItems, toSubBillRow, type SubBillWithRow } from "./jobs.js";
 import { defaultTerms, num, termsFor } from "./ledger.js";
-import { photoInclude, toPhotoViews } from "./photo-views.js";
-import { lineNumbers, loadReturnRows, returnRowInclude, toReturnRows } from "./return-rows.js";
+import { ci, range } from "../lib/mongo.js";
+import { itemIdsWhere, jobIdsMatching, jobIdsWhere } from "./lookups.js";
+import { findPhotos, toPhotoViews } from "./photo-views.js";
+import { findReturnsWithRows, lineNumbers, loadReturnRows, toReturnRows } from "./return-rows.js";
 
 const canOverride = (actor?: Actor) => !actor || MANAGERS.includes(actor.role as never);
 
@@ -41,15 +43,40 @@ const flagNames = (f: { payDamaged: boolean; payRejected: boolean; payLost: bool
 
 export async function createReturn(jobId: string, input: z.output<typeof returnCreateSchema>, actor?: Actor): Promise<ReturnResult> {
   const userId = actor?.id;
-  const defaults = await defaultTerms(prisma);
+  const defaults = await defaultTerms(db);
   if (input.idempotencyKey) {
-    const existing = await prisma.return.findUnique({ where: { idempotencyKey: input.idempotencyKey }, select: { id: true, jobId: true } });
+    const existing = await db.return.findOne({ idempotencyKey: input.idempotencyKey }, { select: "jobId" });
     if (existing) {
       if (existing.jobId !== jobId) throw unprocessable("This form was already used for another challan. Reload and try again.");
       return existingReturnResult(existing.id, defaults);
     }
   }
-  const result = await prisma.$transaction(async (tx) => {
+  let result: Awaited<ReturnType<typeof recordReturn>>;
+  try {
+    result = await recordReturn(jobId, input, defaults, actor);
+  } catch (e) {
+    // A second submit of the same form raced the first one past the check above: answer with the first one's result.
+    if (input.idempotencyKey && isDuplicateKey(e, "idempotencyKey")) {
+      const existing = await db.return.findOne({ idempotencyKey: input.idempotencyKey }, { select: "jobId" });
+      if (existing && existing.jobId === jobId) return existingReturnResult(existing.id, defaults);
+    }
+    throw e;
+  }
+
+  let voucher: SubBillWithEmail | null = null;
+  if (result.voucherId) {
+    const email = await emailSubBill(result.voucherId, userId, { auto: true });
+    voucher = { ...(await getSubBill(result.voucherId)), email };
+  }
+  const [job, rows] = await all([() => getJobDetail(jobId), () => loadReturnRows(db, { _id: result.id }, today())]);
+  const terms = termsFor(result.job as never, result.job.client as never, defaults);
+  const { voucherId: _v, job: _j, ...rest } = result;
+  return { ...rest, job, terms, billingPolicy: terms.policy, payment: rows[0]?.payment ?? null, voucher, warnings: [] };
+}
+
+async function recordReturn(jobId: string, input: z.output<typeof returnCreateSchema>, defaults: Awaited<ReturnType<typeof defaultTerms>>, actor?: Actor) {
+  const userId = actor?.id;
+  return transaction(async (tx) => {
     const job = await loadJob(tx, jobId);
     const items = new Map(summarizeJobItems(job).map((i) => [i.id, i]));
     if ([...items.values()].every((i) => i.sent === 0)) throw unprocessable("Nothing has been issued on this challan yet");
@@ -79,7 +106,6 @@ export async function createReturn(jobId: string, input: z.output<typeof returnC
 
     const returnNumber = await nextNumber(tx, "return", "RET");
     const r = await tx.return.create({
-      data: {
         returnNumber,
         jobId,
         date: toDate(input.date),
@@ -87,8 +113,7 @@ export async function createReturn(jobId: string, input: z.output<typeof returnC
         idempotencyKey: input.idempotencyKey,
         notes: input.notes,
         enteredById: userId,
-        lines: {
-          create: lines.map(({ l, flags, overridden, ratePaise }) => ({
+        lines: lines.map(({ l, flags, overridden, ratePaise }) => ({
             jobItemId: l.jobItemId,
             okQty: l.okQty,
             damagedQty: l.damagedQty,
@@ -99,9 +124,6 @@ export async function createReturn(jobId: string, input: z.output<typeof returnC
             payOverrideReason: overridden ? l.payOverrideReason : null,
             exceptionReason: l.exceptionReason,
           })),
-        },
-      },
-      include: { lines: { select: { id: true, jobItemId: true } } },
     });
     const receivedNow = roundQty(lines.reduce((s, x) => s + returnLineTotal(x.l), 0));
     const okNow = roundQty(lines.reduce((s, x) => s + x.l.okQty, 0));
@@ -139,27 +161,19 @@ export async function createReturn(jobId: string, input: z.output<typeof returnC
     if (input.payment && input.payment.amountPaise > 0) {
       voucherId = (await createVoucherTx(tx, voucherFromReturn(jobId, r.id, input.date, input.payment), actor)).id;
     }
-    return { id: r.id, returnNumber, receivedAt: r.receivedAt.toISOString(), lines: r.lines, duplicate: false, receivedNow, okNow, okValueNowPaise: valueNow, justCompleted: status === "COMPLETED" && previous !== "COMPLETED", voucherId, job };
+    const outLines = r.lines.map((l) => ({ id: l.id, jobItemId: l.jobItemId }));
+    return { id: r.id, returnNumber, receivedAt: r.receivedAt.toISOString(), lines: outLines, duplicate: false as const, receivedNow, okNow, okValueNowPaise: valueNow, justCompleted: status === "COMPLETED" && previous !== "COMPLETED", voucherId, job };
   });
-
-  let voucher: SubBillWithEmail | null = null;
-  if (result.voucherId) {
-    const email = await emailSubBill(result.voucherId, userId, { auto: true });
-    voucher = { ...(await getSubBill(result.voucherId)), email };
-  }
-  const [job, rows] = await Promise.all([getJobDetail(jobId), loadReturnRows(prisma, { id: result.id }, today())]);
-  const terms = termsFor(result.job as never, result.job.client as never, defaults);
-  const { voucherId: _v, job: _j, ...rest } = result;
-  return { ...rest, job, terms, billingPolicy: terms.policy, payment: rows[0]?.payment ?? null, voucher, warnings: [] };
 }
 
 /** The result for a return that was already recorded by an earlier submit of the same form. */
 async function existingReturnResult(id: string, defaults: Awaited<ReturnType<typeof defaultTerms>>): Promise<ReturnResult> {
-  const r = await prisma.return.findUniqueOrThrow({ where: { id }, include: { lines: true, subBills: { where: { voidedAt: null }, select: { id: true }, take: 1 } } });
-  const [job, rows, base] = await Promise.all([getJobDetail(r.jobId), loadReturnRows(prisma, { id }, today()), loadJob(prisma, r.jobId)]);
+  const r = (await db.return.findById(id))!;
+  const firstVoucher = await db.subBill.findOne({ returnId: id, voidedAt: null }, { select: "_id" });
+  const [job, rows, base] = await all([() => getJobDetail(r.jobId), () => loadReturnRows(db, { _id: id }, today()), () => loadJob(db, r.jobId)]);
   const nums = r.lines.map((l) => ({ okQty: num(l.okQty), damagedQty: num(l.damagedQty), rejectedQty: num(l.rejectedQty), lostQty: num(l.lostQty) }));
   const terms = termsFor(base as never, base.client as never, defaults);
-  const voucherId = r.subBills[0]?.id;
+  const voucherId = firstVoucher?.id;
   return {
     id,
     returnNumber: r.returnNumber,
@@ -183,12 +197,12 @@ async function existingReturnResult(id: string, defaults: Awaited<ReturnType<typ
 
 export async function updateReturn(returnId: string, input: z.output<typeof returnUpdateSchema>, actor?: Actor) {
   const userId = actor?.id;
-  const r = await prisma.return.findUnique({ where: { id: returnId }, include: { lines: true } });
+  const r = await db.return.findById(returnId);
   if (!r) throw notFound("Return");
   if (r.voidedAt) throw unprocessable("A voided return can't be edited");
   const warnings: string[] = [];
 
-  await prisma.$transaction(async (tx) => {
+  await transaction(async (tx) => {
     const job = await loadJob(tx, r.jobId);
     const items = new Map(summarizeJobItems(job).map((i) => [i.id, i]));
     const changes: string[] = [];
@@ -223,29 +237,31 @@ export async function updateReturn(returnId: string, input: z.output<typeof retu
       changes.push(`${it.designName}: ${diff.join(", ")}`);
       before.push({ design: it.designName, ...curQ, ratePaise: cur.ratePaise, payDamaged: cur.payDamaged, payRejected: cur.payRejected, payLost: cur.payLost });
       after.push({ design: it.designName, okQty: nl.okQty, damagedQty: nl.damagedQty, rejectedQty: nl.rejectedQty, lostQty: nl.lostQty, ratePaise: nl.ratePaise, ...flags });
-      await tx.returnLine.update({
-        where: { id: cur.id },
-        data: {
-          okQty: nl.okQty,
-          damagedQty: nl.damagedQty,
-          rejectedQty: nl.rejectedQty,
-          lostQty: nl.lostQty,
-          ratePaise: nl.ratePaise,
-          ...flags,
-          payOverrideReason: flagsChanged ? input.reason : cur.payOverrideReason,
-          exceptionReason,
-        },
-      });
+      const data = {
+        okQty: nl.okQty,
+        damagedQty: nl.damagedQty,
+        rejectedQty: nl.rejectedQty,
+        lostQty: nl.lostQty,
+        ratePaise: nl.ratePaise,
+        ...flags,
+        payOverrideReason: flagsChanged ? input.reason : cur.payOverrideReason,
+        exceptionReason,
+      };
+      await tx.return.model.updateOne(
+        { _id: returnId },
+        { $set: Object.fromEntries(Object.entries(data).map(([k, v]) => [`lines.$[l].${k}`, v])) },
+        { arrayFilters: [{ "l._id": cur.id }] },
+      );
     }
 
-    const header: Prisma.ReturnUpdateInput = {};
+    const header: Partial<Pick<Return, "date" | "notes">> = {};
     if (input.date && input.date !== r.date.toISOString().slice(0, 10)) {
       changes.push(`date ${r.date.toISOString().slice(0, 10)} → ${input.date}`);
       header.date = toDate(input.date);
     }
     if (input.notes !== undefined && input.notes !== r.notes) header.notes = input.notes;
     if (!changes.length && !Object.keys(header).length) return;
-    await tx.return.update({ where: { id: returnId }, data: { ...header, ...editedBy(userId) } });
+    await tx.return.update(returnId, { ...header, ...editedBy(userId) });
 
     if (changes.length) {
       const summary = `${r.returnNumber} edited – ${changes.join("; ")}`;
@@ -267,11 +283,12 @@ export async function updateReturn(returnId: string, input: z.output<typeof retu
 }
 
 export async function voidReturn(returnId: string, reason: string, actor?: Actor) {
-  const r = await prisma.return.findUnique({ where: { id: returnId } });
+  const r = await db.return.findById(returnId);
   if (!r) throw notFound("Return");
   if (r.voidedAt) throw unprocessable("This return is already voided");
-  await prisma.$transaction(async (tx) => {
-    await tx.return.update({ where: { id: returnId }, data: { voidedAt: new Date(), voidReason: reason } });
+  await transaction(async (tx) => {
+    // Re-checked inside the transaction so two concurrent voids can't both go through.
+    if (!(await tx.return.update({ _id: returnId, voidedAt: null }, { voidedAt: new Date(), voidReason: reason }))) throw unprocessable("This return is already voided");
     const job = await loadJob(tx, r.jobId);
     for (const it of summarizeJobItems(job)) {
       if (it.billedQty > it.ok + 1e-9) throw unprocessable(`${it.designName}: these pieces are already paid for by quantity. Void the payment voucher first.`);
@@ -285,22 +302,19 @@ export async function voidReturn(returnId: string, reason: string, actor?: Actor
 // ───────────────────────── Read ─────────────────────────
 
 export async function getReturn(returnId: string): Promise<ReturnDetail> {
-  const r = await prisma.return.findUnique({ where: { id: returnId }, include: returnRowInclude });
+  const [r] = await findReturnsWithRows(db, { _id: returnId });
   if (!r) throw notFound("Return");
   const now = today();
-  const [[row], job, photos, vouchers, history, business] = await Promise.all([
-    toReturnRows(prisma, [r], now),
-    loadJob(prisma, r.jobId),
-    prisma.returnPhoto.findMany({ where: { returnId }, include: photoInclude, orderBy: { createdAt: "asc" } }),
-    prisma.subBill.findMany({ where: { returnId }, include: subBillRowInclude, orderBy: { createdAt: "asc" } }),
-    prisma.auditLog.findMany({
-      where: { OR: [{ entity: "Return", entityId: returnId }, { entity: "ReturnPhoto", after: { path: ["returnId"], equals: returnId } }] },
-      orderBy: { createdAt: "asc" },
-    }),
-    getSettings(),
+  const [[row], job, photos, vouchers, history, business] = await all([
+    () => toReturnRows(db, [r], now),
+    () => loadJob(db, r.jobId),
+    () => findPhotos(db, { returnId }, { sort: { createdAt: 1 } }),
+    () => db.subBill.find<SubBillWithRow>({ returnId }, { populate: subBillRowPopulate, sort: { createdAt: 1 } }),
+    () => db.auditLog.find({ $or: [{ entity: "Return", entityId: returnId }, { entity: "ReturnPhoto", "after.returnId": returnId }] }, { sort: { createdAt: 1 } }),
+    () => getSettings(),
   ]);
   const items = new Map(summarizeJobItems(job).map((i) => [i.id, i]));
-  const names = await userNames(prisma, [...history.map((h) => h.userId), ...vouchers.map((v) => v.enteredById)]);
+  const names = await userNames(db, [...history.map((h) => h.userId), ...vouchers.map((v) => v.enteredById)]);
   return {
     ...row,
     notes: r.notes,
@@ -330,7 +344,7 @@ export async function getReturn(returnId: string): Promise<ReturnDetail> {
         pendingBefore: r.voidedAt ? it.pending : roundQty(it.sent - (it.accounted - n.total)),
       };
     }),
-    photos: await toPhotoViews(prisma, photos),
+    photos: await toPhotoViews(db, photos),
     vouchers: vouchers.map((v) => toSubBillRow(v, undefined, names)),
     history: history.map((h) => ({ at: h.createdAt.toISOString(), action: h.action, summary: h.summary, reason: h.reason, user: h.userId ? (names.get(h.userId) ?? null) : null })),
     business,
@@ -351,30 +365,32 @@ export interface ReturnListFilter {
   take?: number;
 }
 
-export function returnWhere(f: ReturnListFilter): Prisma.ReturnWhereInput {
-  const where: Prisma.ReturnWhereInput = {
-    jobId: f.jobId,
-    voidedAt: f.includeVoided ? undefined : null,
-    date: f.from || f.to ? { gte: f.from ? toDate(f.from) : undefined, lte: f.to ? toDate(f.to) : undefined } : undefined,
-    job: { clientId: f.clientId, productId: f.productId },
-  };
-  const lineFilter: Prisma.ReturnLineWhereInput = {};
-  if (f.designId) lineFilter.jobItem = { designId: f.designId };
-  if (f.jobWorkTypeId) lineFilter.jobItem = { ...(lineFilter.jobItem as object), jobWorkTypeId: f.jobWorkTypeId };
-  if (Object.keys(lineFilter).length) where.lines = { some: lineFilter };
+export async function returnWhere(f: ReturnListFilter): Promise<Filter> {
+  const and: Filter[] = [];
+  if (f.jobId) and.push({ jobId: f.jobId });
+  if (!f.includeVoided) and.push({ voidedAt: null });
+  if (f.from || f.to) and.push({ date: range(f.from ? toDate(f.from) : null, f.to ? toDate(f.to) : null) });
+  if (f.clientId || f.productId) and.push({ jobId: { $in: await jobIdsWhere(db, { clientId: f.clientId, productId: f.productId }) } });
+  if (f.designId || f.jobWorkTypeId) and.push({ "lines.jobItemId": { $in: await itemIdsWhere(db, { designId: f.designId, jobWorkTypeId: f.jobWorkTypeId }) } });
   if (f.q) {
-    const ci = { contains: f.q, mode: "insensitive" as const };
-    where.OR = [{ returnNumber: ci }, { job: { jobNumber: ci } }, { job: { client: { name: ci } } }, { lines: { some: { jobItem: { designName: ci } } } }, { notes: ci }];
+    and.push({
+      $or: [
+        { returnNumber: ci(f.q) },
+        { jobId: { $in: await jobIdsMatching(db, f.q) } },
+        { "lines.jobItemId": { $in: await itemIdsWhere(db, { designName: ci(f.q) }) } },
+        { notes: ci(f.q) },
+      ],
+    });
   }
-  return where;
+  return and.length ? { $and: and } : {};
 }
 
 /** Returns, newest arrival first, paginated. */
 export async function listReturns(f: ReturnListFilter) {
-  const where = returnWhere(f);
-  const [total, rows] = await Promise.all([
-    prisma.return.count({ where }),
-    loadReturnRows(prisma, where, today(), { orderBy: [{ date: "desc" }, { receivedAt: "desc" }], skip: f.skip, take: f.take ?? 50 }),
+  const where = await returnWhere(f);
+  const [total, rows] = await all([
+    () => db.return.count(where),
+    () => loadReturnRows(db, where, today(), { sort: { date: -1, receivedAt: -1 }, skip: f.skip, take: f.take ?? 50 }),
   ]);
   return { total, rows };
 }

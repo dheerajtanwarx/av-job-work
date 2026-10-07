@@ -1,7 +1,7 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { prisma } from "@av/db";
+import { db } from "@av/db";
 import type { Client } from "@av/shared";
 import bcrypt from "bcryptjs";
 import sharp from "sharp";
@@ -26,14 +26,13 @@ beforeAll(async () => {
   await resetDb();
   image = await jpeg();
   owner = await loggedInAgent();
-  await prisma.user.create({ data: { email: "staff@example.com", name: "Staff", role: "SUB_OWNER", passwordHash: await bcrypt.hash("secret", 4) } });
+  await db.user.create({ email: "staff@example.com", name: "Staff", role: "SUB_OWNER", passwordHash: await bcrypt.hash("secret", 4) });
   staff = request.agent(createApp());
   await staff.post("/auth/login").send({ email: "staff@example.com", password: "secret" }).expect(200);
   worker = (await owner.post("/clients").send({ name: "Rafeek", phone: "9887773095", workItems: "kacchi patti, pittan", address: "Khohnagori" }).expect(201)).body;
 });
 
 afterAll(async () => {
-  await prisma.$disconnect();
   rmSync(uploadDir, { recursive: true, force: true });
 });
 

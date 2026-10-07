@@ -1,4 +1,3 @@
-import { prisma } from "@av/db";
 import type { DashboardCharts, DashboardV2 } from "@av/shared";
 import type TestAgent from "supertest/lib/agent.js";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
@@ -17,7 +16,6 @@ beforeAll(async () => {
 
 afterAll(async () => {
   vi.useRealTimers();
-  await prisma.$disconnect();
 });
 
 describe("GET /dashboard", () => {

@@ -1,7 +1,6 @@
-import { prisma } from "@av/db";
 import type { ClientSummary, Dashboard, JobDetail, MainBillDetail, ReturnResult, SubBillDetail, UnpaidLine } from "@av/shared";
 import type TestAgent from "supertest/lib/agent.js";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it } from "vitest";
 import { loggedInAgent, resetDb, stockedMaterial } from "./helpers.js";
 
 /** Brief §25 – the critical acceptance scenario, end to end through the HTTP API. */
@@ -42,9 +41,6 @@ describe("acceptance: Sharma Embroidery / 100 plain blouses", () => {
     for (const it of job.items) item[it.designName] = it.id;
   });
 
-  afterAll(async () => {
-    await prisma.$disconnect();
-  });
 
   const ret = (date: string, lines: [string, number][], extra: Record<string, unknown> = {}) =>
     api.post(`/jobs/${job.id}/returns`).send({ date, lines: lines.map(([n, okQty]) => ({ jobItemId: item[n], okQty, ...extra })) });

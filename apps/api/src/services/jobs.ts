@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import { prisma, type DB, type Prisma } from "@av/db";
+import { all, db, newId, transaction, type Client, type DB, type Filter, type Job, type JobItem, type MainBill, type Populate, type SubBill } from "@av/db";
 import {
   agingBucket,
   dayOf,
@@ -41,40 +41,59 @@ export interface Actor {
   role: string;
 }
 
-/** The challan header and design lines; quantities and money are attached from SQL aggregates. */
-export const jobInclude = {
-  client: { select: { id: true, name: true, paymentPolicy: true, paymentDays: true } },
-  product: { select: { id: true, name: true, unit: true } },
-  jobWorkType: { select: { id: true, name: true } },
-  items: {
-    orderBy: { sortOrder: "asc" },
-    include: {
-      design: { select: { code: true } },
-      material: { select: { id: true, code: true, name: true } },
-      jobWorkType: { select: { id: true, name: true } },
-      photos: { where: { removedAt: null }, select: { id: true, kind: true, originalName: true }, orderBy: [{ createdAt: "asc" }, { id: "asc" }] },
-    },
-  },
-} satisfies Prisma.JobInclude;
+/** The challan header and design lines; quantities and money are attached from aggregation pipelines. */
+export const jobPopulate: Populate = [
+  { path: "client", select: "name paymentPolicy paymentDays" },
+  { path: "product", select: "name unit" },
+  { path: "jobWorkType", select: "name" },
+  { path: "items.design", select: "code" },
+  { path: "items.material", select: "code name" },
+  { path: "items.jobWorkType", select: "name" },
+  { path: "items.photos", select: "kind originalName", match: { removedAt: null }, options: { sort: { createdAt: 1, _id: 1 } } },
+];
 
-type JobBase = Prisma.JobGetPayload<{ include: typeof jobInclude }>;
+type Named = { id: string; name: string };
+export type JobItemBase = JobItem & {
+  design: { id: string; code: string | null };
+  material: { id: string; code: string; name: string } | null;
+  jobWorkType: Named | null;
+  photos: { id: string; kind: "ITEM" | "DESIGN"; originalName: string | null }[];
+};
+export type JobBase = Omit<Job, "items"> & {
+  client: Pick<Client, "id" | "name" | "paymentPolicy" | "paymentDays">;
+  product: Named & { unit: Unit };
+  jobWorkType: Named | null;
+  items: JobItemBase[];
+};
 export type JobWithLedger = JobBase & { agg: JobAgg; itemAgg: Map<string, ItemAgg> };
+
+/** Missing optional relations come back as null (as the API has always returned them); design lines keep their order. */
+function shapeJob(j: JobBase): JobBase {
+  j.jobWorkType ??= null;
+  j.items.sort((a, b) => a.sortOrder - b.sortOrder);
+  for (const it of j.items) {
+    it.material = it.material ? { id: it.material.id, code: it.material.code, name: it.material.name } : null;
+    it.jobWorkType = it.jobWorkType ? { id: it.jobWorkType.id, name: it.jobWorkType.name } : null;
+    it.photos = (it.photos ?? []).map((p) => ({ id: p.id, kind: p.kind, originalName: p.originalName }));
+  }
+  return j;
+}
 
 export async function withLedgers(db: DB, jobs: JobBase[]): Promise<JobWithLedger[]> {
   const ids = jobs.map((j) => j.id);
-  const [items, agg] = await Promise.all([itemAggregates(db, ids), jobAggregates(db, ids)]);
+  const [items, agg] = await all([() => itemAggregates(db, ids), () => jobAggregates(db, ids)]);
   return jobs.map((j) => ({ ...j, agg: agg.get(j.id)!, itemAgg: items }));
 }
 
-export async function loadJobs(db: DB, where: Prisma.JobWhereInput = {}, opts: { skip?: number; take?: number } = {}) {
-  const jobs = await db.job.findMany({ where, include: jobInclude, orderBy: [{ jobDate: "desc" }, { createdAt: "desc" }], ...opts });
-  return withLedgers(db, jobs);
+export async function loadJobs(db: DB, where: Filter = {}, opts: { skip?: number; take?: number } = {}) {
+  const jobs = await db.job.find<JobBase>(where, { populate: jobPopulate, sort: { jobDate: -1, createdAt: -1 }, skip: opts.skip, limit: opts.take });
+  return withLedgers(db, jobs.map(shapeJob));
 }
 
 export async function loadJob(db: DB, id: string) {
-  const job = await db.job.findUnique({ where: { id }, include: jobInclude });
+  const job = await db.job.findById<JobBase>(id, { populate: jobPopulate });
   if (!job) throw notFound("Challan");
-  return (await withLedgers(db, [job]))[0];
+  return (await withLedgers(db, [shapeJob(job)]))[0];
 }
 
 export function summarizeJobItems(job: JobWithLedger): JobItemView[] {
@@ -132,10 +151,7 @@ export async function recomputeJobStatus(db: DB, jobId: string, userId?: string 
   const status = deriveJobStatus({ cancelled: !!job.cancelledAt, items, hasReturns: job.agg.returnCount > 0 });
   if (status !== job.status) {
     const becameComplete = status === "COMPLETED";
-    await db.job.update({
-      where: { id: jobId },
-      data: { status, completedAt: becameComplete ? new Date() : status === "CANCELLED" ? job.completedAt : null },
-    });
+    await db.job.update(jobId, { status, completedAt: becameComplete ? new Date() : status === "CANCELLED" ? job.completedAt : null });
     if (becameComplete || job.status === "COMPLETED") {
       await audit(db, {
         entity: "Job",
@@ -157,29 +173,29 @@ export async function recomputeJobStatus(db: DB, jobId: string, userId?: string 
  * is re-activated under the same number when the challan is settled again.
  */
 async function syncMainBill(db: DB, job: JobWithLedger, settled: boolean, qty: number, valuePaise: number, userId?: string | null) {
-  const existing = await db.mainBill.findUnique({ where: { jobId: job.id } });
+  const existing = await db.mainBill.findOne({ jobId: job.id });
   const active = existing && !existing.cancelledAt;
   if (!settled) {
     if (active) {
-      await db.mainBill.update({ where: { id: existing.id }, data: { cancelledAt: new Date(), cancelReason: "Challan is no longer fully paid" } });
+      await db.mainBill.update(existing.id, { cancelledAt: new Date(), cancelReason: "Challan is no longer fully paid" });
       await audit(db, { entity: "Job", entityId: job.id, action: "settlement", summary: `Final settlement ${existing.billNumber} cancelled – challan is no longer fully paid`, userId });
     }
     return;
   }
 
-  const last = await db.subBill.findFirst({ where: { jobId: job.id, voidedAt: null }, orderBy: [{ date: "desc" }, { createdAt: "desc" }], select: { date: true } });
+  const last = await db.subBill.findOne({ jobId: job.id, voidedAt: null }, { sort: { date: -1, createdAt: -1 }, select: "date" });
   const date = last?.date ?? new Date();
   if (active) {
-    if (existing.totalPaise !== valuePaise || num(existing.qty) !== qty) await db.mainBill.update({ where: { id: existing.id }, data: { totalPaise: valuePaise, qty, date } });
+    if (existing.totalPaise !== valuePaise || num(existing.qty) !== qty) await db.mainBill.update(existing.id, { totalPaise: valuePaise, qty, date });
     return;
   }
   if (existing) {
-    await db.mainBill.update({ where: { id: existing.id }, data: { cancelledAt: null, cancelReason: null, totalPaise: valuePaise, qty, date } });
+    await db.mainBill.update(existing.id, { cancelledAt: null, cancelReason: null, totalPaise: valuePaise, qty, date });
     await audit(db, { entity: "Job", entityId: job.id, action: "settlement", summary: `Final settlement ${existing.billNumber} re-issued for ₹${valuePaise / 100}`, userId });
     return;
   }
   const billNumber = await nextNumber(db, "mainBill", "MB");
-  await db.mainBill.create({ data: { billNumber, jobId: job.id, clientId: job.clientId, date, qty, totalPaise: valuePaise } });
+  await db.mainBill.create({ billNumber, jobId: job.id, clientId: job.clientId, date, qty, totalPaise: valuePaise });
   await audit(db, { entity: "Job", entityId: job.id, action: "settlement", summary: `Challan fully paid – final settlement ${billNumber} issued for ₹${valuePaise / 100}`, userId });
 }
 
@@ -193,15 +209,13 @@ function assertUnit(qty: number, unit: Unit, label: string) {
 
 export async function createJob(input: z.output<typeof jobCreateSchema>, actor?: Actor) {
   const userId = actor?.id;
-  const id = await prisma.$transaction(async (tx) => {
-    const client = await tx.client.findUnique({ where: { id: input.clientId } });
-    const product = await tx.product.findUnique({ where: { id: input.productId } });
+  const id = await transaction(async (tx) => {
+    const client = await tx.client.findById(input.clientId);
+    const product = await tx.product.findById(input.productId);
     if (!client) throw unprocessable("Choose a valid job worker");
     if (!product) throw unprocessable("Choose a valid product");
-    const [designs, materials] = await Promise.all([
-      tx.design.findMany({ where: { id: { in: input.items.map((i) => i.designId) } } }),
-      tx.material.findMany({ where: { id: { in: input.items.map((i) => i.materialId) } } }),
-    ]);
+    const designs = await tx.design.find({ _id: { $in: input.items.map((i) => i.designId) } });
+    const materials = await tx.material.find({ _id: { $in: input.items.map((i) => i.materialId) } });
     const byId = new Map(designs.map((d) => [d.id, d]));
     const matById = new Map(materials.map((m) => [m.id, m]));
     for (const it of input.items) {
@@ -214,7 +228,6 @@ export async function createJob(input: z.output<typeof jobCreateSchema>, actor?:
 
     const jobNumber = await nextNumber(tx, "job", "JW", 4);
     const job = await tx.job.create({
-      data: {
         jobNumber,
         clientId: input.clientId,
         productId: input.productId,
@@ -226,8 +239,7 @@ export async function createJob(input: z.output<typeof jobCreateSchema>, actor?:
         notes: input.notes,
         publicToken: newPublicToken(),
         createdById: userId,
-        items: {
-          create: input.items.map((it, idx) => ({
+        items: input.items.map((it, idx) => ({
             designId: it.designId,
             designName: byId.get(it.designId)!.name,
             materialId: it.materialId,
@@ -238,9 +250,6 @@ export async function createJob(input: z.output<typeof jobCreateSchema>, actor?:
             notes: it.notes,
             sortOrder: idx,
           })),
-        },
-      },
-      include: { items: true },
     });
     await audit(tx, {
       entity: "Job",
@@ -258,13 +267,11 @@ export async function createJob(input: z.output<typeof jobCreateSchema>, actor?:
         input.stockOverrideReason,
       );
       const d = await tx.dispatch.create({
-        data: {
-          jobId: job.id,
-          date: toDate(input.jobDate),
-          kind: "INITIAL",
-          enteredById: userId,
-          lines: { create: job.items.map((i) => ({ jobItemId: i.id, qty: i.quantity })) },
-        },
+        jobId: job.id,
+        date: toDate(input.jobDate),
+        kind: "INITIAL",
+        enteredById: userId,
+        lines: job.items.map((i) => ({ jobItemId: i.id, qty: i.quantity })),
       });
       await audit(tx, {
         entity: "Dispatch",
@@ -287,13 +294,13 @@ export async function createJob(input: z.output<typeof jobCreateSchema>, actor?:
 
 export async function updateJob(jobId: string, input: z.output<typeof jobUpdateSchema>, actor?: Actor) {
   const userId = actor?.id;
-  await prisma.$transaction(async (tx) => {
+  await transaction(async (tx) => {
     const job = await loadJob(tx, jobId);
     if (job.cancelledAt) throw unprocessable("This challan is cancelled and can't be edited");
     const items = summarizeJobItems(job);
     const started = items.some((i) => i.sent > 0) || job.agg.returnCount > 0;
 
-    const header: Prisma.JobUncheckedUpdateInput = {};
+    const header: Partial<Pick<Job, "clientId" | "productId" | "jobWorkTypeId" | "jobDate" | "expectedReturnDate" | "notes" | "paymentPolicy" | "paymentDays">> = {};
     if (input.clientId && input.clientId !== job.clientId) {
       if (job.agg.voucherCount > 0 || job.agg.returnCount > 0) throw unprocessable("This challan has returns or payments – the job worker can't be changed");
       header.clientId = input.clientId;
@@ -330,13 +337,11 @@ export async function updateJob(jobId: string, input: z.output<typeof jobUpdateS
     const FIELD: Record<string, string> = { clientId: "job worker", productId: "product", jobWorkTypeId: "job work type", jobDate: "challan date", expectedReturnDate: "expected return date", notes: "notes" };
     const fields = Object.keys(header).filter((k) => FIELD[k]).map((k) => FIELD[k]);
     if (fields.length) await audit(tx, { entity: "Job", entityId: jobId, action: "update", summary: `${job.jobNumber}: ${fields.join(", ")} changed${input.reason ? ` (Reason: ${input.reason})` : ""}`, reason: input.reason, userId });
-    if (Object.keys(header).length) await tx.job.update({ where: { id: jobId }, data: { ...header, ...editedBy(userId) } });
+    if (Object.keys(header).length) await tx.job.update(jobId, { ...header, ...editedBy(userId) });
 
     if (!input.items) return;
-    const [designs, materials] = await Promise.all([
-      tx.design.findMany({ where: { id: { in: input.items.map((i) => i.designId) } } }),
-      tx.material.findMany({ where: { id: { in: input.items.map((i) => i.materialId).filter((x): x is string => !!x) } } }),
-    ]);
+    const designs = await tx.design.find({ _id: { $in: input.items.map((i) => i.designId) } });
+    const materials = await tx.material.find({ _id: { $in: input.items.map((i) => i.materialId).filter((x): x is string => !!x) } });
     const designById = new Map(designs.map((d) => [d.id, d]));
     const matById = new Map(materials.map((m) => [m.id, m]));
     for (const it of input.items) if (!designById.has(it.designId)) throw unprocessable("One of the designs no longer exists");
@@ -350,26 +355,28 @@ export async function updateJob(jobId: string, input: z.output<typeof jobUpdateS
       }
       const before = items.map((i) => ({ design: i.designName, qty: i.quantity, rate: i.ratePaise }));
       const oldIds = items.map((i) => i.id);
+      // Old lines are about to disappear: refuse if any entry (even a voided one) still points at them.
+      const lineRef = { "lines.jobItemId": { $in: oldIds } };
+      if ((await tx.dispatch.exists(lineRef)) || (await tx.return.exists(lineRef)) || (await tx.subBill.exists(lineRef)))
+        throw unprocessable("This challan has entries recorded against its design lines – edit the lines one by one instead");
+      const newItems = input.items.map((it, idx) => ({
+        _id: newId(),
+        designId: it.designId,
+        designName: designById.get(it.designId)!.name,
+        materialId: it.materialId,
+        jobWorkTypeId: it.jobWorkTypeId ?? job.jobWorkTypeId ?? designById.get(it.designId)!.jobWorkTypeId,
+        unit: unitFor(it, "PCS"),
+        quantity: it.quantity,
+        ratePaise: it.ratePaise,
+        notes: it.notes ?? null,
+        sortOrder: idx,
+      }));
       for (const [idx, it] of input.items.entries()) {
-        const created = await tx.jobItem.create({
-          data: {
-            jobId,
-            designId: it.designId,
-            designName: designById.get(it.designId)!.name,
-            materialId: it.materialId,
-            jobWorkTypeId: it.jobWorkTypeId ?? job.jobWorkTypeId ?? designById.get(it.designId)!.jobWorkTypeId,
-            unit: unitFor(it, "PCS"),
-            quantity: it.quantity,
-            ratePaise: it.ratePaise,
-            notes: it.notes,
-            sortOrder: idx,
-          },
-        });
         // A kept line keeps its reference photos.
-        if (it.id && oldIds.includes(it.id)) await tx.jobItemPhoto.updateMany({ where: { jobItemId: it.id }, data: { jobItemId: created.id } });
+        if (it.id && oldIds.includes(it.id)) await tx.jobItemPhoto.updateMany({ jobItemId: it.id }, { jobItemId: newItems[idx]._id });
       }
-      await tx.jobItemPhoto.deleteMany({ where: { jobItemId: { in: oldIds } } });
-      await tx.jobItem.deleteMany({ where: { id: { in: oldIds } } });
+      await tx.jobItemPhoto.deleteMany({ jobItemId: { $in: oldIds } });
+      await tx.job.update(jobId, { $set: { items: newItems } });
       await audit(tx, {
         entity: "Job",
         entityId: jobId,
@@ -393,18 +400,19 @@ export async function updateJob(jobId: string, input: z.output<typeof jobUpdateS
         if (!it.materialId || !matById.has(it.materialId)) throw unprocessable(`${name}: choose the material`);
         const unit = unitFor(it, "PCS");
         assertUnit(it.quantity, unit, name);
-        await tx.jobItem.create({
-          data: {
-            jobId,
-            designId: it.designId,
-            designName: name,
-            materialId: it.materialId,
-            jobWorkTypeId: it.jobWorkTypeId ?? job.jobWorkTypeId,
-            unit,
-            quantity: it.quantity,
-            ratePaise: it.ratePaise,
-            notes: it.notes,
-            sortOrder: sortOrder++,
+        await tx.job.update(jobId, {
+          $push: {
+            items: {
+              designId: it.designId,
+              designName: name,
+              materialId: it.materialId,
+              jobWorkTypeId: it.jobWorkTypeId ?? job.jobWorkTypeId,
+              unit,
+              quantity: it.quantity,
+              ratePaise: it.ratePaise,
+              notes: it.notes ?? null,
+              sortOrder: sortOrder++,
+            },
           },
         });
         changes.push(`Added ${name} – ${it.quantity} ${unit} @ ₹${it.ratePaise / 100}`);
@@ -412,7 +420,7 @@ export async function updateJob(jobId: string, input: z.output<typeof jobUpdateS
       }
       const cur = byId.get(it.id);
       if (!cur) throw unprocessable("A design line doesn't belong to this challan");
-      const data: Prisma.JobItemUpdateInput = {};
+      const data: Partial<Pick<JobItem, "quantity" | "ratePaise" | "notes">> = {};
       if (it.quantity !== cur.quantity) {
         assertUnit(it.quantity, cur.unit, cur.designName);
         if (it.quantity < cur.initialSent) throw unprocessable(`${cur.designName}: ${cur.initialSent} ${cur.unit} already issued, quantity can't be lower than that`);
@@ -426,11 +434,14 @@ export async function updateJob(jobId: string, input: z.output<typeof jobUpdateS
         changes.push(`${cur.designName}: challan rate ₹${cur.ratePaise / 100} → ₹${it.ratePaise / 100} (recorded returns keep their own rate)`);
       }
       if (it.notes !== undefined && it.notes !== cur.notes) data.notes = it.notes;
-      if (Object.keys(data).length) await tx.jobItem.update({ where: { id: it.id }, data });
+      if (Object.keys(data).length) {
+        const set = Object.fromEntries(Object.entries(data).map(([k, v]) => [`items.$[i].${k}`, v]));
+        await tx.job.model.updateOne({ _id: jobId }, { $set: set }, { arrayFilters: [{ "i._id": it.id }] });
+      }
     }
     if (changes.length) {
       await audit(tx, { entity: "Job", entityId: jobId, action: "update", summary: changes.join("; ") + (input.reason ? ` (Reason: ${input.reason})` : ""), reason: input.reason, userId });
-      await tx.job.update({ where: { id: jobId }, data: editedBy(userId) });
+      await tx.job.update(jobId, editedBy(userId));
     }
     await recomputeJobStatus(tx, jobId, userId);
   });
@@ -438,11 +449,11 @@ export async function updateJob(jobId: string, input: z.output<typeof jobUpdateS
 }
 
 export async function cancelJob(jobId: string, reason: string, actor?: Actor) {
-  await prisma.$transaction(async (tx) => {
+  await transaction(async (tx) => {
     const job = await loadJob(tx, jobId);
     if (job.cancelledAt) throw unprocessable("This challan is already cancelled");
     const totals = sumTotals(summarizeJobItems(job));
-    await tx.job.update({ where: { id: jobId }, data: { cancelledAt: new Date(), cancelReason: reason, status: "CANCELLED" } });
+    await tx.job.update(jobId, { cancelledAt: new Date(), cancelReason: reason, status: "CANCELLED" });
     await audit(tx, {
       entity: "Job",
       entityId: jobId,
@@ -457,9 +468,9 @@ export async function cancelJob(jobId: string, reason: string, actor?: Actor) {
 }
 
 export async function regeneratePublicToken(jobId: string, actor?: Actor) {
-  if (!(await prisma.job.findUnique({ where: { id: jobId }, select: { id: true } }))) throw notFound("Challan");
-  await prisma.job.update({ where: { id: jobId }, data: { publicToken: newPublicToken() } });
-  await audit(prisma, { entity: "Job", entityId: jobId, action: "update", summary: "QR link regenerated – the old QR code no longer works", userId: actor?.id });
+  if (!(await db.job.exists({ _id: jobId }))) throw notFound("Challan");
+  await db.job.update(jobId, { publicToken: newPublicToken() });
+  await audit(db, { entity: "Job", entityId: jobId, action: "update", summary: "QR link regenerated – the old QR code no longer works", userId: actor?.id });
   return getJobDetail(jobId);
 }
 
@@ -467,7 +478,7 @@ export async function regeneratePublicToken(jobId: string, actor?: Actor) {
 
 export async function createDispatch(jobId: string, input: z.output<typeof dispatchCreateSchema>, actor?: Actor) {
   const userId = actor?.id;
-  await prisma.$transaction(async (tx) => {
+  await transaction(async (tx) => {
     const job = await loadJob(tx, jobId);
     if (job.cancelledAt) throw unprocessable("This challan is cancelled");
     const items = new Map(summarizeJobItems(job).map((i) => [i.id, i]));
@@ -492,9 +503,7 @@ export async function createDispatch(jobId: string, input: z.output<typeof dispa
             input.lines.map((l) => ({ materialId: items.get(l.jobItemId)!.material?.id ?? null, qty: l.qty, label: items.get(l.jobItemId)!.designName })),
             input.reason,
           );
-    const d = await tx.dispatch.create({
-      data: { jobId, date: toDate(input.date), kind: input.kind, notes: input.notes ?? (input.kind !== "INITIAL" ? input.reason : null), enteredById: userId, lines: { create: input.lines } },
-    });
+    const d = await tx.dispatch.create({ jobId, date: toDate(input.date), kind: input.kind, notes: input.notes ?? (input.kind !== "INITIAL" ? input.reason : null), enteredById: userId, lines: input.lines });
     const total = input.lines.reduce((s, l) => s + l.qty, 0);
     await audit(tx, {
       entity: "Dispatch",
@@ -521,11 +530,12 @@ export async function createDispatch(jobId: string, input: z.output<typeof dispa
 }
 
 export async function voidDispatch(dispatchId: string, reason: string, actor?: Actor) {
-  const d = await prisma.dispatch.findUnique({ where: { id: dispatchId }, include: { lines: true } });
+  const d = await db.dispatch.findById(dispatchId);
   if (!d) throw notFound("Dispatch");
   if (d.voidedAt) throw unprocessable("This entry is already voided");
-  await prisma.$transaction(async (tx) => {
-    await tx.dispatch.update({ where: { id: dispatchId }, data: { voidedAt: new Date(), voidReason: reason } });
+  await transaction(async (tx) => {
+    // Re-checked inside the transaction so two concurrent voids can't both go through.
+    if (!(await tx.dispatch.update({ _id: dispatchId, voidedAt: null }, { voidedAt: new Date(), voidReason: reason }))) throw unprocessable("This entry is already voided");
     const job = await loadJob(tx, d.jobId);
     for (const it of summarizeJobItems(job)) {
       if (it.excess > 0) throw unprocessable(`${it.designName}: material from this issue was already returned. Void those returns first.`);
@@ -541,21 +551,22 @@ export async function voidDispatch(dispatchId: string, reason: string, actor?: A
 
 export async function getJobDetail(jobId: string): Promise<JobDetail> {
   const now = today();
-  const job = await loadJob(prisma, jobId);
+  const job = await loadJob(db, jobId);
   const items = summarizeJobItems(job);
   const row = toJobRow(job, items, now);
   const itemName = new Map(job.items.map((i) => [i.id, i.designName]));
 
-  const [dispatches, returns, subBills, mainBill, audits, defaults] = await Promise.all([
-    prisma.dispatch.findMany({ where: { jobId }, include: { lines: true }, orderBy: { createdAt: "asc" } }),
-    loadReturnRows(prisma, { jobId }, now),
-    prisma.subBill.findMany({ where: { jobId }, include: subBillRowInclude, orderBy: [{ date: "asc" }, { createdAt: "asc" }] }),
-    prisma.mainBill.findUnique({ where: { jobId }, include: mainBillRowInclude }),
-    prisma.auditLog.findMany({ where: { entity: "Job", entityId: jobId, action: { in: ["update", "rate", "settlement", "exception", "reopened", "void"] } }, orderBy: { createdAt: "asc" } }),
-    defaultTerms(prisma),
+  const [dispatches, returns, subBills, mainBill, audits, defaults, returnDocs] = await all([
+    () => db.dispatch.find({ jobId }, { sort: { createdAt: 1 } }),
+    () => loadReturnRows(db, { jobId }, now),
+    () => db.subBill.find<SubBillWithRow>({ jobId }, { populate: subBillRowPopulate, sort: { date: 1, createdAt: 1 } }),
+    () => db.mainBill.findOne<MainBillWithRow>({ jobId }, { populate: mainBillRowPopulate }),
+    () => db.auditLog.find({ entity: "Job", entityId: jobId, action: { $in: ["update", "rate", "settlement", "exception", "reopened", "void"] } }, { sort: { createdAt: 1 } }),
+    () => defaultTerms(db),
+    () => db.return.find({ jobId }, { select: "lines" }),
   ]);
-  const returnLines = await prisma.returnLine.findMany({ where: { return: { jobId } }, select: { returnId: true, jobItemId: true, okQty: true, damagedQty: true, rejectedQty: true, lostQty: true, ratePaise: true, payDamaged: true, payRejected: true, payLost: true, exceptionReason: true } });
-  const names = await userNames(prisma, [
+  const returnLines = returnDocs.flatMap((r) => r.lines.map((l) => ({ ...l, returnId: r.id })));
+  const names = await userNames(db, [
     ...dispatches.map((d) => d.enteredById),
     ...subBills.flatMap((b) => [b.enteredById, b.editedById, b.voidedById]),
     ...audits.map((a) => a.userId),
@@ -661,15 +672,19 @@ export async function getJobDetail(jobId: string): Promise<JobDetail> {
 // ───────────────────────── Bill rows ─────────────────────────
 // Live here (not in billing.ts) so challan detail can use them without a circular import.
 
-export const subBillRowInclude = {
-  client: { select: { id: true, name: true } },
-  job: { select: { id: true, jobNumber: true, product: { select: { name: true } } } },
-  return: { select: { returnNumber: true } },
-  lines: { select: { qty: true } },
-} satisfies Prisma.SubBillInclude;
+export const subBillRowPopulate: Populate = [
+  { path: "client", select: "name" },
+  { path: "job", select: "jobNumber productId", populate: { path: "product", select: "name" } },
+  { path: "return", select: "returnNumber" },
+];
+export type SubBillWithRow = SubBill & {
+  client: Named;
+  job: { id: string; jobNumber: string; product: { name: string } };
+  return?: { returnNumber: string } | null;
+};
 
 export function toSubBillRow(
-  b: Prisma.SubBillGetPayload<{ include: typeof subBillRowInclude }>,
+  b: SubBillWithRow,
   _returnNumbers?: Map<string, string>,
   names?: Map<string, string>,
 ): SubBillRow {
@@ -677,7 +692,7 @@ export function toSubBillRow(
     id: b.id,
     billNumber: b.billNumber,
     date: b.date.toISOString(),
-    client: b.client,
+    client: { id: b.client.id, name: b.client.name },
     job: { id: b.job.id, jobNumber: b.job.jobNumber, productName: b.job.product.name },
     returnId: b.returnId,
     returnNumber: b.return?.returnNumber ?? null,
@@ -693,21 +708,32 @@ export function toSubBillRow(
   };
 }
 
-export const mainBillRowInclude = {
-  client: { select: { id: true, name: true } },
-  job: { select: { id: true, jobNumber: true, product: { select: { name: true } }, _count: { select: { subBills: { where: { voidedAt: null } } } } } },
-} satisfies Prisma.MainBillInclude;
+export const mainBillRowPopulate: Populate = [
+  { path: "client", select: "name" },
+  {
+    path: "job",
+    select: "jobNumber productId",
+    populate: [
+      { path: "product", select: "name" },
+      { path: "subBillCount", match: { voidedAt: null } },
+    ],
+  },
+];
+export type MainBillWithRow = MainBill & {
+  client: Named;
+  job: { id: string; jobNumber: string; product: { name: string }; subBillCount: number };
+};
 
-export function toMainBillRow(m: Prisma.MainBillGetPayload<{ include: typeof mainBillRowInclude }>): MainBillRow {
+export function toMainBillRow(m: MainBillWithRow): MainBillRow {
   return {
     id: m.id,
     billNumber: m.billNumber,
     date: m.date.toISOString(),
-    client: m.client,
+    client: { id: m.client.id, name: m.client.name },
     job: { id: m.job.id, jobNumber: m.job.jobNumber, productName: m.job.product.name },
     qty: num(m.qty),
     totalPaise: m.totalPaise,
-    subBillCount: m.job._count.subBills,
+    subBillCount: m.job.subBillCount,
     cancelledAt: iso(m.cancelledAt),
     cancelReason: m.cancelReason,
   };

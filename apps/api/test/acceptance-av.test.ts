@@ -1,8 +1,8 @@
-import { prisma } from "@av/db";
+import { db } from "@av/db";
 import type { ChallanLedger } from "../src/services/accounts.js";
 import type { ClientSummary, Dashboard, JobDetail, Ledger, ReturnDetail, ReturnResult, WorkerMaterialRow } from "@av/shared";
 import type TestAgent from "supertest/lib/agent.js";
-import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { loggedInAgent, resetDb, stockedMaterial } from "./helpers.js";
 
 /** The AV Creation acceptance scenarios (spec §67–§71), end to end through the HTTP API. */
@@ -18,9 +18,6 @@ beforeAll(async () => {
   productMtr = (await api.post("/products").send({ name: "Fabric", unit: "MTR" }).expect(201)).body.id;
 });
 
-afterAll(async () => {
-  await prisma.$disconnect();
-});
 
 describe("§67 Ramesh / 190 PCS Floral, four returns at changing rates", () => {
   let ramesh: string;
@@ -249,7 +246,7 @@ describe("§70 rate change: default ₹70, challan ₹80, returns at ₹80 and �
     expect(j.money.valuePaise).toBe(165000);
     const d = (await api.get("/designs").expect(200)).body.find((x: { id: string }) => x.id === design);
     expect(d.defaultRatePaise).toBe(9000); // new challans start from ₹90
-    const rateHistory = await prisma.auditLog.findFirst({ where: { entity: "Job", entityId: job.id, summary: { contains: "₹85" } } });
+    const rateHistory = await db.auditLog.findOne({ entity: "Job", entityId: job.id, summary: { $regex: "₹85" } });
     expect(rateHistory?.summary).toMatch(/received at ₹85 \(challan rate ₹80\)/);
   });
 });

@@ -1,7 +1,7 @@
-import { prisma } from "@av/db";
+import { db } from "@av/db";
 import type { JobDetail, ReturnResult } from "@av/shared";
 import type TestAgent from "supertest/lib/agent.js";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it } from "vitest";
 import { loggedInAgent, resetDb, stockedMaterial } from "./helpers.js";
 
 describe("recording returns", () => {
@@ -18,9 +18,6 @@ describe("recording returns", () => {
     job = (await api.post("/jobs").send({ clientId, productId, jobDate: "2026-10-01", items: [{ designId, materialId, quantity: 50, ratePaise: 8000 }] }).expect(201)).body;
   });
 
-  afterAll(async () => {
-    await prisma.$disconnect();
-  });
 
   it("a retried submit (same key) returns the saved return and never records it or its payment twice", async () => {
     const body = {
@@ -35,8 +32,8 @@ describe("recording returns", () => {
     const again: ReturnResult = (await api.post(`/jobs/${job.id}/returns`).send(body).expect(201)).body;
     expect(again).toMatchObject({ id: first.id, returnNumber: first.returnNumber, duplicate: true });
     expect(again.voucher?.id).toBe(first.voucher?.id);
-    expect(await prisma.return.count({ where: { jobId: job.id } })).toBe(1);
-    expect(await prisma.subBill.count({ where: { jobId: job.id } })).toBe(1);
+    expect(await db.return.count({ jobId: job.id })).toBe(1);
+    expect(await db.subBill.count({ jobId: job.id })).toBe(1);
     expect(again.job.totals.ok).toBe(10);
   });
 
@@ -47,7 +44,7 @@ describe("recording returns", () => {
     const edited = (await api.patch(`/returns/${r.id}`).send({ reason: "Counted again", lines: [{ id: line, okQty: 15, damagedQty: 0, rejectedQty: 0, lostQty: 0, ratePaise: 8500 }] }).expect(200)).body;
     expect(edited).toMatchObject({ okQty: 15, ratePaise: 8500, valuePaise: 127500 });
     expect(edited.editedAt).toBeTruthy();
-    const log = await prisma.auditLog.findFirstOrThrow({ where: { entity: "Return", entityId: r.id, action: "update" } });
+    const log = await db.auditLog.findOneOrThrow({ entity: "Return", entityId: r.id, action: "update" });
     expect(log.reason).toBe("Counted again");
     expect(log.summary).toMatch(/good 20 → 15, rate ₹85|good 20 → 15, rate ₹80 → ₹85/);
     const j: JobDetail = (await api.get(`/jobs/${job.id}`).expect(200)).body;

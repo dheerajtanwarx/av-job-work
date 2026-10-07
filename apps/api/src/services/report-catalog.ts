@@ -1,4 +1,4 @@
-import { prisma, type Prisma } from "@av/db";
+import { all, db, type Filter } from "@av/db";
 import {
   agingBucket,
   AGING_BUCKETS,
@@ -24,7 +24,9 @@ import { HttpError, notFound } from "../lib/http.js";
 import { challanLedger, workerLedger } from "./accounts.js";
 import { challansOutside, completionRows, jobMoney, materialHolders, returnLines, workerMaterialPositions, workGrouped, type Filters, type Page } from "./analytics.js";
 import { materialRows } from "./materials.js";
-import { photoInclude, toPhotoViews } from "./photo-views.js";
+import { range } from "../lib/mongo.js";
+import { jobIdsWhere } from "./lookups.js";
+import { findPhotos, toPhotoViews } from "./photo-views.js";
 import { unpaidReturns } from "./reports.js";
 
 /**
@@ -36,9 +38,9 @@ import { unpaidReturns } from "./reports.js";
 interface Built {
   columns: ReportColumn[];
   rows: ReportRow[];
-  /** Set by reports that page in SQL: the size of the full filtered set. */
+  /** Set by reports that page in the database: the size of the full filtered set. */
   total?: number;
-  /** Set by reports that total in SQL (otherwise totals come from the rows). */
+  /** Set by reports that total in the database (otherwise totals come from the rows). */
   totals?: Record<string, number | null>;
   totalsByUnit?: ReportResult["totalsByUnit"];
   summary?: ReportSummaryItem[];
@@ -457,19 +459,18 @@ const defectRejection: Loader = async (f, { today }) => {
 // ───────────────────────── Photos ─────────────────────────
 
 const designPhotos: Loader = async (f, { page }) => {
-  const where: Prisma.ReturnPhotoWhereInput = {
-    voidedAt: null,
-    clientId: f.clientId,
-    designId: f.designId,
-    jobId: f.jobId,
-    return: { voidedAt: null, date: f.from || f.to ? { gte: f.from ? new Date(`${f.from}T00:00:00Z`) : undefined, lte: f.to ? new Date(`${f.to}T00:00:00Z`) : undefined } : undefined },
-    job: f.productId || f.jobWorkTypeId ? { productId: f.productId, jobWorkTypeId: f.jobWorkTypeId } : undefined,
-  };
-  const [total, photos] = await Promise.all([
-    prisma.returnPhoto.count({ where }),
-    prisma.returnPhoto.findMany({ where, include: photoInclude, orderBy: { createdAt: "desc" }, skip: page?.skip, take: page?.take }),
+  const returnCond: Filter = { voidedAt: null };
+  if (f.from || f.to) returnCond.date = range(f.from ? new Date(`${f.from}T00:00:00Z`) : null, f.to ? new Date(`${f.to}T00:00:00Z`) : null);
+  const and: Filter[] = [
+    returnCond.date ? { returnId: { $in: await db.return.distinct("_id", returnCond) } } : { returnId: { $nin: await db.return.distinct("_id", { voidedAt: { $ne: null } }) } },
+  ];
+  if (f.productId || f.jobWorkTypeId) and.push({ jobId: { $in: await jobIdsWhere(db, { productId: f.productId, jobWorkTypeId: f.jobWorkTypeId }) } });
+  const where: Filter = { voidedAt: null, clientId: f.clientId, designId: f.designId, jobId: f.jobId, $and: and };
+  const [total, photos] = await all([
+    () => db.returnPhoto.count(where),
+    () => findPhotos(db, where, { sort: { createdAt: -1 }, skip: page?.skip, limit: page?.take }),
   ]);
-  const views = await toPhotoViews(prisma, photos);
+  const views = await toPhotoViews(db, photos);
   return {
     columns: [
       col("receivedDate", "Date", "date"),

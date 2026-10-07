@@ -1,6 +1,6 @@
 import type { UserRole } from "@av/shared";
 import type { NextFunction, Request, Response } from "express";
-import { prisma } from "@av/db";
+import { db } from "@av/db";
 import jwt from "jsonwebtoken";
 import { env } from "../env.js";
 
@@ -49,7 +49,7 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
   } catch {
     return res.status(401).json({ message: "Your session has expired. Please log in again." });
   }
-  const u = await prisma.user.findUnique({ where: { id }, select: { id: true, email: true, name: true, role: true, disabledAt: true } });
+  const u = await db.user.findById(id, { select: "email name role disabledAt" });
   if (!u || u.disabledAt) {
     res.clearCookie(SESSION_COOKIE, { path: "/" });
     return res.status(401).json({ message: "Your account is no longer active. Ask the owner for access." });

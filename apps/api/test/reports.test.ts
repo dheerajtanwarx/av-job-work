@@ -1,4 +1,3 @@
-import { prisma } from "@av/db";
 import { REPORTS, type ReportResult, type ReportRow, type SearchResultsV2 } from "@av/shared";
 import ExcelJS from "exceljs";
 import type TestAgent from "supertest/lib/agent.js";
@@ -18,7 +17,6 @@ beforeAll(async () => {
 
 afterAll(async () => {
   vi.useRealTimers();
-  await prisma.$disconnect();
 });
 
 const report = async (path: string): Promise<ReportResult> => (await api.get(path).expect(200)).body;

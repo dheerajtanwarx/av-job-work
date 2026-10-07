@@ -1,11 +1,11 @@
-import { prisma } from "@av/db";
+import { db } from "@av/db";
 import bcrypt from "bcryptjs";
 import request from "supertest";
 import { createApp } from "../src/app.js";
 
+/** Empties every collection (indexes stay, so unique keys keep guarding the concurrency tests). */
 export async function resetDb() {
-  const tables = await prisma.$queryRaw<{ tablename: string }[]>`SELECT tablename FROM pg_tables WHERE schemaname = 'public' AND tablename <> '_prisma_migrations'`;
-  await prisma.$executeRawUnsafe(`TRUNCATE ${tables.map((t) => `"${t.tablename}"`).join(", ")} CASCADE`);
+  await Promise.all(Object.values(db).map((c) => c.deleteMany({})));
 }
 
 export async function loggedInAgent() {
@@ -14,7 +14,7 @@ export async function loggedInAgent() {
 
 /** A new user with this role, logged in. */
 export async function agentAs(email: string, role: "OWNER" | "SUB_OWNER", name: string = role === "OWNER" ? "Owner" : "Sub-owner") {
-  await prisma.user.create({ data: { email, name, role, passwordHash: await bcrypt.hash("secret", 4) } });
+  await db.user.create({ email, name, role, passwordHash: await bcrypt.hash("secret", 4) });
   const agent = request.agent(createApp());
   const res = await agent.post("/auth/login").send({ email, password: "secret" });
   if (res.status !== 200) throw new Error(`login failed: ${res.status}`);

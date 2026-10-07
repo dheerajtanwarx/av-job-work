@@ -1,7 +1,7 @@
-import { prisma } from "@av/db";
+import { db } from "@av/db";
 import type { JobDetail, NotificationLogRow, WhatsAppSendResult } from "@av/shared";
 import type TestAgent from "supertest/lib/agent.js";
-import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { env } from "../src/env.js";
 import { toWhatsAppNumber } from "../src/lib/phone.js";
 import request from "supertest";
@@ -52,9 +52,6 @@ describe("receipt PDFs and Send on WhatsApp", () => {
     vi.unstubAllGlobals();
   });
 
-  afterAll(async () => {
-    await prisma.$disconnect();
-  });
 
   /** A challan issued (10 pcs) with 8 returned good + 2 damaged at ₹15. */
   const challanWithReturn = async (forClient = clientId) => {
@@ -113,8 +110,8 @@ describe("receipt PDFs and Send on WhatsApp", () => {
     const issuePath = issue.share.text.match(/\/api(\/public\/receipts\/issue\/\S+)/)![1];
     await request(app).get(issuePath).responseType("blob").expect(200);
 
-    expect(await prisma.notificationLog.count({ where: { entityId: { in: [returnId, dispatchId] } } })).toBe(0);
-    const audits = await prisma.auditLog.findMany({ where: { entity: "Return", entityId: returnId, action: "whatsapp" } });
+    expect(await db.notificationLog.count({ entityId: { $in: [returnId, dispatchId] } })).toBe(0);
+    const audits = await db.auditLog.find({ entity: "Return", entityId: returnId, action: "whatsapp" });
     expect(audits.map((a) => a.summary)).toEqual([`${returnNumber} WhatsApp chat opened for +91 98765 43210`]);
   });
 
@@ -155,7 +152,7 @@ describe("receipt PDFs and Send on WhatsApp", () => {
       "AV Creation",
     ]);
 
-    const audits = await prisma.auditLog.findMany({ where: { entity: "Return", entityId: returnId, action: "whatsapp" } });
+    const audits = await db.auditLog.find({ entity: "Return", entityId: returnId, action: "whatsapp" });
     expect(audits).toHaveLength(1);
     expect(audits[0].summary).toBe(`${returnNumber} sent on WhatsApp to +91 98765 43210`);
 
@@ -182,7 +179,7 @@ describe("receipt PDFs and Send on WhatsApp", () => {
     expect(r.status).toBe("failed");
     expect(r.message).toBe("WhatsApp: Template name does not exist in the translation");
     expect(r.share.text).toContain("Namaste Ramesh Embroidery ji,");
-    const logs = await prisma.notificationLog.findMany({ where: { entityId: returnId } });
+    const logs = await db.notificationLog.find({ entityId: returnId });
     expect(logs).toEqual([expect.objectContaining({ status: "failed", error: "WhatsApp: Template name does not exist in the translation" })]);
   });
 

@@ -1,4 +1,4 @@
-import { prisma } from "@av/db";
+import { db } from "@av/db";
 import type { JobDetail, SubBillWithEmail } from "@av/shared";
 import type { SendMailOptions, Transporter } from "nodemailer";
 import type TestAgent from "supertest/lib/agent.js";
@@ -38,7 +38,6 @@ describe("sub bills are emailed to the job worker", () => {
 
   afterAll(async () => {
     setTransport(undefined);
-    await prisma.$disconnect();
   });
 
   const newJob = async (client = clientId, qty = 10) => {
@@ -82,7 +81,7 @@ describe("sub bills are emailed to the job worker", () => {
     expect(sent[1].html).toContain(`Challan ${job.jobNumber} is fully settled`);
     expect(sent[1].html).toContain(first.billNumber); // every payment on the job is listed
 
-    const log = await prisma.auditLog.findMany({ where: { entity: "SubBill", action: "email" } });
+    const log = await db.auditLog.find({ entity: "SubBill", action: "email" });
     expect(log).toHaveLength(2);
   });
 
@@ -119,7 +118,7 @@ describe("sub bills are emailed to the job worker", () => {
     const b = await pay(job.id, line, 1);
     expect(b.email).toMatchObject({ status: "failed", message: "Could not email gupta@example.com: SMTP refused" });
     expect(b.emailedAt).toBeNull();
-    expect(await prisma.subBill.count({ where: { jobId: job.id } })).toBe(2);
+    expect(await db.subBill.count({ jobId: job.id })).toBe(2);
   });
 
   it("rejects a logo that is not a small PNG or JPEG", async () => {

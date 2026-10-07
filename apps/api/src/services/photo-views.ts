@@ -1,26 +1,46 @@
-import type { DB, Prisma } from "@av/db";
+import type { DB, Filter, FindOpts, JobItem, Populate, Return, ReturnLine, ReturnPhoto } from "@av/db";
 import { sumQty, type PhotoView, type Unit } from "@av/shared";
 import { userNames } from "../lib/audit.js";
-import { lineNumbers } from "./return-rows.js";
+import { lineNumbers, type ReturnLineWithItem } from "./return-rows.js";
 
-export const photoInclude = {
-  return: {
-    select: {
-      id: true,
-      returnNumber: true,
-      date: true,
-      receivedAt: true,
-      enteredById: true,
-      voidedAt: true,
-      lines: { include: { jobItem: { select: { designId: true, designName: true, unit: true, ratePaise: true } } } },
-    },
+export const photoPopulate: Populate = [
+  { path: "return", select: "returnNumber date receivedAt enteredById voidedAt lines" },
+  {
+    path: "job",
+    select: "jobNumber productId jobWorkTypeId items._id items.designId items.designName items.unit items.ratePaise",
+    populate: [
+      { path: "product", select: "name unit" },
+      { path: "jobWorkType", select: "name" },
+    ],
   },
-  job: { select: { id: true, jobNumber: true, product: { select: { name: true, unit: true } }, jobWorkType: { select: { name: true } } } },
-  client: { select: { id: true, name: true } },
-  design: { select: { id: true, name: true } },
-} satisfies Prisma.ReturnPhotoInclude;
+  { path: "client", select: "name" },
+  { path: "design", select: "name" },
+];
 
-export type PhotoWithReturn = Prisma.ReturnPhotoGetPayload<{ include: typeof photoInclude }>;
+type LineItem = Pick<JobItem, "id" | "designId" | "designName" | "unit" | "ratePaise">;
+type Loaded = ReturnPhoto & {
+  return: Pick<Return, "id" | "returnNumber" | "date" | "receivedAt" | "enteredById" | "voidedAt"> & { lines: ReturnLine[] };
+  job: { id: string; jobNumber: string; items: LineItem[]; product: { name: string; unit: string }; jobWorkType?: { name: string } | null };
+  client: { id: string; name: string };
+  design?: { id: string; name: string } | null;
+};
+export type PhotoWithReturn = Omit<Loaded, "return" | "design"> & {
+  return: Omit<Loaded["return"], "lines"> & { lines: ReturnLineWithItem[] };
+  design: { id: string; name: string } | null;
+};
+
+/** Return photos with the return (lines resolved to their challan design line), challan, worker and design. */
+export async function findPhotos(db: DB, where: Filter, opts: Omit<FindOpts, "populate"> = {}): Promise<PhotoWithReturn[]> {
+  const rows = await db.returnPhoto.find<Loaded>(where, { ...opts, populate: photoPopulate });
+  return rows.map((p) => {
+    const items = new Map(p.job.items.map((i) => [i.id, i]));
+    return {
+      ...p,
+      return: { ...p.return, lines: p.return.lines.map((l) => ({ ...l, jobItem: items.get(l.jobItemId)! })) },
+      design: p.design ? { id: p.design.id, name: p.design.name } : null,
+    };
+  });
+}
 
 /**
  * Photo + the return it belongs to. Quantity, rate and amount are read live from the return line
@@ -39,7 +59,7 @@ export async function toPhotoViews(db: DB, photos: PhotoWithReturn[]): Promise<P
       returnNumber: p.return.returnNumber,
       returnLineId: p.returnLineId,
       job: { id: p.job.id, jobNumber: p.job.jobNumber },
-      client: p.client,
+      client: { id: p.client.id, name: p.client.name },
       design: p.design ?? (line ? { id: line.jobItem.designId, name: line.jobItem.designName } : null),
       productName: p.job.product.name,
       jobWorkType: p.job.jobWorkType?.name ?? null,

@@ -1,7 +1,7 @@
 import { mkdtempSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { prisma } from "@av/db";
+import { db } from "@av/db";
 import type { JobDetail, PhotoPage, PhotoView, ReturnDetail, ReturnResult } from "@av/shared";
 import bcrypt from "bcryptjs";
 import sharp from "sharp";
@@ -25,7 +25,7 @@ let ret1Detail: ReturnDetail;
 const jpeg = (w = 64, h = 48, color = { r: 200, g: 40, b: 90 }) => sharp({ create: { width: w, height: h, channels: 3, background: color } }).jpeg().toBuffer();
 
 async function agentWithRole(email: string, role: "OWNER" | "SUB_OWNER") {
-  await prisma.user.create({ data: { email, name: role, role, passwordHash: await bcrypt.hash("secret", 4) } });
+  await db.user.create({ email, name: role, role, passwordHash: await bcrypt.hash("secret", 4) });
   const a = request.agent(createApp());
   await a.post("/auth/login").send({ email, password: "secret" }).expect(200);
   return a;
@@ -72,7 +72,6 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
-  await prisma.$disconnect();
   rmSync(uploadDir, { recursive: true, force: true });
 });
 
@@ -97,10 +96,10 @@ describe("upload", () => {
     expect((await sharp(thumb.body).metadata()).width).toBe(320);
 
     // Keys are random, never the user's file name.
-    const row = await prisma.returnPhoto.findUniqueOrThrow({ where: { id: p.id } });
+    const row = await db.returnPhoto.findOneOrThrow({ _id: p.id });
     expect(row.storageKey).toMatch(/^photos\/\d{4}\/\d{2}\/[0-9a-f-]{36}\/original\.jpg$/);
     expect(row.meta).toMatchObject({ qty: 50, ratePaise: 8000, returnNumber: ret1.returnNumber });
-    const log = await prisma.auditLog.findFirst({ where: { entity: "ReturnPhoto", entityId: p.id, action: "create" } });
+    const log = await db.auditLog.findOne({ entity: "ReturnPhoto", entityId: p.id, action: "create" });
     expect(log?.after).toMatchObject({ returnId: ret1.id });
     // And the return's history picks it up.
     const detail: ReturnDetail = (await api.get(`/returns/${ret1.id}`).expect(200)).body;
@@ -141,10 +140,10 @@ describe("upload", () => {
     r = await upload(ret2.id, []).expect(422);
     expect(r.body.message).toMatch(/at least one photo/);
     // One good and one bad file: nothing is stored, the bad one is named.
-    const count = await prisma.returnPhoto.count();
+    const count = await db.returnPhoto.count();
     r = await upload(ret2.id, [{ buf: await jpeg(), name: "good.jpg", type: "image/jpeg" }, { buf: Buffer.from("x"), name: "bad.jpg", type: "image/jpeg" }]).expect(422);
     expect(r.body.details.files).toEqual([{ index: 1, name: "bad.jpg", message: expect.stringMatching(/bad\.jpg/) }]);
-    expect(await prisma.returnPhoto.count()).toBe(count);
+    expect(await db.returnPhoto.count()).toBe(count);
     // A line from another return.
     r = await upload(ret2.id, [{ buf: await jpeg(), name: "a.jpg", type: "image/jpeg" }], ret1Detail.lines[0].id).expect(422);
     expect(r.body.message).toMatch(/doesn't belong to this return/);
@@ -206,7 +205,7 @@ describe("gallery", () => {
     const single: PhotoView = (await api.get(`/photos/${linePhoto.id}`).expect(200)).body;
     expect(single.ratePaise).toBe(9000);
     // The snapshot still records what it was at upload.
-    expect((await prisma.returnPhoto.findUniqueOrThrow({ where: { id: linePhoto.id } })).meta).toMatchObject({ ratePaise: 8000 });
+    expect((await db.returnPhoto.findOneOrThrow({ _id: linePhoto.id })).meta).toMatchObject({ ratePaise: 8000 });
     // The line photo and the whole-return photo (which includes that line) both match the new rate.
     const at9000 = (await api.get("/photos?minRate=9000&maxRate=9000").expect(200)).body.rows.map((r: PhotoView) => r.id);
     expect(at9000).toHaveLength(2);
@@ -254,14 +253,14 @@ describe("void / restore and access", () => {
     await manager.get(`/photos/${photo.id}/original`).expect(200);
     expect((await manager.get(`/photos?returnId=${ret2.id}`).expect(200)).body.rows.map((r: PhotoView) => r.id)).not.toContain(photo.id);
     expect((await manager.get(`/photos?returnId=${ret2.id}&includeVoided=true`).expect(200)).body.rows.map((r: PhotoView) => r.id)).toContain(photo.id);
-    expect(await prisma.returnPhoto.count({ where: { id: photo.id } })).toBe(1);
+    expect(await db.returnPhoto.count({ _id: photo.id })).toBe(1);
 
     // Restore is owner-only.
     await manager.post(`/photos/${photo.id}/restore`).send({ reason: "it was fine" }).expect(403);
     const r: PhotoView = (await api.post(`/photos/${photo.id}/restore`).send({ reason: "it was fine" }).expect(200)).body;
     expect(r.voidedAt).toBeNull();
     await manager.get(`/photos/${photo.id}`).expect(200);
-    const logs = await prisma.auditLog.findMany({ where: { entity: "ReturnPhoto", entityId: photo.id }, orderBy: { createdAt: "asc" } });
+    const logs = await db.auditLog.find({ entity: "ReturnPhoto", entityId: photo.id }, { sort: { createdAt: 1 } });
     expect(logs.map((l) => l.action)).toEqual(["create", "void", "restore"]);
     expect(logs[1].reason).toBe("blurry photo");
   });

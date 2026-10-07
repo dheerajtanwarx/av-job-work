@@ -1,21 +1,29 @@
-import { prisma, type Prisma } from "@av/db";
+import { all, db, type Dispatch, type DispatchLine, type Filter, type JobItem, type Material, type Return, type ReturnLine, type StockMovement } from "@av/db";
 import { OPEN_JOB_STATUSES, roundQty, type MaterialMovementRow, type MaterialRow, type StockPosition, type Unit } from "@av/shared";
 import { userNames, withEdited } from "../lib/audit.js";
 import { toDate } from "../lib/dates.js";
 import { loadJobs, summarizeJobItems } from "./jobs.js";
+import { ci, range } from "../lib/mongo.js";
 import { num } from "./ledger.js";
+import { itemIdsWhere } from "./lookups.js";
 import { stockPositions } from "./stock.js";
 
-const ci = (q: string) => ({ contains: q, mode: "insensitive" as const });
-
 export async function materialRows(f: { id?: string; q?: string; active?: boolean; simple?: boolean }): Promise<MaterialRow[]> {
-  const where: Prisma.MaterialWhereInput = { id: f.id, isActive: f.active };
-  if (f.q) where.OR = [{ name: ci(f.q) }, { code: ci(f.q) }, { lotNumber: ci(f.q) }, { rollNumber: ci(f.q) }, { color: ci(f.q) }, { fabricType: ci(f.q) }, { supplier: ci(f.q) }];
-  const materials = await prisma.material.findMany({ where, include: { product: { select: { id: true, name: true } }, design: { select: { id: true, name: true } } }, orderBy: { name: "asc" } });
+  const where: Filter = { _id: f.id, isActive: f.active };
+  if (f.q) where.$or = [{ name: ci(f.q) }, { code: ci(f.q) }, { lotNumber: ci(f.q) }, { rollNumber: ci(f.q) }, { color: ci(f.q) }, { fabricType: ci(f.q) }, { supplier: ci(f.q) }];
+  type Named = { id: string; name: string };
+  const found = await db.material.find<Material & { product?: Named | null; design?: Named | null }>(where, {
+    populate: [
+      { path: "product", select: "name" },
+      { path: "design", select: "name" },
+    ],
+    sort: { name: 1 },
+  });
+  const materials = found.map((m) => ({ ...m, product: m.product ? { id: m.product.id, name: m.product.name } : null, design: m.design ? { id: m.design.id, name: m.design.name } : null }));
   const ids = materials.map((m) => m.id);
-  const [stock, jobs] = await Promise.all([
-    stockPositions(prisma, ids),
-    f.simple ? Promise.resolve([]) : loadJobs(prisma, { status: { in: OPEN_JOB_STATUSES }, items: { some: { materialId: { in: ids } } } }),
+  const [stock, jobs] = await all([
+    () => stockPositions(db, ids),
+    () => (f.simple ? Promise.resolve([]) : loadJobs(db, { status: { $in: OPEN_JOB_STATUSES }, "items.materialId": { $in: ids } })),
   ]);
   const outside = new Map<string, { value: number; workers: Set<string> }>();
   for (const j of jobs) {
@@ -28,7 +36,7 @@ export async function materialRows(f: { id?: string; q?: string; active?: boolea
     }
   }
   const empty: StockPosition = { available: 0, damagedHeld: 0, withWorkers: 0, lost: 0 };
-  return (await withEdited(prisma, materials)).map((m) => ({
+  return (await withEdited(db, materials)).map((m) => ({
     ...m,
     unit: m.unit as Unit,
     createdAt: m.createdAt.toISOString(),
@@ -43,25 +51,57 @@ export async function materialRows(f: { id?: string; q?: string; active?: boolea
  * on challans, read from their own records so it can never disagree with the challans.
  */
 export async function materialLedger(f: { materialId?: string; clientId?: string; from?: string; to?: string; take?: number }): Promise<MaterialMovementRow[]> {
-  const date = f.from || f.to ? { gte: f.from ? toDate(f.from) : undefined, lte: f.to ? toDate(f.to) : undefined } : undefined;
-  const item = { materialId: f.materialId ?? { not: null } };
+  const date = f.from || f.to ? range(f.from ? toDate(f.from) : null, f.to ? toDate(f.to) : null) : undefined;
   const take = f.take ?? 1000;
-  const [moves, dispatchLines, returnLines] = await Promise.all([
-    f.clientId ? Promise.resolve([]) : prisma.stockMovement.findMany({ where: { materialId: f.materialId, date }, include: { material: true }, orderBy: { date: "desc" }, take }),
-    prisma.dispatchLine.findMany({
-      where: { jobItem: item, dispatch: { date, job: { clientId: f.clientId } } },
-      include: { dispatch: { include: { job: { select: { id: true, jobNumber: true, client: { select: { id: true, name: true } } } } } }, jobItem: { include: { material: true } } },
-      orderBy: { dispatch: { date: "desc" } },
-      take,
-    }),
-    prisma.returnLine.findMany({
-      where: { jobItem: item, return: { date, job: { clientId: f.clientId } } },
-      include: { return: { include: { job: { select: { id: true, jobNumber: true, client: { select: { id: true, name: true } } } } } }, jobItem: { include: { material: true } } },
-      orderBy: { return: { date: "desc" } },
-      take,
-    }),
+  // Challan design lines of this material (or of any material), and the challans they are on.
+  const itemIds = await itemIdsWhere(db, { materialId: f.materialId ?? { $ne: null } });
+  const jobFilter: Filter = { "items._id": { $in: itemIds }, clientId: f.clientId };
+  type JobPart = { id: string; jobNumber: string; clientId: string; client: { id: string; name: string }; items: Pick<JobItem, "id" | "designName" | "materialId">[] };
+  const jobs = await db.job.find<JobPart>(jobFilter, { select: "jobNumber clientId items._id items.designName items.materialId", populate: { path: "client", select: "name" } });
+  const jobIds = jobs.map((j) => j.id);
+  const lineMatch = { "lines.jobItemId": { $in: itemIds } };
+  const [moves, dispatchRows, returnRows] = await all([
+    () =>
+      f.clientId
+        ? Promise.resolve([])
+        : db.stockMovement.find<StockMovement & { material: Material }>({ materialId: f.materialId, date }, { populate: { path: "material" }, sort: { date: -1 }, limit: take }),
+    () =>
+      db.dispatch.aggregate<Omit<Dispatch, "lines"> & { line: DispatchLine }>([
+        { $match: { jobId: { $in: jobIds }, date, ...lineMatch } },
+        { $unwind: "$lines" },
+        { $match: lineMatch },
+        { $sort: { date: -1 } },
+        { $limit: take },
+        { $set: { line: "$lines" } },
+        { $unset: "lines" },
+      ]),
+    () =>
+      db.return.aggregate<Omit<Return, "lines"> & { line: ReturnLine }>([
+        { $match: { jobId: { $in: jobIds }, date, ...lineMatch } },
+        { $unwind: "$lines" },
+        { $match: lineMatch },
+        { $sort: { date: -1 } },
+        { $limit: take },
+        { $set: { line: "$lines" } },
+        { $unset: "lines" },
+      ]),
   ]);
-  const names = await userNames(prisma, [...moves.map((m) => m.enteredById), ...dispatchLines.map((d) => d.dispatch.enteredById), ...returnLines.map((r) => r.return.enteredById)]);
+  const jobById = new Map(jobs.map((j) => [j.id, j]));
+  const itemById = new Map(jobs.flatMap((j) => j.items.map((i) => [i.id, i] as const)));
+  const materialById = new Map(
+    (await db.material.find({ _id: { $in: [...new Set([...itemById.values()].map((i) => i.materialId!))] } })).map((m) => [m.id, m]),
+  );
+  const jobView = (id: string) => {
+    const j = jobById.get(id)!;
+    return { id: j.id, jobNumber: j.jobNumber, client: { id: j.client.id, name: j.client.name } };
+  };
+  const withItem = (jobItemId: string) => {
+    const it = itemById.get(jobItemId)!;
+    return { ...it, material: materialById.get(it.materialId!)! };
+  };
+  const dispatchLines = dispatchRows.map(({ line, ...d }) => ({ ...line, dispatch: { ...d, job: jobView(d.jobId) }, jobItem: withItem(line.jobItemId) }));
+  const returnLines = returnRows.map(({ line, ...r }) => ({ ...line, returnId: r.id, return: { ...r, job: jobView(r.jobId) }, jobItem: withItem(line.jobItemId) }));
+  const names = await userNames(db, [...moves.map((m) => m.enteredById), ...dispatchLines.map((d) => d.dispatch.enteredById), ...returnLines.map((r) => r.return.enteredById)]);
   const who = (id: string | null) => (id ? (names.get(id) ?? null) : null);
   const rows: MaterialMovementRow[] = [];
   for (const m of moves) {

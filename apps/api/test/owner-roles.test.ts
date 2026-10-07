@@ -1,8 +1,8 @@
-import { prisma } from "@av/db";
+import { db } from "@av/db";
 import type { ChangeLogRow, Design, JobDetail, SubBillDetail, UserRow } from "@av/shared";
 import request from "supertest";
 import type TestAgent from "supertest/lib/agent.js";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it } from "vitest";
 import { createApp } from "../src/app.js";
 import { agentAs, resetDb, stockedMaterial } from "./helpers.js";
 
@@ -23,9 +23,6 @@ beforeAll(async () => {
   materialId = await stockedMaterial(owner, "Saree lot");
 });
 
-afterAll(async () => {
-  await prisma.$disconnect();
-});
 
 /** A challan of 10 sent, 10 back OK at ₹50 = ₹500 of work. */
 async function workedChallan(by: TestAgent = sub) {
@@ -50,7 +47,7 @@ describe("users (owner only)", () => {
     const mohan = request.agent(createApp());
     await mohan.post("/auth/login").send({ email: "mohan@example.com", password: "longenough" }).expect(200);
     await mohan.get("/users").expect(403);
-    const id = (await prisma.user.findUniqueOrThrow({ where: { email: "mohan@example.com" } })).id;
+    const id = (await db.user.findOneOrThrow({ email: "mohan@example.com" })).id;
     await owner.patch(`/users/${id}`).send({ role: "OWNER" }).expect(200);
     await mohan.get("/users").expect(200);
     expect((await mohan.get("/auth/me").expect(200)).body.user.role).toBe("OWNER");
@@ -58,7 +55,7 @@ describe("users (owner only)", () => {
   });
 
   it("turning access off ends the session and blocks login; the name stays in history", async () => {
-    const id = (await prisma.user.findUniqueOrThrow({ where: { email: "mohan@example.com" } })).id;
+    const id = (await db.user.findOneOrThrow({ email: "mohan@example.com" })).id;
     const mohan = request.agent(createApp());
     await mohan.post("/auth/login").send({ email: "mohan@example.com", password: "longenough" }).expect(200);
     await owner.patch(`/users/${id}`).send({ disabled: true }).expect(200);
@@ -69,14 +66,14 @@ describe("users (owner only)", () => {
   });
 
   it("always keeps one owner who can log in", async () => {
-    const me = (await prisma.user.findUniqueOrThrow({ where: { email: "owner@example.com" } })).id;
+    const me = (await db.user.findOneOrThrow({ email: "owner@example.com" })).id;
     const res = await owner.patch(`/users/${me}`).send({ role: "SUB_OWNER" }).expect(422);
     expect(res.body.message).toMatch(/only owner/i);
     await owner.patch(`/users/${me}`).send({ disabled: true }).expect(422);
   });
 
   it("the owner resets a password", async () => {
-    const id = (await prisma.user.findUniqueOrThrow({ where: { email: "sub@example.com" } })).id;
+    const id = (await db.user.findOneOrThrow({ email: "sub@example.com" })).id;
     await owner.patch(`/users/${id}`).send({ password: "brand-new-pass" }).expect(200);
     await request(createApp()).post("/auth/login").send({ email: "sub@example.com", password: "brand-new-pass" }).expect(200);
   });

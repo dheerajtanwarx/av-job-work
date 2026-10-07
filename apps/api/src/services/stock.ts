@@ -1,4 +1,4 @@
-import { Prisma, type DB } from "@av/db";
+import { all, type DB } from "@av/db";
 import { roundQty, stockPosition, type StockInput, type StockPosition } from "@av/shared";
 import { HttpError } from "../lib/http.js";
 
@@ -11,23 +11,44 @@ import { HttpError } from "../lib/http.js";
 const emptyInput = (): StockInput => ({ received: 0, adjustIn: 0, adjustOut: 0, issued: 0, rework: 0, ok: 0, damaged: 0, rejected: 0, lost: 0 });
 
 export async function stockInputs(db: DB, materialIds?: string[]): Promise<Map<string, StockInput>> {
-  const filter = materialIds ? Prisma.sql`AND m.id = ANY(${materialIds}::text[])` : Prisma.empty;
-  const [moves, sent, back] = await Promise.all([
-    db.$queryRaw<{ id: string; type: string; q: number }[]>`
-      SELECT m.id, sm.type::text AS type, SUM(sm.qty)::float8 AS q
-      FROM "StockMovement" sm JOIN "Material" m ON m.id = sm."materialId"
-      WHERE sm."voidedAt" IS NULL ${filter}
-      GROUP BY 1, 2`,
-    db.$queryRaw<{ id: string; kind: string; q: number }[]>`
-      SELECT m.id, d.kind::text AS kind, SUM(dl.qty)::float8 AS q
-      FROM "DispatchLine" dl JOIN "Dispatch" d ON d.id = dl."dispatchId" JOIN "JobItem" ji ON ji.id = dl."jobItemId" JOIN "Material" m ON m.id = ji."materialId"
-      WHERE d."voidedAt" IS NULL ${filter}
-      GROUP BY 1, 2`,
-    db.$queryRaw<{ id: string; ok: number; damaged: number; rejected: number; lost: number }[]>`
-      SELECT m.id, SUM(rl."okQty")::float8 AS ok, SUM(rl."damagedQty")::float8 AS damaged, SUM(rl."rejectedQty")::float8 AS rejected, SUM(rl."lostQty")::float8 AS lost
-      FROM "ReturnLine" rl JOIN "Return" r ON r.id = rl."returnId" JOIN "JobItem" ji ON ji.id = rl."jobItemId" JOIN "Material" m ON m.id = ji."materialId"
-      WHERE r."voidedAt" IS NULL ${filter}
-      GROUP BY 1`,
+  // Challan lines naming these materials (or any material): jobItemId → materialId. Dispatch and return lines
+  // are then matched to them, like the old JOIN through JobItem to Material.
+  const items = await db.job.aggregate<{ id: string; materialId: string }>([
+    { $match: { "items.materialId": materialIds ? { $in: materialIds } : { $ne: null } } },
+    { $unwind: "$items" },
+    { $match: { "items.materialId": materialIds ? { $in: materialIds } : { $ne: null } } },
+    { $project: { _id: "$items._id", materialId: "$items.materialId" } },
+  ]);
+  const materialOf = new Map(items.map((i) => [i.id, i.materialId]));
+  const itemIds = [...materialOf.keys()];
+  const [moves, sentByItem, backByItem] = await all([
+    () =>
+      db.stockMovement.aggregate<{ id: { id: string; type: string }; q: number }>([
+        { $match: { voidedAt: null, ...(materialIds && { materialId: { $in: materialIds } }) } },
+        { $group: { _id: { id: "$materialId", type: "$type" }, q: { $sum: "$qty" } } },
+      ]),
+    () =>
+      db.dispatch.aggregate<{ id: { id: string; kind: string }; q: number }>([
+        { $match: { voidedAt: null, "lines.jobItemId": { $in: itemIds } } },
+        { $unwind: "$lines" },
+        { $match: { "lines.jobItemId": { $in: itemIds } } },
+        { $group: { _id: { id: "$lines.jobItemId", kind: "$kind" }, q: { $sum: "$lines.qty" } } },
+      ]),
+    () =>
+      db.return.aggregate<{ id: string; ok: number; damaged: number; rejected: number; lost: number }>([
+        { $match: { voidedAt: null, "lines.jobItemId": { $in: itemIds } } },
+        { $unwind: "$lines" },
+        { $match: { "lines.jobItemId": { $in: itemIds } } },
+        {
+          $group: {
+            _id: "$lines.jobItemId",
+            ok: { $sum: "$lines.okQty" },
+            damaged: { $sum: "$lines.damagedQty" },
+            rejected: { $sum: "$lines.rejectedQty" },
+            lost: { $sum: "$lines.lostQty" },
+          },
+        },
+      ]),
   ]);
   const out = new Map<string, StockInput>((materialIds ?? []).map((id) => [id, emptyInput()]));
   const get = (id: string) => {
@@ -36,17 +57,23 @@ export async function stockInputs(db: DB, materialIds?: string[]): Promise<Map<s
     return s;
   };
   for (const m of moves) {
-    const s = get(m.id);
-    if (m.type === "RECEIPT") s.received = roundQty(m.q);
-    else if (m.type === "ADJUSTMENT_IN") s.adjustIn = roundQty(m.q);
+    const s = get(m.id.id);
+    if (m.id.type === "RECEIPT") s.received = roundQty(m.q);
+    else if (m.id.type === "ADJUSTMENT_IN") s.adjustIn = roundQty(m.q);
     else s.adjustOut = roundQty(m.q);
   }
-  for (const d of sent) {
-    const s = get(d.id);
-    if (d.kind === "REWORK") s.rework = roundQty(s.rework + d.q);
+  for (const d of sentByItem) {
+    const s = get(materialOf.get(d.id.id)!);
+    if (d.id.kind === "REWORK") s.rework = roundQty(s.rework + d.q);
     else s.issued = roundQty(s.issued + d.q);
   }
-  for (const b of back) Object.assign(get(b.id), { ok: roundQty(b.ok), damaged: roundQty(b.damaged), rejected: roundQty(b.rejected), lost: roundQty(b.lost) });
+  for (const b of backByItem) {
+    const s = get(materialOf.get(b.id)!);
+    s.ok = roundQty(s.ok + b.ok);
+    s.damaged = roundQty(s.damaged + b.damaged);
+    s.rejected = roundQty(s.rejected + b.rejected);
+    s.lost = roundQty(s.lost + b.lost);
+  }
   return out;
 }
 
@@ -69,10 +96,7 @@ export async function checkStock(db: DB, wanted: { materialId: string | null; qt
     need.set(w.materialId, n);
   }
   if (!need.size) return [];
-  const [stock, materials] = await Promise.all([
-    stockPositions(db, [...need.keys()]),
-    db.material.findMany({ where: { id: { in: [...need.keys()] } }, select: { id: true, name: true, unit: true } }),
-  ]);
+  const [stock, materials] = await all([() => stockPositions(db, [...need.keys()]), () => db.material.find({ _id: { $in: [...need.keys()] } }, { select: "name unit" })]);
   const short = materials
     .map((m) => ({ materialId: m.id, name: m.name, unit: m.unit, available: stock.get(m.id)?.available ?? 0, wanted: need.get(m.id)!.qty }))
     .filter((s) => s.wanted > s.available + 1e-9);

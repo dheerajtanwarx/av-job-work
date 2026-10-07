@@ -1,4 +1,4 @@
-import { prisma } from "@av/db";
+import { db } from "@av/db";
 import type { JobDetail, NotificationLogRow, SubBillWithEmail } from "@av/shared";
 import type { SendMailOptions, Transporter } from "nodemailer";
 import type TestAgent from "supertest/lib/agent.js";
@@ -42,7 +42,6 @@ describe("notification service and payment voucher emails", () => {
 
   afterAll(async () => {
     setTransport(undefined);
-    await prisma.$disconnect();
   });
 
   /** A challan with 10 pcs returned good at ₹15 → work value ₹150. */
@@ -53,7 +52,7 @@ describe("notification service and payment voucher emails", () => {
     const ret = (await api.post(`/jobs/${job.id}/returns`).send({ date: "2026-10-02", lines: [{ jobItemId: job.items[0].id, okQty: 10 }] }).expect(201)).body;
     return { job, returnId: ret.id as string, returnNumber: ret.returnNumber as string };
   };
-  const logsFor = (id: string) => prisma.notificationLog.findMany({ where: { entity: "SubBill", entityId: id }, orderBy: { createdAt: "asc" } });
+  const logsFor = (id: string) => db.notificationLog.find({ entity: "SubBill", entityId: id }, { sort: { createdAt: 1 } });
 
   it("logs a sent automatic email once, never twice for a repeated submit, and logs each manual resend", async () => {
     const { job, returnId, returnNumber } = await challanWithReturn();
@@ -160,13 +159,13 @@ describe("notification service and payment voucher emails", () => {
     } finally {
       env.whatsapp.token = token;
     }
-    const row = await prisma.notificationLog.findFirstOrThrow({ where: { channel: "whatsapp", entityId: "x-whatsapp" } });
+    const row = await db.notificationLog.findOneOrThrow({ channel: "whatsapp", entityId: "x-whatsapp" });
     expect(row).toMatchObject({ status: "skipped", error: "WhatsApp Business API is not set up on the server (WHATSAPP_* settings in .env)", recipient: "919811111111" });
   });
 
   it("never throws when rendering fails – logs failed instead", async () => {
     const r = await notify({ channel: "email", kind: "test", entity: "Test", entityId: "t1", recipient: "a@example.com", auto: false, render: () => Promise.reject(new Error("template broke")) });
     expect(r).toMatchObject({ status: "failed", error: "template broke" });
-    expect(await prisma.notificationLog.count({ where: { entity: "Test", entityId: "t1", status: "failed" } })).toBe(1);
+    expect(await db.notificationLog.count({ entity: "Test", entityId: "t1", status: "failed" })).toBe(1);
   });
 });

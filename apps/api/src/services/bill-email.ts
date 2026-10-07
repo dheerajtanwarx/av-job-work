@@ -1,4 +1,4 @@
-import { prisma } from "@av/db";
+import { db } from "@av/db";
 import { amountInWords, formatDate, formatINR, formatQty, PAYMENT_METHOD_LABEL, type BillEmailResult, type MainBillDetail, type Settings, type SubBillDetail } from "@av/shared";
 import type { Attachment } from "nodemailer/lib/mailer/index.js";
 import { audit } from "../lib/audit.js";
@@ -51,13 +51,13 @@ export async function emailSubBill(id: string, userId?: string, opts: { auto?: b
   if (r.status === "duplicate") return { status: "skipped", to, message: `${bill.billNumber} was already emailed automatically. Use Resend to send it again.` };
   if (r.status === "skipped") return { status: "skipped", to, message: r.error ?? "Not sent" };
   if (r.status === "failed") {
-    await audit(prisma, { entity: "SubBill", entityId: id, action: "email_failed", summary: `${bill.billNumber} could not be emailed to ${to}: ${r.error}`, userId }).catch(() => undefined);
+    await audit(db, { entity: "SubBill", entityId: id, action: "email_failed", summary: `${bill.billNumber} could not be emailed to ${to}: ${r.error}`, userId }).catch(() => undefined);
     return { status: "failed", to, message: `Could not email ${to}: ${r.error}` };
   }
   const settled = mainBill as MainBillDetail | null;
   try {
-    await prisma.subBill.update({ where: { id }, data: { emailedAt: new Date(), emailedTo: to } });
-    await audit(prisma, { entity: "SubBill", entityId: id, action: "email", summary: `${bill.billNumber}${settled ? ` and ${settled.billNumber}` : ""} emailed to ${to}${auto ? "" : " (sent manually)"}`, userId });
+    await db.subBill.update(id, { emailedAt: new Date(), emailedTo: to });
+    await audit(db, { entity: "SubBill", entityId: id, action: "email", summary: `${bill.billNumber}${settled ? ` and ${settled.billNumber}` : ""} emailed to ${to}${auto ? "" : " (sent manually)"}`, userId });
   } catch (e) {
     console.error("could not record email", e);
   }

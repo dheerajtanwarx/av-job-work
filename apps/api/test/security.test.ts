@@ -1,7 +1,7 @@
-import { prisma } from "@av/db";
+import { db } from "@av/db";
 import bcrypt from "bcryptjs";
 import request from "supertest";
-import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
+import { afterEach, beforeAll, describe, expect, it } from "vitest";
 import { createApp } from "../src/app.js";
 import { env } from "../src/env.js";
 import { enableRateLimitInTests } from "../src/middleware/security.js";
@@ -16,16 +16,13 @@ describe("security hardening", () => {
   });
 
   afterEach(() => enableRateLimitInTests(false));
-  afterAll(async () => {
-    await prisma.$disconnect();
-  });
 
   describe("CSRF: cookie-authenticated writes from other sites are rejected", () => {
     it("rejects a cross-site Origin", async () => {
       const res = await api.post("/clients").set("Origin", "https://evil.example").send({ name: "Evil" });
       expect(res.status).toBe(403);
       expect(res.body.message).toMatch(/another website/);
-      expect(await prisma.client.count({ where: { name: "Evil" } })).toBe(0);
+      expect(await db.client.count({ name: "Evil" })).toBe(0);
     });
 
     it("rejects Sec-Fetch-Site: cross-site and a foreign Referer, and an opaque null Origin", async () => {
@@ -71,7 +68,7 @@ describe("security hardening", () => {
 
   describe("roles", () => {
     it("a sub-owner does daily work but not owner-only things", async () => {
-      await prisma.user.create({ data: { email: "sub@example.com", name: "Sub", role: "SUB_OWNER", passwordHash: await bcrypt.hash("secret", 4) } });
+      await db.user.create({ email: "sub@example.com", name: "Sub", role: "SUB_OWNER", passwordHash: await bcrypt.hash("secret", 4) });
       const sub = request.agent(createApp());
       const login = await sub.post("/auth/login").send({ email: "sub@example.com", password: "secret" }).expect(200);
       expect(login.body.user.role).toBe("SUB_OWNER");

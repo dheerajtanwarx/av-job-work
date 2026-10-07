@@ -1,4 +1,4 @@
-import { prisma } from "@av/db";
+import { db } from "@av/db";
 import { NOTIFY_STATUSES, reasonSchema, settingsSchema, subBillCreateSchema, subBillUpdateSchema, type NotificationLogRow, type NotifyStatus } from "@av/shared";
 import { Router } from "express";
 import { audit, userNames } from "../lib/audit.js";
@@ -13,7 +13,7 @@ const dateQ = (v: unknown) => (str(v) ? toDate(str(v)!) : undefined);
 export const billingRouter = Router();
 
 billingRouter.get("/bills/unpaid", async (req, res) => {
-  res.json(await getUnpaid(prisma, { clientId: str(req.query.clientId), jobId: str(req.query.jobId) }));
+  res.json(await getUnpaid(db, { clientId: str(req.query.clientId), jobId: str(req.query.jobId) }));
 });
 
 billingRouter.get("/sub-bills", async (req, res) => {
@@ -72,11 +72,11 @@ billingRouter.get("/settings", async (_req, res) => {
 billingRouter.put("/settings", requireRole(...OWNER_ONLY), async (req, res) => {
   const data = parse(settingsSchema, req.body);
   const before = await getSettings();
-  await prisma.settings.upsert({ where: { id: 1 }, update: { ...data, updatedById: req.user?.id }, create: { id: 1, ...data, updatedById: req.user?.id } });
+  await db.settings.update({ _id: 1 }, { ...data, updatedById: req.user?.id }, { upsert: true });
   const changed = (Object.keys(data) as (keyof typeof data)[]).filter((k) => JSON.stringify(before[k] ?? null) !== JSON.stringify(data[k] ?? null));
   if (changed.length) {
     const fields = changed.map((k) => k.replace(/([A-Z])/g, " $1").toLowerCase()).join(", ");
-    await audit(prisma, { entity: "Settings", entityId: "1", action: "update", summary: `Settings changed: ${fields}`, before, after: data, userId: req.user?.id });
+    await audit(db, { entity: "Settings", entityId: "1", action: "update", summary: `Settings changed: ${fields}`, before, after: data, userId: req.user?.id });
   }
   res.json(await getSettings());
 });
@@ -86,18 +86,19 @@ billingRouter.get("/notifications", async (req, res) => {
   const status = str(req.query.status);
   if (status && !NOTIFY_STATUSES.includes(status as NotifyStatus)) return res.status(422).json({ message: "Unknown status" });
   const take = Math.min(200, Math.max(1, Number(str(req.query.take)) || 50));
-  const rows = await prisma.notificationLog.findMany({
-    where: { entity: str(req.query.entity), entityId: str(req.query.entityId), status, channel: str(req.query.channel) },
-    orderBy: [{ createdAt: "desc" }, { id: "desc" }],
-    take,
-  });
+  const rows = await db.notificationLog.find(
+    { entity: str(req.query.entity), entityId: str(req.query.entityId), status, channel: str(req.query.channel) },
+    { sort: { createdAt: -1, _id: -1 }, limit: take },
+  );
   const idsOf = (entity: string) => rows.filter((r) => r.entity === entity).map((r) => r.entityId);
   const [voucherIds, returnIds, dispatchIds] = [idsOf("SubBill"), idsOf("Return"), idsOf("Dispatch")];
   const [vouchers, returns, dispatches, names] = await Promise.all([
-    voucherIds.length ? prisma.subBill.findMany({ where: { id: { in: voucherIds } }, select: { id: true, billNumber: true } }) : [],
-    returnIds.length ? prisma.return.findMany({ where: { id: { in: returnIds } }, select: { id: true, returnNumber: true } }) : [],
-    dispatchIds.length ? prisma.dispatch.findMany({ where: { id: { in: dispatchIds } }, select: { id: true, job: { select: { id: true, jobNumber: true } } } }) : [],
-    userNames(prisma, rows.map((r) => r.userId)),
+    voucherIds.length ? db.subBill.find({ _id: { $in: voucherIds } }, { select: "billNumber" }) : [],
+    returnIds.length ? db.return.find({ _id: { $in: returnIds } }, { select: "returnNumber" }) : [],
+    dispatchIds.length
+      ? db.dispatch.find<{ id: string; job: { id: string; jobNumber: string } }>({ _id: { $in: dispatchIds } }, { select: "jobId", populate: { path: "job", select: "jobNumber" } })
+      : [],
+    userNames(db, rows.map((r) => r.userId)),
   ]);
   // Human reference and page for each logged record.
   const links = new Map<string, { ref: string; href: string }>([

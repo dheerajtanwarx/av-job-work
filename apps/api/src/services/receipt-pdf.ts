@@ -1,4 +1,4 @@
-import { prisma } from "@av/db";
+import { all, db, type Dispatch, type JobItem } from "@av/db";
 import { amountInWords, DISPATCH_KIND_LABEL, formatDate, formatINR, formatQty, PAY_STATUS_LABEL, roundQty, type DispatchKind, type ReturnDetail, type Settings, type Unit } from "@av/shared";
 import type { Response } from "express";
 import PDFDocument from "pdfkit";
@@ -289,18 +289,33 @@ export interface DispatchDoc {
 }
 
 export async function getDispatch(dispatchId: string): Promise<DispatchDoc> {
-  const d = await prisma.dispatch.findUnique({
-    where: { id: dispatchId },
-    include: {
-      lines: { include: { jobItem: { select: { designName: true, unit: true, sortOrder: true, material: { select: { name: true } } } } } },
-      job: { select: { id: true, jobNumber: true, expectedReturnDate: true, product: { select: { name: true, unit: true } }, client: { select: { id: true, name: true, phone: true, workerCode: true } } } },
+  type Item = Pick<JobItem, "id" | "designName" | "unit" | "sortOrder"> & { material?: { name: string } | null };
+  type JobPart = {
+    id: string;
+    jobNumber: string;
+    expectedReturnDate: Date | null;
+    product: { name: string; unit: string };
+    client: { id: string; name: string; phone: string | null; workerCode: string };
+    items: Item[];
+  };
+  const found = await db.dispatch.findById<Dispatch & { job: JobPart }>(dispatchId, {
+    populate: {
+      path: "job",
+      select: "jobNumber expectedReturnDate productId clientId items._id items.designName items.unit items.sortOrder items.materialId",
+      populate: [
+        { path: "product", select: "name unit" },
+        { path: "client", select: "name phone workerCode" },
+        { path: "items.material", select: "name" },
+      ],
     },
   });
-  if (!d) throw notFound("Material issue");
-  const [position, business, user] = await Promise.all([
-    prisma.dispatch.count({ where: { jobId: d.jobId, createdAt: { lte: d.createdAt } } }),
-    getSettings(),
-    d.enteredById ? prisma.user.findUnique({ where: { id: d.enteredById }, select: { name: true } }) : null,
+  if (!found) throw notFound("Material issue");
+  const itemById = new Map(found.job.items.map((i) => [i.id, i]));
+  const d = { ...found, lines: found.lines.map((l) => ({ ...l, jobItem: itemById.get(l.jobItemId)! })) };
+  const [position, business, user] = await all([
+    () => db.dispatch.count({ jobId: d.jobId, createdAt: { $lte: d.createdAt } }),
+    () => getSettings(),
+    () => (d.enteredById ? db.user.findById(d.enteredById, { select: "name" }) : Promise.resolve(null)),
   ]);
   const lines = [...d.lines]
     .sort((a, b) => a.jobItem.sortOrder - b.jobItem.sortOrder)
@@ -316,7 +331,7 @@ export async function getDispatch(dispatchId: string): Promise<DispatchDoc> {
     voidReason: d.voidReason,
     enteredBy: user?.name ?? null,
     job: { id: d.job.id, jobNumber: d.job.jobNumber, productName: d.job.product.name, dueDate: d.job.expectedReturnDate?.toISOString() ?? null },
-    client: d.job.client,
+    client: { id: d.job.client.id, name: d.job.client.name, phone: d.job.client.phone, workerCode: d.job.client.workerCode },
     unit: d.job.product.unit as Unit,
     lines,
     total: roundQty(lines.reduce((s, l) => s + l.qty, 0)),

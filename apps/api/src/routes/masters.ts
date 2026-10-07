@@ -1,4 +1,4 @@
-import { prisma } from "@av/db";
+import { db, transaction, type Collection } from "@av/db";
 import {
   clientSchema,
   designSchema,
@@ -19,6 +19,7 @@ import { audit, editedBy, withEdited } from "../lib/audit.js";
 import { nextNumber } from "../lib/counter.js";
 import { toDate, today } from "../lib/dates.js";
 import { notFound, param, parse, str, unprocessable } from "../lib/http.js";
+import { ci } from "../lib/mongo.js";
 import { MANAGERS, requireRole } from "../middleware/auth.js";
 import { loadJobs, summarizeJobItems, toJobRow } from "../services/jobs.js";
 import { clientProfile } from "../services/reports.js";
@@ -27,7 +28,27 @@ import { workerLedger, workerMaterial, workerPerformance } from "../services/acc
 import { moneySummary } from "../services/billing.js";
 
 const activeFilter = (v: unknown) => (v === "true" ? true : v === "false" ? false : undefined);
-const ci = (q: string) => ({ contains: q, mode: "insensitive" as const });
+/** Number of challans per master record (the old `_count.jobs`). `field` is matched on the challan or, for designs, its lines. */
+async function jobCounts(field: "productId" | "jobWorkTypeId" | "items.designId", ids: string[]) {
+  const rows =
+    field === "items.designId"
+      ? await db.job.aggregate<{ id: string; n: number }>([
+          { $match: { "items.designId": { $in: ids } } },
+          { $unwind: "$items" },
+          { $match: { "items.designId": { $in: ids } } },
+          { $group: { _id: { d: "$items.designId", j: "$_id" } } },
+          { $group: { _id: "$_id.d", n: { $sum: 1 } } },
+        ])
+      : await db.job.aggregate<{ id: string; n: number }>([{ $match: { [field]: { $in: ids } } }, { $group: { _id: `$${field}`, n: { $sum: 1 } } }]);
+  return new Map(rows.map((r) => [r.id, r.n]));
+}
+
+/** The row, or a 404 naming what was missing. */
+const findOr404 = async <T>(c: Collection<T>, id: string, what: string) => {
+  const row = await c.findById(id);
+  if (!row) throw notFound(what);
+  return row;
+};
 const termsText = (p: PaymentPolicy | null | undefined, d: number | null | undefined) => (p ? `${PAYMENT_POLICY_LABEL[p]}${d ? ` (${d} days)` : ""}` : "business default");
 
 // ───────────── Job workers ─────────────
@@ -35,16 +56,16 @@ export const clientsRouter = Router();
 
 clientsRouter.get("/", async (req, res) => {
   const q = str(req.query.q);
-  const clients = await prisma.client.findMany({
-    where: {
+  const clients = await db.client.find(
+    {
       isActive: activeFilter(req.query.active),
-      OR: q ? [{ name: ci(q) }, { businessName: ci(q) }, { phone: ci(q) }, { alternatePhone: ci(q) }, { email: ci(q) }, { workerCode: ci(q) }, { workItems: ci(q) }] : undefined,
+      ...(q && { $or: [{ name: ci(q) }, { businessName: ci(q) }, { phone: ci(q) }, { alternatePhone: ci(q) }, { email: ci(q) }, { workerCode: ci(q) }, { workItems: ci(q) }] }),
     },
-    orderBy: { name: "asc" },
-  });
-  if (req.query.simple === "true") return res.json(await withEdited(prisma, clients));
+    { sort: { name: 1 } },
+  );
+  if (req.query.simple === "true") return res.json(await withEdited(db, clients));
   const ids = clients.map((c) => c.id);
-  const jobs = await loadJobs(prisma, { clientId: { in: ids } });
+  const jobs = await loadJobs(db, { clientId: { $in: ids } });
   const stats = new Map(ids.map((id) => [id, { activeJobs: 0, pendingPieces: 0, value: 0, paid: 0 }]));
   for (const j of jobs) {
     const s = stats.get(j.clientId)!;
@@ -55,7 +76,7 @@ clientsRouter.get("/", async (req, res) => {
     s.paid += j.agg.paidPaise;
   }
   res.json(
-    (await withEdited(prisma, clients)).map((c) => {
+    (await withEdited(db, clients)).map((c) => {
       const s = stats.get(c.id)!;
       return { ...c, activeJobs: s.activeJobs, pendingPieces: s.pendingPieces, toPayPaise: Math.max(0, s.value - s.paid) };
     }),
@@ -64,13 +85,13 @@ clientsRouter.get("/", async (req, res) => {
 
 clientsRouter.post("/", async (req, res) => {
   const data = parse(clientSchema, req.body);
-  const c = await prisma.$transaction(async (tx) => {
+  const c = await transaction(async (tx) => {
     const workerCode = await nextNumber(tx, "worker", "WK", 4);
-    const c = await tx.client.create({ data: { ...data, paymentDays: data.paymentPolicy ? (data.paymentDays ?? 0) : null, workerCode } });
+    const c = await tx.client.create({ ...data, paymentDays: data.paymentPolicy ? (data.paymentDays ?? 0) : null, workerCode });
     await audit(tx, { entity: "Client", entityId: c.id, action: "create", summary: `Job worker ${c.name} (${workerCode}) added – payment terms: ${termsText(c.paymentPolicy as PaymentPolicy, c.paymentDays)}`, after: c, userId: req.user?.id });
     return c;
   });
-  res.status(201).json((await withEdited(prisma, [c]))[0]);
+  res.status(201).json((await withEdited(db, [c]))[0]);
 });
 
 clientsRouter.get("/:id", async (req, res) => {
@@ -78,7 +99,7 @@ clientsRouter.get("/:id", async (req, res) => {
 });
 
 clientsRouter.get("/:id/money", async (req, res) => {
-  res.json(await moneySummary(prisma, param(req.params.id)));
+  res.json(await moneySummary(db, param(req.params.id)));
 });
 
 clientsRouter.get("/:id/ledger", async (req, res) => {
@@ -95,18 +116,17 @@ clientsRouter.get("/:id/performance", async (req, res) => {
 
 clientsRouter.get("/:id/challans", async (req, res) => {
   const now = today();
-  res.json((await loadJobs(prisma, { clientId: param(req.params.id) })).map((j) => toJobRow(j, undefined, now)));
+  res.json((await loadJobs(db, { clientId: param(req.params.id) })).map((j) => toJobRow(j, undefined, now)));
 });
 
 clientsRouter.put("/:id", async (req, res) => {
   const id = param(req.params.id);
-  const before = await prisma.client.findUnique({ where: { id } });
-  if (!before) throw notFound("Job worker");
+  const before = await findOr404(db.client, id, "Job worker");
   const data = parse(clientSchema.partial(), req.body);
   if (data.paymentPolicy !== undefined) data.paymentDays = data.paymentPolicy ? (data.paymentDays ?? before.paymentDays ?? 0) : null;
-  const c = await prisma.client.update({ where: { id }, data: { ...data, ...editedBy(req.user?.id) } });
+  const c = (await db.client.update(id, { ...data, ...editedBy(req.user?.id) }))!;
   const termsChanged = c.paymentPolicy !== before.paymentPolicy || c.paymentDays !== before.paymentDays;
-  await audit(prisma, {
+  await audit(db, {
     entity: "Client",
     entityId: id,
     action: "update",
@@ -119,7 +139,7 @@ clientsRouter.put("/:id", async (req, res) => {
     after: c,
     userId: req.user?.id,
   });
-  res.json((await withEdited(prisma, [c]))[0]);
+  res.json((await withEdited(db, [c]))[0]);
 });
 
 // ───────────── Products ─────────────
@@ -127,54 +147,46 @@ export const productsRouter = Router();
 
 productsRouter.get("/", async (req, res) => {
   const q = str(req.query.q);
-  const rows = await prisma.product.findMany({
-    where: { isActive: activeFilter(req.query.active), OR: q ? [{ name: ci(q) }, { code: ci(q) }] : undefined },
-    include: { _count: { select: { jobs: true } } },
-    orderBy: { name: "asc" },
-  });
-  res.json((await withEdited(prisma, rows)).map(({ _count, ...p }) => ({ ...p, jobCount: _count.jobs })));
+  const rows = await db.product.find({ isActive: activeFilter(req.query.active), ...(q && { $or: [{ name: ci(q) }, { code: ci(q) }] }) }, { sort: { name: 1 } });
+  const counts = await jobCounts("productId", rows.map((r) => r.id));
+  res.json((await withEdited(db, rows)).map((p) => ({ ...p, jobCount: counts.get(p.id) ?? 0 })));
 });
 
 productsRouter.post("/", async (req, res) => {
-  const p = await prisma.product.create({ data: parse(productSchema, req.body) });
-  await audit(prisma, { entity: "Product", entityId: p.id, action: "create", summary: `Product ${p.name} added`, after: p, userId: req.user?.id });
+  const p = await db.product.create(parse(productSchema, req.body));
+  await audit(db, { entity: "Product", entityId: p.id, action: "create", summary: `Product ${p.name} added`, after: p, userId: req.user?.id });
   res.status(201).json(p);
 });
 
 productsRouter.put("/:id", async (req, res) => {
   const id = param(req.params.id);
-  const before = await prisma.product.findUnique({ where: { id } });
-  if (!before) throw notFound("Product");
-  const p = await prisma.product.update({ where: { id }, data: { ...parse(productSchema.partial(), req.body), ...editedBy(req.user?.id) } });
-  await audit(prisma, { entity: "Product", entityId: id, action: "update", summary: `Product ${p.name} updated`, before, after: p, userId: req.user?.id });
-  res.json((await withEdited(prisma, [p]))[0]);
+  const before = await findOr404(db.product, id, "Product");
+  const p = (await db.product.update(id, { ...parse(productSchema.partial(), req.body), ...editedBy(req.user?.id) }))!;
+  await audit(db, { entity: "Product", entityId: id, action: "update", summary: `Product ${p.name} updated`, before, after: p, userId: req.user?.id });
+  res.json((await withEdited(db, [p]))[0]);
 });
 
 // ───────────── Job work types ─────────────
 export const jobWorkTypesRouter = Router();
 
 jobWorkTypesRouter.get("/", async (req, res) => {
-  const rows = await prisma.jobWorkType.findMany({
-    where: { isActive: activeFilter(req.query.active) },
-    include: { _count: { select: { jobs: true } } },
-    orderBy: { name: "asc" },
-  });
-  res.json((await withEdited(prisma, rows)).map(({ _count, ...t }) => ({ ...t, jobCount: _count.jobs })));
+  const rows = await db.jobWorkType.find({ isActive: activeFilter(req.query.active) }, { sort: { name: 1 } });
+  const counts = await jobCounts("jobWorkTypeId", rows.map((r) => r.id));
+  res.json((await withEdited(db, rows)).map((t) => ({ ...t, jobCount: counts.get(t.id) ?? 0 })));
 });
 
 jobWorkTypesRouter.post("/", async (req, res) => {
-  const t = await prisma.jobWorkType.create({ data: parse(jobWorkTypeSchema, req.body) });
-  await audit(prisma, { entity: "JobWorkType", entityId: t.id, action: "create", summary: `Job work type ${t.name} added`, userId: req.user?.id });
+  const t = await db.jobWorkType.create(parse(jobWorkTypeSchema, req.body));
+  await audit(db, { entity: "JobWorkType", entityId: t.id, action: "create", summary: `Job work type ${t.name} added`, userId: req.user?.id });
   res.status(201).json(t);
 });
 
 jobWorkTypesRouter.put("/:id", async (req, res) => {
   const id = param(req.params.id);
-  const before = await prisma.jobWorkType.findUnique({ where: { id } });
-  if (!before) throw notFound("Job work type");
-  const t = await prisma.jobWorkType.update({ where: { id }, data: { ...parse(jobWorkTypeSchema.partial(), req.body), ...editedBy(req.user?.id) } });
-  await audit(prisma, { entity: "JobWorkType", entityId: id, action: "update", summary: `Job work type ${t.name} updated`, before, after: t, userId: req.user?.id });
-  res.json((await withEdited(prisma, [t]))[0]);
+  const before = await findOr404(db.jobWorkType, id, "Job work type");
+  const t = (await db.jobWorkType.update(id, { ...parse(jobWorkTypeSchema.partial(), req.body), ...editedBy(req.user?.id) }))!;
+  await audit(db, { entity: "JobWorkType", entityId: id, action: "update", summary: `Job work type ${t.name} updated`, before, after: t, userId: req.user?.id });
+  res.json((await withEdited(db, [t]))[0]);
 });
 
 // ───────────── Designs ─────────────
@@ -182,27 +194,27 @@ export const designsRouter = Router();
 
 designsRouter.get("/", async (req, res) => {
   const q = str(req.query.q);
-  const rows = await prisma.design.findMany({
-    where: { isActive: activeFilter(req.query.active), jobWorkTypeId: str(req.query.jobWorkTypeId), OR: q ? [{ name: ci(q) }, { code: ci(q) }] : undefined },
-    include: { jobItems: { select: { jobId: true } }, jobWorkType: { select: { id: true, name: true } } },
-    orderBy: { name: "asc" },
-  });
-  res.json((await withEdited(prisma, rows)).map(({ jobItems, ...d }) => ({ ...d, jobCount: new Set(jobItems.map((j) => j.jobId)).size })));
+  const found = await db.design.find<import("@av/db").Design & { jobWorkType?: { id: string; name: string } | null }>(
+    { isActive: activeFilter(req.query.active), jobWorkTypeId: str(req.query.jobWorkTypeId), ...(q && { $or: [{ name: ci(q) }, { code: ci(q) }] }) },
+    { populate: { path: "jobWorkType", select: "name" }, sort: { name: 1 } },
+  );
+  const rows = found.map((d) => ({ ...d, jobWorkType: d.jobWorkType ? { id: d.jobWorkType.id, name: d.jobWorkType.name } : null }));
+  const counts = await jobCounts("items.designId", rows.map((r) => r.id));
+  res.json((await withEdited(db, rows)).map((d) => ({ ...d, jobCount: counts.get(d.id) ?? 0 })));
 });
 
 designsRouter.post("/", async (req, res) => {
-  const d = await prisma.design.create({ data: parse(designSchema, req.body) });
-  await audit(prisma, { entity: "Design", entityId: d.id, action: "create", summary: `Design ${d.name} added at ₹${d.defaultRatePaise / 100}`, userId: req.user?.id });
+  const d = await db.design.create(parse(designSchema, req.body));
+  await audit(db, { entity: "Design", entityId: d.id, action: "create", summary: `Design ${d.name} added at ₹${d.defaultRatePaise / 100}`, userId: req.user?.id });
   res.status(201).json(d);
 });
 
 designsRouter.put("/:id", async (req, res) => {
   const id = param(req.params.id);
-  const before = await prisma.design.findUnique({ where: { id } });
-  if (!before) throw notFound("Design");
+  const before = await findOr404(db.design, id, "Design");
   // Only the default for future challans changes – existing challan lines and returns keep their own rates.
-  const d = await prisma.design.update({ where: { id }, data: { ...parse(designSchema.partial(), req.body), ...editedBy(req.user?.id) } });
-  await audit(prisma, {
+  const d = (await db.design.update(id, { ...parse(designSchema.partial(), req.body), ...editedBy(req.user?.id) }))!;
+  await audit(db, {
     entity: "Design",
     entityId: id,
     action: "update",
@@ -211,7 +223,7 @@ designsRouter.put("/:id", async (req, res) => {
     after: d,
     userId: req.user?.id,
   });
-  res.json((await withEdited(prisma, [d]))[0]);
+  res.json((await withEdited(db, [d]))[0]);
 });
 
 // ───────────── Materials & stock ─────────────
@@ -224,13 +236,13 @@ materialsRouter.get("/", async (req, res) => {
 materialsRouter.post("/", async (req, res) => {
   const { openingQty, ...data } = parse(materialSchema, req.body);
   if (openingQty && !qtyFitsUnit(openingQty, data.unit as Unit)) throw unprocessable(`Opening stock: ${openingQty} is not a valid quantity in ${data.unit}`);
-  const m = await prisma.$transaction(async (tx) => {
+  const m = await transaction(async (tx) => {
     const code = data.code ?? (await nextNumber(tx, "material", "MAT", 4));
-    if (await tx.material.findUnique({ where: { code } })) throw unprocessable(`Material code ${code} is already used`);
-    const m = await tx.material.create({ data: { ...data, code } });
+    if (await tx.material.exists({ code })) throw unprocessable(`Material code ${code} is already used`);
+    const m = await tx.material.create({ ...data, code });
     await audit(tx, { entity: "Material", entityId: m.id, action: "create", summary: `Material ${m.code} ${m.name} added`, after: m, userId: req.user?.id });
     if (openingQty && openingQty > 0) {
-      const mv = await tx.stockMovement.create({ data: { materialId: m.id, type: "RECEIPT", qty: openingQty, date: toDate(today()), reason: "Opening stock", enteredById: req.user?.id } });
+      const mv = await tx.stockMovement.create({ materialId: m.id, type: "RECEIPT", qty: openingQty, date: toDate(today()), reason: "Opening stock", enteredById: req.user?.id });
       await audit(tx, { entity: "StockMovement", entityId: mv.id, action: "create", summary: `${m.name}: opening stock ${openingQty} ${m.unit}`, after: { materialId: m.id }, userId: req.user?.id });
     }
     return m;
@@ -250,14 +262,13 @@ materialsRouter.get("/:id/ledger", async (req, res) => {
 
 materialsRouter.put("/:id", async (req, res) => {
   const id = param(req.params.id);
-  const before = await prisma.material.findUnique({ where: { id } });
-  if (!before) throw notFound("Material");
+  const before = await findOr404(db.material, id, "Material");
   const { openingQty: _o, ...data } = parse(materialSchema.partial(), req.body);
-  if (data.unit && data.unit !== before.unit && (await prisma.jobItem.count({ where: { materialId: id } }))) throw unprocessable("This material is already on challans – its unit can't change");
-  if (data.code && data.code !== before.code && (await prisma.material.findUnique({ where: { code: data.code } }))) throw unprocessable(`Material code ${data.code} is already used`);
-  const m = await prisma.material.update({ where: { id }, data: { ...data, code: data.code ?? undefined, ...editedBy(req.user?.id) } });
-  await audit(prisma, { entity: "Material", entityId: id, action: "update", summary: `Material ${m.code} ${m.name} updated`, before, after: m, userId: req.user?.id });
-  res.json((await withEdited(prisma, [m]))[0]);
+  if (data.unit && data.unit !== before.unit && (await db.job.exists({ "items.materialId": id }))) throw unprocessable("This material is already on challans – its unit can't change");
+  if (data.code && data.code !== before.code && (await db.material.exists({ code: data.code }))) throw unprocessable(`Material code ${data.code} is already used`);
+  const m = (await db.material.update(id, { ...data, code: data.code ?? undefined, ...editedBy(req.user?.id) }))!;
+  await audit(db, { entity: "Material", entityId: id, action: "update", summary: `Material ${m.code} ${m.name} updated`, before, after: m, userId: req.user?.id });
+  res.json((await withEdited(db, [m]))[0]);
 });
 
 export const stockRouter = Router();
@@ -269,12 +280,12 @@ stockRouter.get("/stock/movements", async (req, res) => {
 
 stockRouter.post("/stock/movements", requireRole(...MANAGERS), async (req, res) => {
   const input = parse(stockMovementSchema, req.body);
-  const m = await prisma.material.findUnique({ where: { id: input.materialId } });
+  const m = await db.material.findById(input.materialId);
   if (!m) throw unprocessable("Choose a valid material");
   if (!qtyFitsUnit(input.qty, m.unit as Unit)) throw unprocessable(`${input.qty} is not a valid quantity in ${m.unit}`);
   if (input.type !== "RECEIPT" && !input.reason) throw unprocessable("Give a reason for the stock adjustment");
-  const mv = await prisma.stockMovement.create({ data: { ...input, date: toDate(input.date), enteredById: req.user?.id } });
-  await audit(prisma, {
+  const mv = await db.stockMovement.create({ ...input, date: toDate(input.date), enteredById: req.user?.id });
+  await audit(db, {
     entity: "StockMovement",
     entityId: mv.id,
     action: "create",
@@ -289,10 +300,10 @@ stockRouter.post("/stock/movements", requireRole(...MANAGERS), async (req, res) 
 stockRouter.post("/stock/movements/:id/void", requireRole(...MANAGERS), async (req, res) => {
   const id = param(req.params.id);
   const { reason } = parse(reasonSchema, req.body);
-  const mv = await prisma.stockMovement.findUnique({ where: { id }, include: { material: true } });
+  const mv = await db.stockMovement.findById<import("@av/db").StockMovement & { material: import("@av/db").Material }>(id, { populate: { path: "material" } });
   if (!mv) throw notFound("Stock entry");
   if (mv.voidedAt) throw unprocessable("This stock entry is already voided");
-  await prisma.stockMovement.update({ where: { id }, data: { voidedAt: new Date(), voidReason: reason } });
-  await audit(prisma, { entity: "StockMovement", entityId: id, action: "void", summary: `${mv.material.name}: stock entry of ${mv.qty} ${mv.material.unit} voided`, reason, after: { materialId: mv.materialId }, userId: req.user?.id });
+  await db.stockMovement.update(id, { voidedAt: new Date(), voidReason: reason });
+  await audit(db, { entity: "StockMovement", entityId: id, action: "void", summary: `${mv.material.name}: stock entry of ${mv.qty} ${mv.material.unit} voided`, reason, after: { materialId: mv.materialId }, userId: req.user?.id });
   res.json({ ok: true });
 });

@@ -1,4 +1,4 @@
-import { prisma, type Prisma } from "@av/db";
+import { db, type Filter, type User } from "@av/db";
 import { USER_ROLE_LABEL, userCreateSchema, userUpdateSchema, type ChangeLogRow, type UserRole, type UserRow } from "@av/shared";
 import bcrypt from "bcryptjs";
 import { Router } from "express";
@@ -22,26 +22,27 @@ const toRow = (u: { id: string; name: string; email: string; role: UserRole; dis
 });
 
 usersRouter.get("/users", async (req, res) => {
-  const users = await prisma.user.findMany({ orderBy: [{ disabledAt: { sort: "asc", nulls: "first" } }, { role: "asc" }, { name: "asc" }] });
+  // Ascending puts unset (null) disabledAt first, i.e. active users first.
+  const users = await db.user.find({}, { sort: { disabledAt: 1, role: 1, name: 1 } });
   res.json(users.map((u) => toRow(u, req.user?.id)));
 });
 
 usersRouter.post("/users", async (req, res) => {
   const input = parse(userCreateSchema, req.body);
-  if (await prisma.user.findUnique({ where: { email: input.email } })) throw unprocessable(`${input.email} already has an account`);
-  const u = await prisma.user.create({ data: { name: input.name, email: input.email, role: input.role, passwordHash: await bcrypt.hash(input.password, 10) } });
-  await audit(prisma, { entity: "User", entityId: u.id, action: "create", summary: `${u.name} (${u.email}) added as ${USER_ROLE_LABEL[u.role]}`, userId: req.user?.id });
+  if (await db.user.exists({ email: input.email })) throw unprocessable(`${input.email} already has an account`);
+  const u = await db.user.create({ name: input.name, email: input.email, role: input.role, passwordHash: await bcrypt.hash(input.password, 10) });
+  await audit(db, { entity: "User", entityId: u.id, action: "create", summary: `${u.name} (${u.email}) added as ${USER_ROLE_LABEL[u.role]}`, userId: req.user?.id });
   res.status(201).json(toRow(u, req.user?.id));
 });
 
 usersRouter.patch("/users/:id", async (req, res) => {
   const id = param(req.params.id);
   const input = parse(userUpdateSchema, req.body);
-  const u = await prisma.user.findUnique({ where: { id } });
+  const u = await db.user.findById(id);
   if (!u) throw notFound("User");
   const self = id === req.user?.id;
 
-  const data: Prisma.UserUpdateInput = {};
+  const data: Partial<Pick<User, "name" | "role" | "disabledAt" | "passwordHash">> = {};
   const changes: string[] = [];
   if (input.name && input.name !== u.name) {
     data.name = input.name;
@@ -64,12 +65,12 @@ usersRouter.patch("/users/:id", async (req, res) => {
 
   // There must always be at least one owner who can log in.
   const losesOwner = u.role === "OWNER" && !u.disabledAt && ((data.role && data.role !== "OWNER") || data.disabledAt);
-  if (losesOwner && (await prisma.user.count({ where: { role: "OWNER", disabledAt: null, id: { not: id } } })) === 0) {
+  if (losesOwner && (await db.user.count({ role: "OWNER", disabledAt: null, _id: { $ne: id } })) === 0) {
     throw unprocessable("This is the only owner. Make someone else an owner first.");
   }
 
-  const updated = await prisma.user.update({ where: { id }, data });
-  await audit(prisma, { entity: "User", entityId: id, action: "update", summary: `${updated.name}: ${changes.join("; ")}`, userId: req.user?.id });
+  const updated = (await db.user.update(id, data))!;
+  await audit(db, { entity: "User", entityId: id, action: "update", summary: `${updated.name}: ${changes.join("; ")}`, userId: req.user?.id });
   res.json(toRow(updated, req.user?.id));
 });
 
@@ -128,16 +129,16 @@ usersRouter.get("/change-log", async (req, res) => {
   const from = str(req.query.from);
   const to = str(req.query.to);
   const kind = str(req.query.kind); // "edits" = changes and voids only
-  const where: Prisma.AuditLogWhereInput = {
+  const where: Filter = {
     entity: str(req.query.entity),
     userId: str(req.query.userId),
-    action: kind === "edits" ? { in: ["update", "void", "cancel", "exception"] } : undefined,
-    createdAt: from || to ? { gte: from ? toDate(from) : undefined, lt: to ? new Date(toDate(to).getTime() + 86400000) : undefined } : undefined,
+    action: kind === "edits" ? { $in: ["update", "void", "cancel", "exception"] } : undefined,
+    createdAt: from || to ? { ...(from && { $gte: toDate(from) }), ...(to && { $lt: new Date(toDate(to).getTime() + 86400000) }) } : undefined,
   };
-  const rows = await prisma.auditLog.findMany({ where, orderBy: [{ createdAt: "desc" }, { id: "desc" }], take: take + 1, skip });
+  const rows = await db.auditLog.find(where, { sort: { createdAt: -1, _id: -1 }, limit: take + 1, skip });
   const more = rows.length > take;
   const page = rows.slice(0, take);
-  const names = await userNames(prisma, page.map((r) => r.userId));
+  const names = await userNames(db, page.map((r) => r.userId));
 
   // An edit to a return or payment is also written on its challan, with the same summary plus the reason.
   // Show it once, on the record itself.

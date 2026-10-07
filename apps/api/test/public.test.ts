@@ -1,7 +1,6 @@
-import { prisma } from "@av/db";
 import type { JobDetail, PublicChallan } from "@av/shared";
 import request from "supertest";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it } from "vitest";
 import { createApp } from "../src/app.js";
 import { loggedInAgent, resetDb, stockedMaterial } from "./helpers.js";
 
@@ -51,9 +50,6 @@ describe("public QR challan view", () => {
     job = (await api.get(`/jobs/${job.id}`).expect(200)).body;
   });
 
-  afterAll(async () => {
-    await prisma.$disconnect();
-  });
 
   it("shows the challan figures without logging in, matching the challan exactly", async () => {
     const res = await anon().get(`/public/challans/${job.publicToken}`).expect(200);
