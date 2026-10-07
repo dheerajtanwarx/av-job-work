@@ -6,8 +6,7 @@
   "main": "server.js",
   "scripts": {
     "dev": "next dev --port 3000",
-    "build": "next build --webpack",
-    "build:hostinger": "sh ../../scripts/hostinger-node-modules.sh @av/web && next build --webpack",
+    "build": "sh ../../scripts/hostinger-node-modules.sh @av/web && next build --webpack",
     "start": "node server.js",
     "typecheck": "tsc --noEmit",
     "e2e": "playwright test"
