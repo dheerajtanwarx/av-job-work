@@ -17,3 +17,4 @@ backups/
 
 # local photo storage (UPLOAD_DIR)
 uploads/
+.hostinger-deploy
