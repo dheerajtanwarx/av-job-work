@@ -1,5 +1,6 @@
 "use client";
 
+import { L } from "@av/shared";
 import { useSearchParams } from "next/navigation";
 import { Suspense } from "react";
 import { JobForm } from "@/components/forms/job-form";
@@ -13,7 +14,7 @@ function NewJob() {
 export default function NewJobPage() {
   return (
     <>
-      <PageHeader eyebrow="Jobs" title="New job" subtitle="Who is doing the work, what you're sending, and which designs." />
+      <PageHeader eyebrow={L.jobs} title={`New ${L.jobFull}`} subtitle="Who is doing the work, which material you're issuing, and the designs with their rates." />
       <Suspense>
         <NewJob />
       </Suspense>

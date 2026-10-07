@@ -1,4 +1,4 @@
-# Job Work Ledger
+# AV JOB WORK
 
 Job-work management for a business that sends products to job workers (embroidery, printing, stitching, finishing…) and keeps a record of what it pays them. Money flows **from you to the job worker**. The app keeps your own payment records. It does not issue invoices.
 
@@ -11,19 +11,57 @@ Job-work management for a business that sends products to job workers (embroider
 | Monorepo | pnpm workspaces + Turborepo |
 | `apps/web` | Next.js 16 (App Router), Tailwind CSS 4, TanStack Query, Radix, cmdk |
 | `apps/api` | Express 5 + TypeScript, zod validation, JWT cookie auth |
-| `packages/db` | Prisma 7 schema, migrations, seed (PostgreSQL 16 via Docker) |
+| `packages/db` | MongoDB (Atlas) via Mongoose: schemas, indexes, typed collections, transactions, seed |
 | `packages/shared` | Calculation engine, zod schemas, API types, ₹ formatting |
 
 ## Getting started
 
-Requirements: Node 22.12+ or 24+ (Prisma 7 refuses older versions; run `nvm use` to pick up `.nvmrc`), pnpm, and Docker.
+Requirements: Node 22.12+ or 24+ (run `nvm use` to pick up `.nvmrc`), pnpm, and a MongoDB Atlas cluster (the free M0 tier is enough).
+
+In Atlas: create a database user, add your IP under **Security → Network Access**, and copy the connection string from **Connect → Drivers** into `MONGODB_URI` and `TEST_MONGODB_URI` in `.env`, with the database name in the path (`/av_erp` and `/av_erp_test`). Put the cluster in the same region as the API server: every request talks to it.
 
 ```bash
 cp .env.example .env        # then set JWT_SECRET (and the owner login if you like)
 pnpm install
-pnpm db:setup               # starts Postgres, applies migrations, seeds owner + sample products/designs
+pnpm db:setup               # creates collections + indexes, seeds owner + sample products/designs
 pnpm dev                    # web on http://localhost:3000, API on http://localhost:4000
 ```
+
+To email bills, fill in the `SMTP_*` values in `.env` (for Gmail, use `smtp.gmail.com`, port 465, `SMTP_SECURE=true` and an [App Password](https://myaccount.google.com/apppasswords)). Without them, bills are still saved but not emailed.
+
+### WhatsApp receipts
+
+Every return (Receiving Voucher) and every material issue (Material Issue Slip) has a **WhatsApp** button: on the return page, its print page, and on each issue and return in the challan timeline. One tap opens **that job worker's own WhatsApp chat** (`wa.me/<their number>`, with a 10-digit number taken as Indian `+91`) with a ready message: the receipt details and a link to the PDF. You just press Send. The worker taps the link to open the PDF; no login is needed, and each link is signed so it opens only that one receipt.
+
+WhatsApp chat links can carry text only, never a file, which is why the PDF goes as a link. **Set `PUBLIC_WEB_URL`** to the address where the app is deployed, e.g. `https://erp.avcreation.in`. With the default `http://localhost:3000` the link won't open on the worker's phone.
+
+- **Optional: send the actual PDF file from the server (WhatsApp Business Cloud API).** Then the button sends the message with the PDF attached, straight from your business number, without opening WhatsApp. set `WHATSAPP_TOKEN` (a permanent system-user token) and `WHATSAPP_PHONE_NUMBER_ID` from Meta → WhatsApp → API Setup. Messages a business starts must use approved templates, so create these two in WhatsApp Manager (category *Utility*, header type *Document*) with exactly these body parameters:
+
+  `return_receipt`:
+  ```
+  Namaste {{1}} ji, we have received your job work. Thank you!
+
+  Return: {{2}} ({{3}})
+  Challan: {{4}} – {{5}}
+  Received good: {{6}}
+  Damaged / rejected / lost: {{7}}
+  Work value: {{8}}
+
+  The receiving voucher is attached. – {{9}}
+  ```
+  `material_issue`:
+  ```
+  Namaste {{1}} ji, material has been issued to you for job work.
+
+  Issue slip: {{2}} ({{3}})
+  Challan: {{4}} – {{5}}
+  Designs: {{6}}
+  Total: {{7}}
+  Please return by: {{8}}
+
+  The material issue slip is attached. – {{9}}
+  ```
+  Use other names or a language other than `en` through `WHATSAPP_TEMPLATE_RETURN`, `WHATSAPP_TEMPLATE_ISSUE` and `WHATSAPP_TEMPLATE_LANG`. If a send fails, for example because a template is not approved yet, the app shows the error and opens the worker's chat instead.
 
 Log in with `OWNER_EMAIL` / `OWNER_PASSWORD` from `.env` (default `owner@example.com` / `admin123`).
 
@@ -33,10 +71,9 @@ The browser only ever calls `/api/*` on the Next.js server, which proxies to Exp
 
 | Command | What it does |
 |---|---|
-| `pnpm db:up` / `pnpm db:down` | Start / stop Postgres (data persists in a Docker volume) |
-| `pnpm db:migrate` | Create + apply a new migration after editing `schema.prisma` |
-| `pnpm db:studio` | Browse the database |
-| `pnpm test` | Calculation unit tests + API integration tests (uses the `av_erp_test` DB) |
+| `pnpm db:indexes` | Create collections and sync indexes with `packages/db/src/models.ts` (run after changing an index) |
+| `pnpm db:seed` | Add the owner login and sample products/designs (safe to re-run) |
+| `pnpm test` | Calculation unit tests + API integration tests (use the `TEST_MONGODB_URI` database, which is wiped) |
 | `pnpm typecheck` | Type-check all packages |
 | `pnpm --filter @av/web e2e` | Playwright acceptance test through the UI (needs `pnpm dev` running) |
 
@@ -67,6 +104,7 @@ Per design line:
 - A **sub bill** (`SB-001`) records one payment to a job worker for returned, not-yet-paid pieces of **one job**, so nothing can be paid twice.
 - A **main bill** (`MB-001`) is issued automatically once a job is completed and every returned piece is paid. It lists the product, the design-wise breakdown and every sub bill. If a sub bill or return is voided later, the main bill is cancelled. It is re-issued under the same number once the job is fully paid again.
 - Both bills print as A4 payment vouchers (Print / Save PDF). There is no tax, GSTIN or due date.
+- Each new sub bill is **emailed to the job worker** (if they have an email address) as a detailed payment voucher with your logo. If the payment settles the job, the main bill is included in the same email. Turn this off or upload a logo in **Settings**. A failed or skipped email never blocks saving the bill, and the sub bill page has **Email bill / Resend email**.
 - Nothing is deleted:
   - Dispatches, returns and sub bills are **voided** with a reason.
   - Jobs are **cancelled** with a reason. Main bills are cancelled automatically, as described above.
@@ -75,7 +113,7 @@ Per design line:
   - Pay after each return
   - Pay when the job completes
   - Manual
-- Every create, void, cancel, and quantity or rate change is written to `AuditLog`.
+- Every create, void, cancel, and quantity or rate change is written to the audit log (`auditLogs` collection).
 
 ## Project layout
 
@@ -90,6 +128,7 @@ apps/web/app/(app)
   bills/                  sub bills (new, sub/[id]) and main bills (main/[id])
   clients/, products/, designs/, reports/, settings/
 apps/web/e2e    Playwright acceptance scenario
-packages/db/prisma        schema.prisma, migrations, seed.ts
+packages/db/src           models.ts (schemas + indexes), collection.ts, connection.ts, tx.ts
+packages/db/scripts       seed.ts, sync-indexes.ts
 packages/shared/src       calc.ts, schemas.ts, types.ts, format.ts
 ```

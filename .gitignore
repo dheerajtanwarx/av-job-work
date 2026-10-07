@@ -11,3 +11,9 @@ apps/web/test-results
 apps/web/playwright-report
 .DS_Store
 backups/
+
+# npm lockfile (this repo uses pnpm)
+/package-lock.json
+
+# local photo storage (UPLOAD_DIR)
+uploads/

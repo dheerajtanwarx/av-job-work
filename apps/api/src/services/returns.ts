@@ -1,0 +1,396 @@
+import { all, db, isDuplicateKey, transaction, type Filter, type Return } from "@av/db";
+import {
+  exceedsPending,
+  formatINR,
+  lineAmount,
+  payableQty,
+  qtyFitsUnit,
+  returnLineTotal,
+  roundQty,
+  sumTotals,
+  type ReturnDetail,
+  type ReturnResult,
+  type SubBillWithEmail,
+  type Unit,
+  returnCreateSchema,
+  returnUpdateSchema,
+} from "@av/shared";
+import type { z } from "zod";
+import { audit, editedBy, userNames } from "../lib/audit.js";
+import { nextNumber } from "../lib/counter.js";
+import { toDate, today } from "../lib/dates.js";
+import { HttpError, notFound, unprocessable } from "../lib/http.js";
+import { MANAGERS } from "../middleware/auth.js";
+import { emailSubBill } from "./bill-email.js";
+import { createVoucherTx, getSettings, getSubBill, voucherFromReturn } from "./billing.js";
+import { type Actor, getJobDetail, loadJob, recomputeJobStatus, subBillRowPopulate, summarizeJobItems, toSubBillRow, type SubBillWithRow } from "./jobs.js";
+import { defaultTerms, num, termsFor } from "./ledger.js";
+import { ci, range } from "../lib/mongo.js";
+import { itemIdsWhere, jobIdsMatching, jobIdsWhere } from "./lookups.js";
+import { findPhotos, toPhotoViews } from "./photo-views.js";
+import { findReturnsWithRows, lineNumbers, loadReturnRows, toReturnRows } from "./return-rows.js";
+
+const canOverride = (actor?: Actor) => !actor || MANAGERS.includes(actor.role as never);
+
+function assertQty(n: number, unit: Unit, label: string) {
+  if (!qtyFitsUnit(n, unit)) throw unprocessable(`${label}: ${n} is not a valid quantity in ${unit}`);
+}
+
+const flagNames = (f: { payDamaged: boolean; payRejected: boolean; payLost: boolean }) =>
+  [f.payDamaged && "damaged", f.payRejected && "rejected", f.payLost && "lost"].filter(Boolean).join(", ") || "good only";
+
+// ───────────────────────── Create ─────────────────────────
+
+export async function createReturn(jobId: string, input: z.output<typeof returnCreateSchema>, actor?: Actor): Promise<ReturnResult> {
+  const userId = actor?.id;
+  const defaults = await defaultTerms(db);
+  if (input.idempotencyKey) {
+    const existing = await db.return.findOne({ idempotencyKey: input.idempotencyKey }, { select: "jobId" });
+    if (existing) {
+      if (existing.jobId !== jobId) throw unprocessable("This form was already used for another challan. Reload and try again.");
+      return existingReturnResult(existing.id, defaults);
+    }
+  }
+  let result: Awaited<ReturnType<typeof recordReturn>>;
+  try {
+    result = await recordReturn(jobId, input, defaults, actor);
+  } catch (e) {
+    // A second submit of the same form raced the first one past the check above: answer with the first one's result.
+    if (input.idempotencyKey && isDuplicateKey(e, "idempotencyKey")) {
+      const existing = await db.return.findOne({ idempotencyKey: input.idempotencyKey }, { select: "jobId" });
+      if (existing && existing.jobId === jobId) return existingReturnResult(existing.id, defaults);
+    }
+    throw e;
+  }
+
+  let voucher: SubBillWithEmail | null = null;
+  if (result.voucherId) {
+    const email = await emailSubBill(result.voucherId, userId, { auto: true });
+    voucher = { ...(await getSubBill(result.voucherId)), email };
+  }
+  const [job, rows] = await all([() => getJobDetail(jobId), () => loadReturnRows(db, { _id: result.id }, today())]);
+  const terms = termsFor(result.job as never, result.job.client as never, defaults);
+  const { voucherId: _v, job: _j, ...rest } = result;
+  return { ...rest, job, terms, billingPolicy: terms.policy, payment: rows[0]?.payment ?? null, voucher, warnings: [] };
+}
+
+async function recordReturn(jobId: string, input: z.output<typeof returnCreateSchema>, defaults: Awaited<ReturnType<typeof defaultTerms>>, actor?: Actor) {
+  const userId = actor?.id;
+  return transaction(async (tx) => {
+    const job = await loadJob(tx, jobId);
+    const items = new Map(summarizeJobItems(job).map((i) => [i.id, i]));
+    if ([...items.values()].every((i) => i.sent === 0)) throw unprocessable("Nothing has been issued on this challan yet");
+
+    const problems: { jobItemId: string; designName: string; pending: number; entered: number }[] = [];
+    const lines = input.lines.map((l) => {
+      const it = items.get(l.jobItemId);
+      if (!it) throw unprocessable("A design line doesn't belong to this challan");
+      for (const [k, label] of [["okQty", "Good"], ["damagedQty", "Damaged"], ["rejectedQty", "Rejected"], ["lostQty", "Lost"]] as const) assertQty(l[k], it.unit, `${it.designName} ${label}`);
+      if (exceedsPending(it.pending, l) && !l.exceptionReason) problems.push({ jobItemId: it.id, designName: it.designName, pending: it.pending, entered: returnLineTotal(l) });
+      const flags = { payDamaged: l.payDamaged ?? defaults.payDamaged, payRejected: l.payRejected ?? defaults.payRejected, payLost: l.payLost ?? defaults.payLost };
+      // Only matters when it changes what is paid for on this line.
+      const overridden = payableQty(l, flags) !== payableQty(l, defaults);
+      if (overridden) {
+        if (!canOverride(actor)) throw new HttpError(403, "Only the owner or a manager can change which quantities are payable");
+        if (!l.payOverrideReason) throw unprocessable(`${it.designName}: give a reason for changing which quantities are payable`);
+      }
+      return { it, l, flags, overridden, ratePaise: l.ratePaise ?? it.ratePaise };
+    });
+    if (problems.length) {
+      throw new HttpError(
+        422,
+        problems.map((p) => `${p.designName}: only ${p.pending} pending but ${p.entered} entered`).join(". ") + ". Add a reason to record it anyway.",
+        { exceeds: problems },
+      );
+    }
+
+    const returnNumber = await nextNumber(tx, "return", "RET");
+    const r = await tx.return.create({
+        returnNumber,
+        jobId,
+        date: toDate(input.date),
+        receivedAt: new Date(),
+        idempotencyKey: input.idempotencyKey,
+        notes: input.notes,
+        enteredById: userId,
+        lines: lines.map(({ l, flags, overridden, ratePaise }) => ({
+            jobItemId: l.jobItemId,
+            okQty: l.okQty,
+            damagedQty: l.damagedQty,
+            rejectedQty: l.rejectedQty,
+            lostQty: l.lostQty,
+            ratePaise,
+            ...flags,
+            payOverrideReason: overridden ? l.payOverrideReason : null,
+            exceptionReason: l.exceptionReason,
+          })),
+    });
+    const receivedNow = roundQty(lines.reduce((s, x) => s + returnLineTotal(x.l), 0));
+    const okNow = roundQty(lines.reduce((s, x) => s + x.l.okQty, 0));
+    const valueNow = lines.reduce((s, x) => s + lineAmount(payableQty(x.l, x.flags), x.ratePaise), 0);
+
+    await audit(tx, {
+      entity: "Return",
+      entityId: r.id,
+      action: "create",
+      summary: `${returnNumber}: ${lines.map((x) => `${x.it.designName} ${returnLineTotal(x.l)} ${x.it.unit} @ ${formatINR(x.ratePaise)}`).join(", ")} = ${formatINR(valueNow)}`,
+      after: lines.map((x) => ({ design: x.it.designName, ...x.l, ratePaise: x.ratePaise, ...x.flags })),
+      userId,
+    });
+    for (const x of lines) {
+      if (x.ratePaise !== x.it.ratePaise) {
+        await audit(tx, { entity: "Job", entityId: jobId, action: "rate", summary: `${returnNumber}: ${x.it.designName} received at ${formatINR(x.ratePaise)} (challan rate ${formatINR(x.it.ratePaise)})`, userId });
+      }
+      if (x.overridden) {
+        await audit(tx, { entity: "Job", entityId: jobId, action: "exception", summary: `${returnNumber}: ${x.it.designName} payable quantities: ${flagNames(x.flags)}. Reason: ${x.l.payOverrideReason}`, reason: x.l.payOverrideReason, userId });
+      }
+      if (x.l.exceptionReason && exceedsPending(x.it.pending, x.l)) {
+        await audit(tx, {
+          entity: "Job",
+          entityId: jobId,
+          action: "exception",
+          summary: `${x.it.designName}: ${returnLineTotal(x.l)} recorded against ${x.it.pending} pending on ${returnNumber}. Reason: ${x.l.exceptionReason}`,
+          reason: x.l.exceptionReason,
+          userId,
+        });
+      }
+    }
+    const { status, previous } = await recomputeJobStatus(tx, jobId, userId);
+
+    let voucherId: string | null = null;
+    if (input.payment && input.payment.amountPaise > 0) {
+      voucherId = (await createVoucherTx(tx, voucherFromReturn(jobId, r.id, input.date, input.payment), actor)).id;
+    }
+    const outLines = r.lines.map((l) => ({ id: l.id, jobItemId: l.jobItemId }));
+    return { id: r.id, returnNumber, receivedAt: r.receivedAt.toISOString(), lines: outLines, duplicate: false as const, receivedNow, okNow, okValueNowPaise: valueNow, justCompleted: status === "COMPLETED" && previous !== "COMPLETED", voucherId, job };
+  });
+}
+
+/** The result for a return that was already recorded by an earlier submit of the same form. */
+async function existingReturnResult(id: string, defaults: Awaited<ReturnType<typeof defaultTerms>>): Promise<ReturnResult> {
+  const r = (await db.return.findById(id))!;
+  const firstVoucher = await db.subBill.findOne({ returnId: id, voidedAt: null }, { select: "_id" });
+  const [job, rows, base] = await all([() => getJobDetail(r.jobId), () => loadReturnRows(db, { _id: id }, today()), () => loadJob(db, r.jobId)]);
+  const nums = r.lines.map((l) => ({ okQty: num(l.okQty), damagedQty: num(l.damagedQty), rejectedQty: num(l.rejectedQty), lostQty: num(l.lostQty) }));
+  const terms = termsFor(base as never, base.client as never, defaults);
+  const voucherId = firstVoucher?.id;
+  return {
+    id,
+    returnNumber: r.returnNumber,
+    receivedAt: r.receivedAt.toISOString(),
+    lines: r.lines.map((l) => ({ id: l.id, jobItemId: l.jobItemId })),
+    duplicate: true,
+    receivedNow: roundQty(nums.reduce((s, l) => s + returnLineTotal(l), 0)),
+    okNow: roundQty(nums.reduce((s, l) => s + l.okQty, 0)),
+    okValueNowPaise: rows[0]?.valuePaise ?? 0,
+    justCompleted: false,
+    job,
+    terms,
+    billingPolicy: terms.policy,
+    payment: rows[0]?.payment ?? null,
+    voucher: voucherId ? { ...(await getSubBill(voucherId)), email: { status: "skipped", to: null, message: "This return was already recorded" } } : null,
+    warnings: ["This return was already recorded – nothing was saved twice."],
+  };
+}
+
+// ───────────────────────── Edit (audited) ─────────────────────────
+
+export async function updateReturn(returnId: string, input: z.output<typeof returnUpdateSchema>, actor?: Actor) {
+  const userId = actor?.id;
+  const r = await db.return.findById(returnId);
+  if (!r) throw notFound("Return");
+  if (r.voidedAt) throw unprocessable("A voided return can't be edited");
+  const warnings: string[] = [];
+
+  await transaction(async (tx) => {
+    const job = await loadJob(tx, r.jobId);
+    const items = new Map(summarizeJobItems(job).map((i) => [i.id, i]));
+    const changes: string[] = [];
+    const before: unknown[] = [];
+    const after: unknown[] = [];
+
+    for (const nl of input.lines ?? []) {
+      const cur = r.lines.find((l) => l.id === nl.id);
+      if (!cur) throw unprocessable("A line doesn't belong to this return");
+      const it = items.get(cur.jobItemId)!;
+      const curQ = { okQty: num(cur.okQty), damagedQty: num(cur.damagedQty), rejectedQty: num(cur.rejectedQty), lostQty: num(cur.lostQty) };
+      for (const [k, label] of [["okQty", "Good"], ["damagedQty", "Damaged"], ["rejectedQty", "Rejected"], ["lostQty", "Lost"]] as const) assertQty(nl[k], it.unit, `${it.designName} ${label}`);
+      // What could come back on this line if this return didn't exist.
+      const room = roundQty(it.sent - (it.accounted - returnLineTotal(curQ)));
+      const exceptionReason = nl.exceptionReason ?? cur.exceptionReason;
+      if (returnLineTotal(nl) > room + 1e-9 && !exceptionReason) {
+        throw new HttpError(422, `${it.designName}: only ${Math.max(0, room)} ${it.unit} can be on this return but ${returnLineTotal(nl)} entered. Add a reason to record it anyway.`, {
+          exceeds: [{ jobItemId: it.id, designName: it.designName, pending: Math.max(0, room), entered: returnLineTotal(nl) }],
+        });
+      }
+      const flags = { payDamaged: nl.payDamaged ?? cur.payDamaged, payRejected: nl.payRejected ?? cur.payRejected, payLost: nl.payLost ?? cur.payLost };
+      const flagsChanged = flags.payDamaged !== cur.payDamaged || flags.payRejected !== cur.payRejected || flags.payLost !== cur.payLost;
+      if (flagsChanged && !canOverride(actor)) throw new HttpError(403, "Only the owner or a manager can change which quantities are payable");
+
+      const diff: string[] = [];
+      for (const [k, label] of [["okQty", "good"], ["damagedQty", "damaged"], ["rejectedQty", "rejected"], ["lostQty", "lost"]] as const)
+        if (nl[k] !== curQ[k]) diff.push(`${label} ${curQ[k]} → ${nl[k]}`);
+      if (nl.ratePaise !== cur.ratePaise) diff.push(`rate ${formatINR(cur.ratePaise)} → ${formatINR(nl.ratePaise)}`);
+      if (flagsChanged) diff.push(`payable ${flagNames(cur)} → ${flagNames(flags)}`);
+      if (!diff.length) continue;
+
+      changes.push(`${it.designName}: ${diff.join(", ")}`);
+      before.push({ design: it.designName, ...curQ, ratePaise: cur.ratePaise, payDamaged: cur.payDamaged, payRejected: cur.payRejected, payLost: cur.payLost });
+      after.push({ design: it.designName, okQty: nl.okQty, damagedQty: nl.damagedQty, rejectedQty: nl.rejectedQty, lostQty: nl.lostQty, ratePaise: nl.ratePaise, ...flags });
+      const data = {
+        okQty: nl.okQty,
+        damagedQty: nl.damagedQty,
+        rejectedQty: nl.rejectedQty,
+        lostQty: nl.lostQty,
+        ratePaise: nl.ratePaise,
+        ...flags,
+        payOverrideReason: flagsChanged ? input.reason : cur.payOverrideReason,
+        exceptionReason,
+      };
+      await tx.return.model.updateOne(
+        { _id: returnId },
+        { $set: Object.fromEntries(Object.entries(data).map(([k, v]) => [`lines.$[l].${k}`, v])) },
+        { arrayFilters: [{ "l._id": cur.id }] },
+      );
+    }
+
+    const header: Partial<Pick<Return, "date" | "notes">> = {};
+    if (input.date && input.date !== r.date.toISOString().slice(0, 10)) {
+      changes.push(`date ${r.date.toISOString().slice(0, 10)} → ${input.date}`);
+      header.date = toDate(input.date);
+    }
+    if (input.notes !== undefined && input.notes !== r.notes) header.notes = input.notes;
+    if (!changes.length && !Object.keys(header).length) return;
+    await tx.return.update(returnId, { ...header, ...editedBy(userId) });
+
+    if (changes.length) {
+      const summary = `${r.returnNumber} edited – ${changes.join("; ")}`;
+      await audit(tx, { entity: "Return", entityId: returnId, action: "update", summary, reason: input.reason, before, after, userId });
+      await audit(tx, { entity: "Job", entityId: r.jobId, action: "update", summary: `${summary}. Reason: ${input.reason}`, reason: input.reason, userId });
+    }
+
+    const after2 = await loadJob(tx, r.jobId);
+    for (const it of summarizeJobItems(after2)) {
+      if (it.billedQty > it.ok + 1e-9) throw unprocessable(`${it.designName}: ${it.billedQty} ${it.unit} are already paid by quantity. Void those vouchers first.`);
+    }
+    const totals = sumTotals(summarizeJobItems(after2));
+    if (after2.agg.paidPaise > totals.completedValuePaise) {
+      warnings.push(`Payments now exceed the work value by ${formatINR(after2.agg.paidPaise - totals.completedValuePaise)} – this is shown as an advance.`);
+    }
+    await recomputeJobStatus(tx, r.jobId, userId);
+  });
+  return { ...(await getReturn(returnId)), warnings };
+}
+
+export async function voidReturn(returnId: string, reason: string, actor?: Actor) {
+  const r = await db.return.findById(returnId);
+  if (!r) throw notFound("Return");
+  if (r.voidedAt) throw unprocessable("This return is already voided");
+  await transaction(async (tx) => {
+    // Re-checked inside the transaction so two concurrent voids can't both go through.
+    if (!(await tx.return.update({ _id: returnId, voidedAt: null }, { voidedAt: new Date(), voidReason: reason }))) throw unprocessable("This return is already voided");
+    const job = await loadJob(tx, r.jobId);
+    for (const it of summarizeJobItems(job)) {
+      if (it.billedQty > it.ok + 1e-9) throw unprocessable(`${it.designName}: these pieces are already paid for by quantity. Void the payment voucher first.`);
+    }
+    await audit(tx, { entity: "Return", entityId: returnId, action: "void", summary: `${r.returnNumber} voided: ${reason}`, reason, userId: actor?.id });
+    await recomputeJobStatus(tx, r.jobId, actor?.id);
+  });
+  return getJobDetail(r.jobId);
+}
+
+// ───────────────────────── Read ─────────────────────────
+
+export async function getReturn(returnId: string): Promise<ReturnDetail> {
+  const [r] = await findReturnsWithRows(db, { _id: returnId });
+  if (!r) throw notFound("Return");
+  const now = today();
+  const [[row], job, photos, vouchers, history, business] = await all([
+    () => toReturnRows(db, [r], now),
+    () => loadJob(db, r.jobId),
+    () => findPhotos(db, { returnId }, { sort: { createdAt: 1 } }),
+    () => db.subBill.find<SubBillWithRow>({ returnId }, { populate: subBillRowPopulate, sort: { createdAt: 1 } }),
+    () => db.auditLog.find({ $or: [{ entity: "Return", entityId: returnId }, { entity: "ReturnPhoto", "after.returnId": returnId }] }, { sort: { createdAt: 1 } }),
+    () => getSettings(),
+  ]);
+  const items = new Map(summarizeJobItems(job).map((i) => [i.id, i]));
+  const names = await userNames(db, [...history.map((h) => h.userId), ...vouchers.map((v) => v.enteredById)]);
+  return {
+    ...row,
+    notes: r.notes,
+    createdAt: r.createdAt.toISOString(),
+    lines: r.lines.map((l) => {
+      const n = lineNumbers(l);
+      const it = items.get(l.jobItemId)!;
+      return {
+        id: l.id,
+        jobItemId: l.jobItemId,
+        designId: l.jobItem.designId,
+        designName: l.jobItem.designName,
+        unit: l.jobItem.unit as Unit,
+        okQty: n.okQty,
+        damagedQty: n.damagedQty,
+        rejectedQty: n.rejectedQty,
+        lostQty: n.lostQty,
+        ratePaise: l.ratePaise,
+        challanRatePaise: l.jobItem.ratePaise,
+        payDamaged: l.payDamaged,
+        payRejected: l.payRejected,
+        payLost: l.payLost,
+        payOverrideReason: l.payOverrideReason,
+        payableQty: n.payableQty,
+        valuePaise: n.valuePaise,
+        exceptionReason: l.exceptionReason,
+        pendingBefore: r.voidedAt ? it.pending : roundQty(it.sent - (it.accounted - n.total)),
+      };
+    }),
+    photos: await toPhotoViews(db, photos),
+    vouchers: vouchers.map((v) => toSubBillRow(v, undefined, names)),
+    history: history.map((h) => ({ at: h.createdAt.toISOString(), action: h.action, summary: h.summary, reason: h.reason, user: h.userId ? (names.get(h.userId) ?? null) : null })),
+    business,
+  };
+}
+
+export interface ReturnListFilter {
+  clientId?: string;
+  jobId?: string;
+  designId?: string;
+  productId?: string;
+  jobWorkTypeId?: string;
+  from?: string;
+  to?: string;
+  q?: string;
+  includeVoided?: boolean;
+  skip?: number;
+  take?: number;
+}
+
+export async function returnWhere(f: ReturnListFilter): Promise<Filter> {
+  const and: Filter[] = [];
+  if (f.jobId) and.push({ jobId: f.jobId });
+  if (!f.includeVoided) and.push({ voidedAt: null });
+  if (f.from || f.to) and.push({ date: range(f.from ? toDate(f.from) : null, f.to ? toDate(f.to) : null) });
+  if (f.clientId || f.productId) and.push({ jobId: { $in: await jobIdsWhere(db, { clientId: f.clientId, productId: f.productId }) } });
+  if (f.designId || f.jobWorkTypeId) and.push({ "lines.jobItemId": { $in: await itemIdsWhere(db, { designId: f.designId, jobWorkTypeId: f.jobWorkTypeId }) } });
+  if (f.q) {
+    and.push({
+      $or: [
+        { returnNumber: ci(f.q) },
+        { jobId: { $in: await jobIdsMatching(db, f.q) } },
+        { "lines.jobItemId": { $in: await itemIdsWhere(db, { designName: ci(f.q) }) } },
+        { notes: ci(f.q) },
+      ],
+    });
+  }
+  return and.length ? { $and: and } : {};
+}
+
+/** Returns, newest arrival first, paginated. */
+export async function listReturns(f: ReturnListFilter) {
+  const where = await returnWhere(f);
+  const [total, rows] = await all([
+    () => db.return.count(where),
+    () => loadReturnRows(db, where, today(), { sort: { date: -1, receivedAt: -1 }, skip: f.skip, take: f.take ?? 50 }),
+  ]);
+  return { total, rows };
+}

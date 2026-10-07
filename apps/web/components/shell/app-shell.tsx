@@ -1,5 +1,6 @@
 "use client";
 
+import { USER_ROLE_LABEL, type SessionUser } from "@av/shared";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { LogOut, Menu, Plus, Search } from "lucide-react";
 import Link from "next/link";
@@ -53,7 +54,7 @@ function Sidebar({
   onNavigate?: () => void;
   onLogout: () => void;
   onSearch: () => void;
-  user?: { name: string; email: string };
+  user?: SessionUser;
 }) {
   const initials = user?.name
     .split(/\s+/)
@@ -65,8 +66,8 @@ function Sidebar({
     <div className="flex h-full flex-col border-r border-border bg-sidebar">
       <Link href="/" onClick={onNavigate} className="mx-3 mt-3 flex h-8 items-center gap-2 rounded-md px-1.5 text-[13px] font-semibold text-fg">
         <Mark />
-        Job Work Ledger
-      </Link>
+        AV JOB WORK     
+        </Link>
       <div className="mx-3 mt-3 flex gap-1.5">
         <button
           onClick={onSearch}
@@ -95,7 +96,10 @@ function Sidebar({
         <span className="grid size-6 shrink-0 place-items-center rounded-full bg-surface-3 text-[10px] font-semibold text-fg-2">{initials || "?"}</span>
         <div className="min-w-0 flex-1 leading-tight">
           <div className="truncate text-[13px] font-medium text-fg">{user?.name}</div>
-          <div className="truncate text-[11px] text-fg-muted">{user?.email}</div>
+          <div className="truncate text-[11px] text-fg-muted" title={user?.email}>
+            {user ? USER_ROLE_LABEL[user.role] : ""}
+            {user?.email && <span className="text-fg-faint"> · {user.email}</span>}
+          </div>
         </div>
         <button onClick={onLogout} aria-label="Log out" title="Log out" className="grid size-7 shrink-0 place-items-center rounded-md text-fg-muted transition-colors hover:bg-surface-3 hover:text-fg">
           <LogOut className="size-3.5" />
@@ -111,7 +115,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const qc = useQueryClient();
   const [drawer, setDrawer] = useState(false);
   const [search, setSearch] = useState(false);
-  const me = useQuery({ queryKey: ["me"], queryFn: () => api.get<{ user: { name: string; email: string } }>("/auth/me"), staleTime: Infinity, retry: false });
+  const me = useQuery({ queryKey: ["me"], queryFn: () => api.get<{ user: SessionUser }>("/auth/me"), staleTime: 60_000, retry: false });
 
   useEffect(() => setDrawer(false), [path]);
   useEffect(() => {
@@ -167,7 +171,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         <button className="grid size-10 place-items-center rounded-md text-fg-2 hover:bg-surface-2" onClick={() => setDrawer(true)} aria-label="Open menu">
           <Menu className="size-[18px]" />
         </button>
-        <span className="min-w-0 flex-1 truncate text-sm font-semibold">{current?.label ?? "Job Work Ledger"}</span>
+        <span className="min-w-0 flex-1 truncate text-sm font-semibold">{current?.label ?? "AV JOB WORK"}</span>
         <button className="grid size-10 place-items-center rounded-md text-fg-2 hover:bg-surface-2" onClick={() => setSearch(true)} aria-label="Search">
           <Search className="size-[18px]" />
         </button>

@@ -56,7 +56,7 @@ export default function LoginPage() {
       <div className="w-full max-w-[340px]">
         <div className="mb-8 flex items-center gap-2 text-[13px] font-semibold">
           <span className="grid size-6 place-items-center rounded bg-accent-solid text-xs leading-none font-semibold text-on-accent">J</span>
-          Job Work Ledger
+            AV JOB WORK
         </div>
         <h1 className="text-xl leading-7 font-semibold tracking-[-0.01em]">Log in</h1>
         <p className="mt-1 mb-6 text-[13px] text-fg-muted">Every piece sent, every piece back, every rupee owed.</p>

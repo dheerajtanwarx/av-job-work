@@ -165,3 +165,75 @@ export function Notice({ tone = "neutral", icon: Icon, children, action, classNa
     </div>
   );
 }
+
+/** Card-list placeholder for phone layouts (and anywhere a list of cards is loading). */
+export function CardListSkeleton({ rows = 4, className }: { rows?: number; className?: string }) {
+  return (
+    <ul aria-busy aria-label="Loading" className={cn("divide-y divide-border", className)}>
+      {Array.from({ length: rows }).map((_, i) => (
+        <li key={i} className="space-y-2 px-4 py-3.5">
+          <div className="flex items-center justify-between gap-4">
+            <Skeleton className="h-3.5 w-24" />
+            <Skeleton className="h-4 w-16 rounded-full" />
+          </div>
+          <Skeleton className={cn("h-3", ["w-48", "w-36", "w-40", "w-32"][i % 4])} />
+          <div className="flex gap-6">
+            <Skeleton className="h-3 w-14" />
+            <Skeleton className="h-3 w-14" />
+            <Skeleton className="h-3 w-14" />
+          </div>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+/** Figures grid placeholder (stat strips). */
+export function StatsSkeleton({ count = 4, className }: { count?: number; className?: string }) {
+  return (
+    <div aria-busy aria-label="Loading" className={cn("grid grid-cols-2 gap-px overflow-hidden rounded-lg border border-border bg-border sm:grid-cols-4", className)}>
+      {Array.from({ length: count }).map((_, i) => (
+        <div key={i} className="space-y-2 bg-surface px-4 py-3.5">
+          <Skeleton className="h-2.5 w-16" />
+          <Skeleton className="h-5 w-20" />
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/** Whole-page placeholder: header, stat strip and a table. */
+export function PageSkeleton({ rows = 6 }: { rows?: number }) {
+  return (
+    <div aria-busy aria-label="Loading" className="space-y-6">
+      <div className="space-y-2">
+        <Skeleton className="h-2.5 w-16" />
+        <Skeleton className="h-6 w-48" />
+        <Skeleton className="h-3 w-72 max-w-full" />
+      </div>
+      <StatsSkeleton />
+      <div className="overflow-hidden rounded-lg border border-border bg-surface">
+        <div className="max-sm:hidden">
+          <LoadingBlock rows={rows} />
+        </div>
+        <div className="sm:hidden">
+          <CardListSkeleton rows={Math.min(rows, 4)} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** Label/value pairs in a compact grid (used on mobile cards and detail panels). */
+export function KeyValues({ items, className, cols = 3 }: { items: { label: ReactNode; value: ReactNode; tone?: StatTone }[]; className?: string; cols?: 2 | 3 | 4 }) {
+  return (
+    <dl className={cn("grid gap-x-3 gap-y-2", { 2: "grid-cols-2", 3: "grid-cols-3", 4: "grid-cols-2 sm:grid-cols-4" }[cols], className)}>
+      {items.map((it, i) => (
+        <div key={i} className="min-w-0">
+          <dt className="truncate text-[11px] text-fg-muted">{it.label}</dt>
+          <dd className={cn("num truncate text-[13px] font-medium", statTones[it.tone ?? "fg"])}>{it.value}</dd>
+        </div>
+      ))}
+    </dl>
+  );
+}

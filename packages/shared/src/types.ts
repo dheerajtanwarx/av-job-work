@@ -1,25 +1,46 @@
-import type { ItemSummary, JobTotals } from "./calc";
-import type { BillingPolicy, DispatchKind, JobStatus, PaymentMethod } from "./enums";
+import type { ItemSummary, JobTotals, MoneyPosition, PaymentTerms, ReturnPayment, WorkerMetrics } from "./calc";
+import type { AgingBucket, DispatchKind, JobStatus, PaymentMethod, PaymentPolicy, PayStatus, StockMovementType, Unit, UserRole } from "./enums";
 
 /** API response shapes shared by the web app. Dates are ISO strings. */
 
+/** The last hand edit of a record: when, and who made it (null when the user was removed or unknown). */
+export interface EditMark {
+  at: string;
+  by: string | null;
+}
+
+/** A job worker. */
 export interface Client {
   id: string;
+  workerCode: string;
   name: string;
   businessName: string | null;
   phone: string | null;
+  alternatePhone: string | null;
   email: string | null;
   address: string | null;
   gstin: string | null;
+  pan: string | null;
   notes: string | null;
+  paymentPolicy: PaymentPolicy | null;
+  paymentDays: number | null;
+  /** The kind of work this worker does ("hand work, jardoji"). */
+  workItems: string | null;
+  /** WorkerDocument ids; Aadhaar images can only be opened by the owner and managers. */
+  photoId: string | null;
+  aadhaarFrontId: string | null;
+  aadhaarBackId: string | null;
   isActive: boolean;
+  edited?: EditMark | null;
   createdAt: string;
 }
+
+export type WorkerDocumentKind = "PHOTO" | "AADHAAR_FRONT" | "AADHAAR_BACK";
 
 export interface ClientListRow extends Client {
   activeJobs: number;
   pendingPieces: number;
-  /** Value of OK pieces returned but not yet paid for. */
+  /** Job work value not yet paid (net of advances). */
   toPayPaise: number;
 }
 
@@ -27,9 +48,20 @@ export interface Product {
   id: string;
   name: string;
   code: string | null;
-  unit: string;
+  unit: Unit;
   description: string | null;
   isActive: boolean;
+  edited?: EditMark | null;
+  jobCount?: number;
+}
+
+export interface JobWorkType {
+  id: string;
+  name: string;
+  code: string | null;
+  description: string | null;
+  isActive: boolean;
+  edited?: EditMark | null;
   jobCount?: number;
 }
 
@@ -39,15 +71,90 @@ export interface Design {
   code: string | null;
   defaultRatePaise: number;
   description: string | null;
+  jobWorkTypeId: string | null;
+  jobWorkType?: { id: string; name: string } | null;
   isActive: boolean;
+  edited?: EditMark | null;
   jobCount?: number;
+}
+
+export interface Material {
+  id: string;
+  code: string;
+  name: string;
+  productId: string | null;
+  product?: { id: string; name: string } | null;
+  fabricType: string | null;
+  color: string | null;
+  designId: string | null;
+  design?: { id: string; name: string } | null;
+  unit: Unit;
+  lotNumber: string | null;
+  rollNumber: string | null;
+  supplier: string | null;
+  location: string | null;
+  notes: string | null;
+  isActive: boolean;
+  edited?: EditMark | null;
+  createdAt: string;
+}
+
+export interface StockPosition {
+  available: number;
+  damagedHeld: number;
+  withWorkers: number;
+  lost: number;
+}
+
+export interface MaterialRow extends Material {
+  stock: StockPosition;
+  /** Estimated value of the quantity outside, at challan rates. */
+  outsideValuePaise: number;
+  workers: number;
+}
+
+export interface MaterialMovementRow {
+  id: string;
+  type: StockMovementType | DispatchKind | "RETURN" | "DAMAGED" | "REJECTED" | "LOST";
+  date: string;
+  at: string;
+  qty: number;
+  /** +qty into the warehouse, −qty out of it (0 when the movement doesn't touch good warehouse stock). */
+  warehouseEffect: number;
+  unit: Unit;
+  materialId: string;
+  materialName: string;
+  job: { id: string; jobNumber: string } | null;
+  client: { id: string; name: string } | null;
+  designName: string | null;
+  ref: string | null;
+  /** Set on return movements, for linking to /returns/:id. */
+  returnId: string | null;
+  notes: string | null;
+  enteredBy: string | null;
+  voided: boolean;
 }
 
 export interface JobItemView extends ItemSummary {
   id: string;
   designId: string;
   designName: string;
+  designCode?: string | null;
+  unit: Unit;
+  material: { id: string; code: string; name: string } | null;
+  jobWorkType: { id: string; name: string } | null;
+  notes: string | null;
   sortOrder: number;
+  /** Reference photos attached on the challan: the item/material sent and the design/sample to make. */
+  photos: JobItemPhotoView[];
+}
+
+export type JobItemPhotoKind = "ITEM" | "DESIGN";
+
+export interface JobItemPhotoView {
+  id: string;
+  kind: JobItemPhotoKind;
+  name: string | null;
 }
 
 export interface JobListRow {
@@ -57,10 +164,17 @@ export interface JobListRow {
   expectedReturnDate: string | null;
   status: JobStatus;
   overdue: boolean;
+  /** Days since the challan date while material is still out (0 once nothing is pending). */
+  daysOut: number;
+  aging: AgingBucket | null;
   client: { id: string; name: string };
-  product: { id: string; name: string; unit: string };
+  product: { id: string; name: string; unit: Unit };
+  jobWorkType: { id: string; name: string } | null;
+  unit: Unit;
   designs: string[];
   totals: JobTotals;
+  money: MoneyPosition;
+  payStatus: PayStatus;
 }
 
 export type TimelineEvent =
@@ -74,6 +188,7 @@ export type TimelineEvent =
       total: number;
       lines: { designName: string; qty: number }[];
       notes: string | null;
+      enteredBy: string | null;
       voided: { at: string; reason: string | null } | null;
     }
   | {
@@ -82,11 +197,16 @@ export type TimelineEvent =
       date: string;
       id: string;
       returnNumber: string;
+      receivedAt: string;
       total: number;
       okTotal: number;
       exceptionTotal: number;
-      lines: { designName: string; okQty: number; damagedQty: number; rejectedQty: number; lostQty: number; exceptionReason: string | null }[];
+      valuePaise: number;
+      lines: { designName: string; okQty: number; damagedQty: number; rejectedQty: number; lostQty: number; ratePaise: number; valuePaise: number; exceptionReason: string | null }[];
       notes: string | null;
+      photoCount: number;
+      payment: ReturnPayment | null;
+      enteredBy: string | null;
       voided: { at: string; reason: string | null } | null;
     }
   | {
@@ -98,12 +218,15 @@ export type TimelineEvent =
       qty: number;
       amountPaise: number;
       method: PaymentMethod;
-      voided: { at: string; reason: string | null } | null;
+      returnNumber: string | null;
+      enteredBy: string | null;
+      edited: EditMark | null;
+      voided: { at: string; reason: string | null; by: string | null } | null;
     }
   | { type: "main_bill"; at: string; date: string; id: string; billNumber: string; totalPaise: number; cancelled: boolean }
   | { type: "completed"; at: string; date: string; text: string }
   | { type: "cancelled"; at: string; date: string; text: string }
-  | { type: "audit"; at: string; date: string; text: string };
+  | { type: "audit"; at: string; date: string; text: string; by: string | null };
 
 export interface JobDetail extends Omit<JobListRow, "designs"> {
   notes: string | null;
@@ -111,10 +234,149 @@ export interface JobDetail extends Omit<JobListRow, "designs"> {
   cancelledAt: string | null;
   completedAt: string | null;
   createdAt: string;
+  publicToken: string;
+  paymentPolicy: PaymentPolicy | null;
+  paymentDays: number | null;
+  /** The terms that apply (challan override → worker → business default). */
+  terms: PaymentTerms;
   items: JobItemView[];
+  returns: ReturnRow[];
   timeline: TimelineEvent[];
   subBills: SubBillRow[];
   mainBill: MainBillRow | null;
+  edited: EditMark | null;
+}
+
+/** One job work return in a list. Voided returns have payment = null. */
+export interface ReturnRow {
+  id: string;
+  returnNumber: string;
+  date: string;
+  receivedAt: string;
+  job: { id: string; jobNumber: string };
+  client: { id: string; name: string };
+  productName: string;
+  unit: Unit;
+  designs: string[];
+  okQty: number;
+  damagedQty: number;
+  rejectedQty: number;
+  lostQty: number;
+  total: number;
+  /** Rate shown on lists: the single rate when all lines share one, otherwise null (mixed). */
+  ratePaise: number | null;
+  valuePaise: number;
+  payment: ReturnPayment | null;
+  photoCount: number;
+  coverPhotoId: string | null;
+  enteredBy: string | null;
+  editedAt: string | null;
+  editedBy: string | null;
+  voidedAt: string | null;
+  voidReason: string | null;
+}
+
+export interface ReturnLineView {
+  id: string;
+  jobItemId: string;
+  designId: string;
+  designName: string;
+  unit: Unit;
+  okQty: number;
+  damagedQty: number;
+  rejectedQty: number;
+  lostQty: number;
+  ratePaise: number;
+  challanRatePaise: number;
+  payDamaged: boolean;
+  payRejected: boolean;
+  payLost: boolean;
+  payOverrideReason: string | null;
+  payableQty: number;
+  valuePaise: number;
+  exceptionReason: string | null;
+  /** Pending on this design line before this return (for edit validation). */
+  pendingBefore: number;
+}
+
+export interface PhotoView {
+  id: string;
+  returnId: string;
+  returnNumber: string;
+  returnLineId: string | null;
+  job: { id: string; jobNumber: string };
+  client: { id: string; name: string };
+  design: { id: string; name: string } | null;
+  productName: string;
+  jobWorkType: string | null;
+  unit: Unit;
+  /** Live values from the return line (or whole return when not linked to a line). */
+  qty: number;
+  ratePaise: number | null;
+  valuePaise: number;
+  receivedDate: string;
+  receivedAt: string;
+  uploadedAt: string;
+  uploadedBy: string | null;
+  enteredBy: string | null;
+  originalName: string | null;
+  width: number | null;
+  height: number | null;
+  sizeBytes: number;
+  returnVoided: boolean;
+  voidedAt: string | null;
+  voidReason: string | null;
+}
+
+export interface ReturnDetail extends ReturnRow {
+  notes: string | null;
+  createdAt: string;
+  lines: ReturnLineView[];
+  photos: PhotoView[];
+  vouchers: SubBillRow[];
+  history: { at: string; action: string; summary: string | null; reason: string | null; user: string | null }[];
+  business: Settings;
+}
+
+export interface LedgerRow {
+  date: string;
+  at: string;
+  type: "work" | "payment" | "void";
+  ref: string;
+  href: string;
+  job: { id: string; jobNumber: string } | null;
+  particular: string;
+  debitPaise: number;
+  creditPaise: number;
+  balancePaise: number;
+}
+
+export interface Ledger {
+  openingPaise: number;
+  rows: LedgerRow[];
+  totals: { debitPaise: number; creditPaise: number; closingPaise: number };
+}
+
+export interface WorkerMaterialRow {
+  materialId: string | null;
+  materialName: string;
+  unit: Unit;
+  issued: number;
+  returned: number;
+  damaged: number;
+  rejected: number;
+  lost: number;
+  pending: number;
+  challans: number;
+  oldestIssueDate: string | null;
+  daysOutside: number;
+  valuePaise: number;
+}
+
+export interface WorkerPerformance extends WorkerMetrics {
+  totalWorkPaise: number;
+  totalPaidPaise: number;
+  outstandingPaise: number;
 }
 
 /** A sub bill: a payment made to a job worker for OK pieces of one job. */
@@ -124,21 +386,58 @@ export interface SubBillRow {
   date: string;
   client: { id: string; name: string };
   job: { id: string; jobNumber: string; productName: string };
+  returnId: string | null;
+  returnNumber: string | null;
   qty: number;
   amountPaise: number;
   method: PaymentMethod;
   reference: string | null;
+  enteredBy: string | null;
+  edited: EditMark | null;
   voidedAt: string | null;
+  voidedBy: string | null;
   voidReason: string | null;
 }
 
 export interface SubBillDetail extends SubBillRow {
+  /** Every change to this voucher, newest first (created, edited with old → new values, voided, emailed). */
+  history: { at: string; action: string; summary: string | null; reason: string | null; user: string | null }[];
   notes: string | null;
   createdAt: string;
   client: Client;
   lines: { id: string; jobItemId: string; designName: string; qty: number; ratePaise: number; amountPaise: number }[];
   mainBill: { id: string; billNumber: string; cancelled: boolean } | null;
+  advanceReason: string | null;
+  /** Challan money right now (after this voucher, if it is active). */
+  challanMoney: MoneyPosition;
+  emailedAt: string | null;
+  emailedTo: string | null;
+  notifications: NotificationRow[];
   business: Settings;
+}
+
+export interface NotificationRow {
+  id: string;
+  channel: string;
+  kind: string;
+  recipient: string | null;
+  /** "pending" while an automatic send is in flight (or if it crashed mid-send). */
+  status: "sent" | "skipped" | "failed" | "pending";
+  error: string | null;
+  auto: boolean;
+  createdAt: string;
+}
+
+/** What happened when a sub bill was emailed to the job worker. */
+export interface BillEmailResult {
+  status: "sent" | "skipped" | "failed";
+  to: string | null;
+  message: string;
+}
+
+/** Returned when a sub bill is created or (re)emailed. */
+export interface SubBillWithEmail extends SubBillDetail {
+  email: BillEmailResult;
 }
 
 /** A main bill: the settlement of a whole job once every OK piece is paid. */
@@ -166,7 +465,7 @@ export interface MainBillDetail extends MainBillRow {
     completedAt: string | null;
     notes: string | null;
   };
-  product: { id: string; name: string; code: string | null; unit: string; description: string | null };
+  product: { id: string; name: string; code: string | null; unit: Unit; description: string | null };
   designs: {
     jobItemId: string;
     designName: string;
@@ -207,15 +506,24 @@ export interface Settings {
   address: string | null;
   phone: string | null;
   email: string | null;
-  billingPolicy: BillingPolicy;
+  /** data: URL (PNG or JPEG), or null when no logo is set. */
+  logo: string | null;
+  emailBills: boolean;
+  defaultPaymentPolicy: PaymentPolicy;
+  defaultPaymentDays: number;
+  payDamagedDefault: boolean;
+  payRejectedDefault: boolean;
+  payLostDefault: boolean;
+  /** @deprecated alias of defaultPaymentPolicy */
+  billingPolicy: PaymentPolicy;
 }
 
 export interface MoneySummary {
-  /** Value of all OK pieces returned. */
+  /** Job work value of everything returned (return rates). */
   completedValuePaise: number;
-  /** Σ non-voided sub bills. */
+  /** Σ non-voided payment vouchers. */
   paidPaise: number;
-  /** OK pieces returned but not yet paid for. */
+  /** Still payable (per worker, net of advances). */
   toPayPaise: number;
 }
 
@@ -257,10 +565,52 @@ export interface SearchResults {
 export interface ReturnResult {
   id: string;
   returnNumber: string;
+  receivedAt: string;
+  /** The saved lines (to tag photos to a design line). */
+  lines: { id: string; jobItemId: string }[];
+  /** True when this was a retried submit and the existing return is returned. */
+  duplicate: boolean;
   receivedNow: number;
   okNow: number;
   okValueNowPaise: number;
   job: JobDetail;
   justCompleted: boolean;
-  billingPolicy: BillingPolicy;
+  terms: PaymentTerms;
+  /** @deprecated alias of terms.policy */
+  billingPolicy: PaymentPolicy;
+  payment: ReturnPayment | null;
+  voucher: SubBillWithEmail | null;
+  warnings: string[];
+}
+
+export interface SessionUser {
+  id: string;
+  email: string;
+  name: string;
+  role: UserRole;
+}
+
+/** Settings → Users (owner only). */
+export interface UserRow {
+  id: string;
+  name: string;
+  email: string;
+  role: UserRole;
+  disabled: boolean;
+  createdAt: string;
+  isYou: boolean;
+}
+
+/** Settings → Change log: one audit entry, newest first. */
+export interface ChangeLogRow {
+  id: string;
+  at: string;
+  entity: string;
+  /** What kind of record, in words ("Payment voucher"). */
+  entityLabel: string;
+  action: string;
+  summary: string | null;
+  reason: string | null;
+  user: string | null;
+  href: string | null;
 }

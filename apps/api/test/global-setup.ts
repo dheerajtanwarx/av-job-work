@@ -1,14 +1,15 @@
-import { execSync } from "node:child_process";
 import path from "node:path";
 import { config } from "dotenv";
 
-export default function setup() {
+/** Builds every collection and index in the test database once per run. */
+export default async function setup() {
   config({ path: path.resolve(import.meta.dirname, "../../../.env"), quiet: true });
-  const url = process.env.TEST_DATABASE_URL;
-  if (!url) throw new Error("TEST_DATABASE_URL is not set");
-  execSync("pnpm exec prisma migrate deploy", {
-    cwd: path.resolve(import.meta.dirname, "../../../packages/db"),
-    env: { ...process.env, DATABASE_URL: url },
-    stdio: "pipe",
-  });
+  const url = process.env.TEST_MONGODB_URI;
+  if (!url) throw new Error("TEST_MONGODB_URI is not set");
+  const { connectDb, disconnectDb, syncIndexes } = await import("@av/db");
+  const conn = await connectDb(url);
+  // Every suite wipes its database: never let that be anything but a test database.
+  if (!conn.connection.name.endsWith("_test")) throw new Error(`TEST_MONGODB_URI must name a database ending in "_test" (got "${conn.connection.name}")`);
+  await syncIndexes();
+  await disconnectDb();
 }

@@ -6,9 +6,10 @@ import { useState } from "react";
 import { ProductDialog } from "@/components/forms/master-dialogs";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, TableWrap } from "@/components/ui/card";
+import { Card, MobileList, MobileListItem, TableWrap } from "@/components/ui/card";
 import { EmptyState, ErrorBlock, LoadingBlock, PageHeader } from "@/components/ui/misc";
 import { useProducts } from "@/lib/queries";
+import { EditedTag } from "@/components/ui/edited";
 import { cn } from "@/lib/utils";
 
 export default function ProductsPage() {
@@ -47,17 +48,18 @@ export default function ProductsPage() {
               </Button>
             }
           >
-            Items you send to job workers, like Plain Blouse, Saree or Dupatta.
+            Items you send to job workers, like Saree (PCS), Blouse (PCS) or Fabric (MTR).
           </EmptyState>
         ) : (
-          <TableWrap>
+          <>
+          <TableWrap className="max-sm:hidden">
             <table className="ledger">
               <thead>
                 <tr>
                   <th>Name</th>
                   <th>Code</th>
                   <th>Unit</th>
-                  <th className="r">Jobs</th>
+                  <th className="r">Challans</th>
                   <th>Status</th>
                 </tr>
               </thead>
@@ -85,12 +87,40 @@ export default function ProductsPage() {
                     <td className="num text-fg-muted">{p.code ?? "—"}</td>
                     <td className="text-fg-2">{p.unit}</td>
                     <td className="r">{p.jobCount ?? 0}</td>
-                    <td>{p.isActive ? <Badge tone="success" className="bg-transparent px-0">Active</Badge> : <Badge>Inactive</Badge>}</td>
+                    <td>
+                      <div className="flex items-center gap-1.5">
+                        {p.isActive ? <Badge tone="success" className="bg-transparent px-0">Active</Badge> : <Badge>Inactive</Badge>}
+                        <EditedTag edited={p.edited} compact />
+                      </div>
+                    </td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </TableWrap>
+          <MobileList className="sm:hidden">
+            {q.data.map((p) => (
+              <MobileListItem
+                key={p.id}
+                onClick={() => {
+                  setEditing(p);
+                  setOpen(true);
+                }}
+                className={cn(!p.isActive && "text-fg-muted")}
+              >
+                <div className="flex items-baseline justify-between gap-2">
+                  <span className="truncate text-[13px] font-medium">{p.name}</span>
+                  <span className="shrink-0 text-xs font-medium text-fg-2">{p.unit}</span>
+                </div>
+                <div className="flex justify-between gap-2 text-xs text-fg-muted">
+                  <span className="truncate">{[p.code, `${p.jobCount ?? 0} challans`].filter(Boolean).join(" · ")}</span>
+                  <EditedTag edited={p.edited} compact />
+                  {!p.isActive && <Badge>Inactive</Badge>}
+                </div>
+              </MobileListItem>
+            ))}
+          </MobileList>
+          </>
         )}
       </Card>
       <ProductDialog open={open} onOpenChange={setOpen} product={editing} />

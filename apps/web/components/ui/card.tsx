@@ -1,3 +1,4 @@
+import Link from "next/link";
 import type { HTMLAttributes, ReactNode } from "react";
 import { cn } from "@/lib/utils";
 
@@ -37,4 +38,33 @@ export function Section({ title, description, action, children, className }: { t
 /** Horizontally scrollable table wrapper. */
 export function TableWrap({ children, className }: { children: ReactNode; className?: string }) {
   return <div className={cn("relative overflow-x-auto overscroll-x-contain", className)}>{children}</div>;
+}
+
+/**
+ * Phone-friendly list of tappable cards. Use instead of a table below `sm` — e.g.
+ * `<TableWrap className="max-sm:hidden">…</TableWrap><MobileList className="sm:hidden">…</MobileList>`.
+ */
+export function MobileList({ children, className }: { children: ReactNode; className?: string }) {
+  return <ul className={cn("divide-y divide-border", className)}>{children}</ul>;
+}
+
+export function MobileListItem({ children, href, onClick, className }: { children: ReactNode; href?: string; onClick?: () => void; className?: string }) {
+  const cls = cn("block min-h-12 px-4 py-3 transition-colors duration-100 active:bg-surface-2", (href || onClick) && "cursor-pointer hover:bg-surface-2", className);
+  if (href)
+    return (
+      <li>
+        <Link href={href} className={cls}>
+          {children}
+        </Link>
+      </li>
+    );
+  if (onClick)
+    return (
+      <li>
+        <button type="button" onClick={onClick} className={cn(cls, "w-full text-left")}>
+          {children}
+        </button>
+      </li>
+    );
+  return <li className={cls}>{children}</li>;
 }
