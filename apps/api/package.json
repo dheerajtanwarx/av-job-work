@@ -6,7 +6,7 @@
   "main": "server.js",
   "scripts": {
     "dev": "tsx watch --clear-screen=false src/index.ts",
-    "build": "tsc --noEmit && sh ../../scripts/hostinger-node-modules.sh @av/api --prod",
+    "build": "tsc --noEmit && node ../../scripts/hostinger-bundle-api.mjs && sh ../../scripts/hostinger-node-modules.sh @av/api --prod",
     "start": "node server.js",
     "test": "vitest run",
     "typecheck": "tsc --noEmit"

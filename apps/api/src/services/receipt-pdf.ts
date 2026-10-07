@@ -14,8 +14,8 @@ import { getReturn } from "./returns.js";
  */
 
 // Noto Sans carries the ₹ glyph (the built-in Helvetica does not).
-const FONT_REGULAR = new URL("../../assets/fonts/NotoSans-Regular.ttf", import.meta.url).pathname;
-const FONT_BOLD = new URL("../../assets/fonts/NotoSans-Bold.ttf", import.meta.url).pathname;
+const FONT_REGULAR = `${env.assetsDir}fonts/NotoSans-Regular.ttf`;
+const FONT_BOLD = `${env.assetsDir}fonts/NotoSans-Bold.ttf`;
 
 const C = { fg: "#18181b", fg2: "#3f3f46", muted: "#71717a", faint: "#a1a1aa", border: "#e4e4e7", soft: "#f4f4f5", danger: "#b91c1c" };
 const M = 48; // page margin
