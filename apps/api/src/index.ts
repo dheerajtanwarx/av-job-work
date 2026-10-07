@@ -3,14 +3,15 @@ import { createApp } from "./app.js";
 import { env } from "./env.js";
 
 // Listen first so hosts that wait for the port (Hostinger's LiteSpeed) see the app come up; queries issued while the
-// pool is still opening are buffered by Mongoose until it connects.
+// pool is still opening are buffered by Mongoose until it connects. Startup messages go to stderr, the only stream
+// Hostinger's runtime log shows.
 const server = createApp().listen(env.port, () => {
-  console.log(`API listening on http://localhost:${env.port}`);
+  console.error(`API listening on http://localhost:${env.port}`);
 });
 
-console.log("Connecting to MongoDB…");
+console.error("Connecting to MongoDB…");
 connectDb().then(
-  () => console.log("MongoDB connected"),
+  () => console.error("MongoDB connected"),
   (err) => {
     console.error("MongoDB connection failed:", err);
     process.exit(1);

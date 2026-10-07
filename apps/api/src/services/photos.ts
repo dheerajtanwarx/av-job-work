@@ -15,7 +15,7 @@ import {
   type PhotoView,
   type WorkerDocumentKind,
 } from "@av/shared";
-import sharp from "sharp";
+import type { Metadata, Sharp, SharpOptions } from "sharp";
 import { env } from "../env.js";
 import { audit } from "../lib/audit.js";
 import { toDate } from "../lib/dates.js";
@@ -23,6 +23,20 @@ import { HttpError, notFound, unprocessable } from "../lib/http.js";
 import { newPhotoFolder, storage } from "../lib/storage.js";
 import { MANAGERS } from "../middleware/auth.js";
 import type { Actor } from "./jobs.js";
+
+type SharpFn = (input?: Buffer, options?: SharpOptions) => Sharp;
+let sharpLoading: Promise<SharpFn> | undefined;
+/**
+ * sharp (native libvips) is loaded on the first photo operation rather than at server start, and runs one image at a
+ * time: on shared hosting (Hostinger) its thread pool and memory at boot can get the whole process stopped.
+ */
+function loadSharp() {
+  sharpLoading ??= import("sharp").then(({ default: sharp }) => {
+    sharp.concurrency(1);
+    return sharp;
+  });
+  return sharpLoading;
+}
 import { getSettings } from "./billing.js";
 import { range } from "../lib/mongo.js";
 import { itemIdsWhere, jobIdsWhere } from "./lookups.js";
@@ -76,7 +90,8 @@ export async function prepare(f: UploadFile): Promise<Prepared | string> {
   if (f.size > PHOTO_LIMITS.maxBytes || f.buffer.length > PHOTO_LIMITS.maxBytes) return `${label}: the photo is larger than 15 MB`;
   if (!f.buffer.length) return `${label}: the file is empty`;
 
-  let meta: Awaited<ReturnType<ReturnType<typeof sharp>["metadata"]>>;
+  const sharp = await loadSharp();
+  let meta: Metadata;
   try {
     meta = await sharp(f.buffer).metadata();
   } catch {
@@ -468,6 +483,7 @@ const escapeXml = (s: string) => s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "
 
 async function renderGlyph(ch: string) {
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48"><rect width="48" height="48" fill="#fff"/><text x="6" y="38" font-size="36" font-family="${FONT}" fill="#000">${ch}</text></svg>`;
+  const sharp = await loadSharp();
   return sharp(Buffer.from(svg)).raw().toBuffer();
 }
 
@@ -501,6 +517,7 @@ export async function sharePhoto(id: string, actor?: Actor) {
   const [view] = await toPhotoViews(db, [p]);
   const [settings, display, rupee] = await Promise.all([getSettings(), storage.getBuffer(p.displayKey).catch(() => null), canDrawRupee()]);
   if (!display) throw notFound("Photo file");
+  const sharp = await loadSharp();
   // Tiny photos are enlarged so the text stays readable.
   const meta0 = await sharp(display).metadata();
   const base = (meta0.width ?? 0) < 640 ? await sharp(display).resize({ width: 640 }).jpeg({ quality: 90 }).toBuffer() : display;
