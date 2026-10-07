@@ -10,6 +10,8 @@ export const env = {
   businessTz: process.env.BUSINESS_TZ || "Asia/Kolkata",
   /** Where uploaded photos are stored (local disk driver). */
   uploadDir: process.env.UPLOAD_DIR || new URL("../../../uploads/", import.meta.url).pathname,
+  /** apps/api/assets. Resolved from this file, which sits one level below apps/api in both src/ and the dist/ bundle. */
+  assetsDir: new URL("../assets/", import.meta.url).pathname,
   /** Public base URL of the web app, used in QR codes. */
   publicWebUrl: process.env.PUBLIC_WEB_URL || process.env.WEB_ORIGIN || "http://localhost:3000",
   /** WhatsApp Business Cloud API (Meta). Sending is skipped – and the app falls back to sharing from the device – until token and phone number id are set. */

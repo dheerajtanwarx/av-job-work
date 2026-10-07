@@ -2,12 +2,20 @@ import { connectDb, disconnectDb } from "@av/db";
 import { createApp } from "./app.js";
 import { env } from "./env.js";
 
-// One connection pool for the whole process, opened before the first request is served.
-await connectDb();
-
+// Listen first so hosts that wait for the port (Hostinger's LiteSpeed) see the app come up; queries issued while the
+// pool is still opening are buffered by Mongoose until it connects.
 const server = createApp().listen(env.port, () => {
   console.log(`API listening on http://localhost:${env.port}`);
 });
+
+console.log("Connecting to MongoDB…");
+connectDb().then(
+  () => console.log("MongoDB connected"),
+  (err) => {
+    console.error("MongoDB connection failed:", err);
+    process.exit(1);
+  },
+);
 
 for (const signal of ["SIGINT", "SIGTERM"] as const) {
   process.once(signal, () => {
