@@ -3,10 +3,11 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
+  "main": "server.js",
   "scripts": {
     "dev": "next dev --port 3000",
     "build": "next build",
-    "start": "next start --port 3000",
+    "start": "node server.js",
     "typecheck": "tsc --noEmit",
     "e2e": "playwright test"
   },
