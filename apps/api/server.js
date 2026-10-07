@@ -2,11 +2,12 @@
 // Runs the prebuilt bundle (dist/index.js, made by scripts/hostinger-bundle-api.mjs) when present, so no TypeScript
 // compiler process has to start at runtime; otherwise falls back to tsx and the TS sources.
 // No top-level await: Hostinger's LiteSpeed runner loads this file with require().
+// Startup messages go to stderr: Hostinger's runtime log only shows that stream.
 import { existsSync } from "node:fs";
 
 process.env.NODE_ENV ??= "production";
 const bundle = new URL("./dist/index.js", import.meta.url);
-console.log(existsSync(bundle) ? "Starting API from dist/index.js" : "Starting API from src/index.ts (tsx)");
+console.error(existsSync(bundle) ? "Starting API from dist/index.js" : "Starting API from src/index.ts (tsx)");
 
 const start = existsSync(bundle)
   ? import(bundle.href)
