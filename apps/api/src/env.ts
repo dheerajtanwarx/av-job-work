@@ -10,6 +10,12 @@ export const env = {
   businessTz: process.env.BUSINESS_TZ || "Asia/Kolkata",
   /** Where uploaded photos are stored (local disk driver). */
   uploadDir: process.env.UPLOAD_DIR || new URL("../../../uploads/", import.meta.url).pathname,
+  /** Cloudinary photo storage. When all three are set, photos go there instead of uploadDir. */
+  cloudinary: {
+    cloudName: process.env.CLOUDINARY_CLOUD_NAME,
+    apiKey: process.env.CLOUDINARY_API_KEY,
+    apiSecret: process.env.CLOUDINARY_API_SECRET,
+  },
   /** apps/api/assets. Resolved from this file, which sits one level below apps/api in both src/ and the dist/ bundle. */
   assetsDir: new URL("../assets/", import.meta.url).pathname,
   /** Public base URL of the web app, used in QR codes. */

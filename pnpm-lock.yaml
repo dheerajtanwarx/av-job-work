@@ -184,6 +184,9 @@ importers:
       bcryptjs:
         specifier: ^3.0.2
         version: 3.0.3
+      cloudinary:
+        specifier: ^2.11.0
+        version: 2.11.0
       cookie-parser:
         specifier: ^1.4.7
         version: 1.4.7
@@ -2071,6 +2074,10 @@ packages:
     resolution: {integrity: sha512-3Pe/CF1Nn94hyhIYpjtiLhdCoEoz0DqQ+988E9gmeEdQZlojxnOb74wctFyuwWQHzqyf9X7C7MG8juUpqBJT8w==}
     engines: {node: '>=0.8'}
 
+  cloudinary@2.11.0:
+    resolution: {integrity: sha512-o2pAkDDqrzPFE/mn9GCfFjBIGQmPs++Ts6rtkFl4vY528DNHiMovKWjH16HBjeGa9iwI7eAad24aWN2emT0aww==}
+    engines: {node: '>=9'}
+
   clsx@2.1.1:
     resolution: {integrity: sha512-eYm0QWBtUrBWZWG0d386OGAw16Z995PiOVo2B7bjWSbHedGl5e0ZWaq65kOGgUSNesEIDkB9ISbTg/JK9dhCZA==}
     engines: {node: '>=6'}
@@ -2724,6 +2731,9 @@ packages:
 
   lodash.uniq@4.5.0:
     resolution: {integrity: sha512-xfBaXQd9ryd9dlSDvnvI0lvxfLJlYAZzXomUYzLKtUeOQvOP5piqAWuGtrhWeqaXK9hhoM/iyJc5AV+XfsX3HQ==}
+
+  lodash@4.18.1:
+    resolution: {integrity: sha512-dMInicTPVE8d1e5otfwmmjlxkZoUpiVLwyeTdUsi/Caj/gfzzblBcCE5sRHV/AsjuCmxWrte2TNGSYuCeCq+0Q==}
 
   lucide-react@1.51.0:
     resolution: {integrity: sha512-9929jimol5y7VbXUlVKcgURMSeIxFJB7dtWCkRAaNnF7KiCRkSkhmqWPUmAmUFYPezNawFk6qvz3Mu0gEnfI4g==}
@@ -5042,6 +5052,10 @@ snapshots:
 
   clone@2.1.2: {}
 
+  cloudinary@2.11.0:
+    dependencies:
+      lodash: 4.18.1
+
   clsx@2.1.1: {}
 
   cmdk@1.1.1(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0):
@@ -5669,6 +5683,8 @@ snapshots:
   lodash.union@4.6.0: {}
 
   lodash.uniq@4.5.0: {}
+
+  lodash@4.18.1: {}
 
   lucide-react@1.51.0(@types/react@19.3.0)(react@19.3.0):
     dependencies:

@@ -2,7 +2,8 @@ import { randomUUID } from "node:crypto";
 import { createReadStream } from "node:fs";
 import { mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
-import type { Readable } from "node:stream";
+import { Readable } from "node:stream";
+import { v2 as cloudinary } from "cloudinary";
 import { env } from "../env.js";
 
 /**
@@ -66,7 +67,64 @@ export class LocalDiskDriver implements StorageDriver {
   }
 }
 
-export const storage: StorageDriver = new LocalDiskDriver(() => process.env.UPLOAD_DIR || env.uploadDir);
+/**
+ * Cloudinary, for hosts without a persistent disk (Vercel). Files are stored byte-for-byte as private "raw" assets
+ * (public id = key) and only the API can read them, so photos stay behind login like on local disk.
+ */
+export class CloudinaryDriver implements StorageDriver {
+  private static readonly opts = { resource_type: "raw", type: "authenticated" } as const;
+
+  constructor(config: { cloudName: string; apiKey: string; apiSecret: string }) {
+    cloudinary.config({ cloud_name: config.cloudName, api_key: config.apiKey, api_secret: config.apiSecret, secure: true });
+  }
+
+  async put(key: string, body: Buffer) {
+    assertKey(key);
+    await new Promise<void>((resolve, reject) => {
+      cloudinary.uploader
+        // overwrite: false keeps the existing file and reports existing: true instead of failing; treat that as an error.
+        .upload_stream({ ...CloudinaryDriver.opts, public_id: key, overwrite: false }, (err, res) =>
+          err ? reject(err) : res?.existing ? reject(new Error(`Storage key already exists: ${key}`)) : resolve(),
+        )
+        .end(body);
+    });
+  }
+
+  private async fetch(key: string, method: "GET" | "HEAD" = "GET") {
+    assertKey(key);
+    const url = cloudinary.url(key, { ...CloudinaryDriver.opts, sign_url: true });
+    const res = await fetch(url, { method });
+    if (!res.ok) throw new Error(`Storage file not found: ${key} (${res.status})`);
+    return res;
+  }
+
+  async get(key: string) {
+    const res = await this.fetch(key);
+    return Readable.fromWeb(res.body as import("node:stream/web").ReadableStream);
+  }
+
+  async getBuffer(key: string) {
+    return Buffer.from(await (await this.fetch(key)).arrayBuffer());
+  }
+
+  async exists(key: string) {
+    return this.fetch(key, "HEAD").then(
+      () => true,
+      () => false,
+    );
+  }
+
+  async delete(key: string) {
+    assertKey(key);
+    await cloudinary.uploader.destroy(key, { ...CloudinaryDriver.opts, invalidate: true });
+  }
+}
+
+/** Cloudinary when its credentials are set (never in tests), otherwise the local disk. */
+export const storage: StorageDriver =
+  env.cloudinary.cloudName && env.cloudinary.apiKey && env.cloudinary.apiSecret && !env.isTest
+    ? new CloudinaryDriver(env.cloudinary as { cloudName: string; apiKey: string; apiSecret: string })
+    : new LocalDiskDriver(() => process.env.UPLOAD_DIR || env.uploadDir);
 
 /** A fresh folder key for one upload: "photos/2026/10/<uuid>". Never derived from the user's file name. */
 export function newPhotoFolder(now = new Date()) {
