@@ -3,6 +3,7 @@ import { createReadStream } from "node:fs";
 import { mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { Readable } from "node:stream";
+import { DeleteObjectCommand, GetObjectCommand, HeadObjectCommand, PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
 import { env } from "../env.js";
 
 /**
@@ -66,7 +67,61 @@ export class LocalDiskDriver implements StorageDriver {
   }
 }
 
-export const storage: StorageDriver = new LocalDiskDriver(() => process.env.UPLOAD_DIR || env.uploadDir);
+/**
+ * Cloudflare R2 (S3-compatible), for hosts without a persistent disk. The bucket stays private: only the API reads it,
+ * so photos stay behind login like on local disk.
+ */
+export class R2Driver implements StorageDriver {
+  private client: S3Client;
+  private bucket: string;
+
+  constructor(config: { endpoint: string; bucket: string; accessKeyId: string; secretAccessKey: string }) {
+    // The S3 endpoint is the account URL; drop a "/<bucket>" path if it was pasted from the dashboard.
+    this.client = new S3Client({
+      region: "auto",
+      endpoint: new URL(config.endpoint).origin,
+      credentials: { accessKeyId: config.accessKeyId, secretAccessKey: config.secretAccessKey },
+    });
+    this.bucket = config.bucket;
+  }
+
+  async put(key: string, body: Buffer, contentType: string) {
+    assertKey(key);
+    await this.client.send(new PutObjectCommand({ Bucket: this.bucket, Key: key, Body: body, ContentType: contentType }));
+  }
+
+  async get(key: string) {
+    assertKey(key);
+    // Rejects with NoSuchKey before any headers are sent.
+    const res = await this.client.send(new GetObjectCommand({ Bucket: this.bucket, Key: key }));
+    return res.Body as Readable;
+  }
+
+  async getBuffer(key: string) {
+    assertKey(key);
+    const res = await this.client.send(new GetObjectCommand({ Bucket: this.bucket, Key: key }));
+    return Buffer.from(await res.Body!.transformToByteArray());
+  }
+
+  async exists(key: string) {
+    assertKey(key);
+    return this.client.send(new HeadObjectCommand({ Bucket: this.bucket, Key: key })).then(
+      () => true,
+      () => false,
+    );
+  }
+
+  async delete(key: string) {
+    assertKey(key);
+    await this.client.send(new DeleteObjectCommand({ Bucket: this.bucket, Key: key }));
+  }
+}
+
+/** R2 when its settings are all present (never in tests), otherwise the local disk. */
+export const storage: StorageDriver =
+  env.r2.endpoint && env.r2.bucket && env.r2.accessKeyId && env.r2.secretAccessKey && !env.isTest
+    ? new R2Driver(env.r2 as { endpoint: string; bucket: string; accessKeyId: string; secretAccessKey: string })
+    : new LocalDiskDriver(() => process.env.UPLOAD_DIR || env.uploadDir);
 
 /** A fresh folder key for one upload: "photos/2026/10/<uuid>". Never derived from the user's file name. */
 export function newPhotoFolder(now = new Date()) {

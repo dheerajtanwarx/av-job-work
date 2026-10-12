@@ -320,14 +320,13 @@ export const settingsSchema = z.preprocess(
     address: optText,
     phone: optText,
     email: optText,
-    /** Kept small so it can be embedded inline in every email. */
+    /** Kept small: it is stored inline in Settings and printed on every receipt. */
     logo: z
       .string()
       .regex(/^data:image\/(png|jpeg);base64,[A-Za-z0-9+/=]+$/, "Logo must be a PNG or JPEG image")
       .max(MAX_LOGO_CHARS, "Logo must be smaller than 200 KB")
       .nullable()
       .optional(),
-    emailBills: z.boolean().optional(),
     defaultPaymentPolicy: z.preprocess((v) => (v === "ON_COMPLETION" ? "AFTER_COMPLETION" : v), z.enum(PAYMENT_POLICIES)),
     defaultPaymentDays: z.coerce.number().int().min(0).max(365).optional(),
     payDamagedDefault: z.boolean().optional(),

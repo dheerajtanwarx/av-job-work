@@ -1,6 +1,7 @@
 "use client";
 
 import type { JobItemPhotoKind, JobItemPhotoView } from "@av/shared";
+import { compressPhoto } from "./compress-photo";
 import { PHOTO_MAX_FILES } from "./returns";
 
 export const jobPhotoThumb = (id: string) => `/api/job-photos/${id}/thumb`;
@@ -12,7 +13,7 @@ export async function uploadJobItemPhotos(jobItemId: string, kind: JobItemPhotoK
   for (let i = 0; i < files.length; i += PHOTO_MAX_FILES) {
     const fd = new FormData();
     fd.append("kind", kind);
-    for (const f of files.slice(i, i + PHOTO_MAX_FILES)) fd.append("photos", f, f.name);
+    for (const f of await Promise.all(files.slice(i, i + PHOTO_MAX_FILES).map(compressPhoto))) fd.append("photos", f, f.name);
     const res = await fetch(`/api/job-items/${jobItemId}/photos`, { method: "POST", credentials: "include", body: fd });
     const body = res.headers.get("content-type")?.includes("json") ? await res.json() : null;
     if (!res.ok && res.status !== 404) throw new Error(body?.message ?? `Upload failed (${res.status})`);

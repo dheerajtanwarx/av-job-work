@@ -202,7 +202,7 @@ export function ClientDialog({
         <Field label="Alternate mobile" error={errors.alternatePhone}>
           <Input type="tel" inputMode="tel" value={form.alternatePhone} onChange={set("alternatePhone")} />
         </Field>
-        <Field label="Email" error={errors.email} hint="Payment vouchers can be emailed here">
+        <Field label="Email" error={errors.email}>
           <Input type="email" value={form.email} onChange={set("email")} />
         </Field>
         <Field label="Work / items" error={errors.workItems} hint="What this worker makes, e.g. hand work, jardoji">

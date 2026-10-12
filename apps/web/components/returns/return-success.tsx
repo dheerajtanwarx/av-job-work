@@ -1,7 +1,7 @@
 "use client";
 
 import { formatINR, formatQty, PAYMENT_METHOD_LABEL, roundQty, type ReturnResult } from "@av/shared";
-import { CheckCircle2, FileText, Mail, MailWarning, PackageCheck, Printer, Wallet } from "lucide-react";
+import { CheckCircle2, FileText, PackageCheck, Printer, Wallet } from "lucide-react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -76,10 +76,6 @@ export function ReturnSuccess({
               </Link>{" "}
               · {formatINR(v.amountPaise)} by {PAYMENT_METHOD_LABEL[v.method]}
               {v.reference && <span className="text-fg-muted"> · {v.reference}</span>}
-            </div>
-            <div className={cn("mt-1 flex items-start gap-1.5 text-xs", v.email.status === "sent" ? "text-success" : v.email.status === "failed" ? "text-danger" : "text-fg-muted")}>
-              {v.email.status === "sent" ? <Mail className="mt-px size-3.5 shrink-0" /> : <MailWarning className="mt-px size-3.5 shrink-0" />}
-              <span>{v.email.message}</span>
             </div>
           </div>
         )}

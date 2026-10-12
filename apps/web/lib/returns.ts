@@ -3,6 +3,7 @@
 import { formatDate, qtyFitsUnit, type JobDetail, type JobListRow, type PhotoView, type ReturnDetail, type ReturnRow, type SessionUser, type Unit } from "@av/shared";
 import { useQuery } from "@tanstack/react-query";
 import { api, qs } from "./api";
+import { compressPhoto } from "./compress-photo";
 
 // ───────────────────────── Queries ─────────────────────────
 
@@ -71,10 +72,11 @@ export const photoDisplay = (id: string) => `/api/photos/${id}/display`;
 export const photoHref = (id: string) => `/gallery?photo=${id}`;
 
 /**
- * Uploads one photo to a saved return with progress (fetch has no upload progress, so XHR).
+ * Uploads one photo (shrunk first, see compressPhoto) to a saved return with progress (fetch has no upload progress, so XHR).
  * Resolves with the created PhotoView[]; rejects with a readable message.
  */
-export function uploadReturnPhoto(returnId: string, file: File, returnLineId: string | null, onProgress: (pct: number) => void): Promise<PhotoView[]> {
+export async function uploadReturnPhoto(returnId: string, original: File, returnLineId: string | null, onProgress: (pct: number) => void): Promise<PhotoView[]> {
+  const file = await compressPhoto(original);
   return new Promise((resolve, reject) => {
     const fd = new FormData();
     fd.append("photos", file, file.name);

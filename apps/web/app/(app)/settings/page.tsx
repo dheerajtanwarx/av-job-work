@@ -8,7 +8,6 @@ import {
   PAYMENT_POLICIES,
   PAYMENT_POLICY_LABEL,
   type NotificationLogRow,
-  type NotifyChannel,
   type PaymentPolicy,
   type Settings,
 } from "@av/shared";
@@ -43,7 +42,7 @@ const NEEDS_DAYS: PaymentPolicy[] = ["DAYS_AFTER_RETURN", "AFTER_EACH_RETURN", "
 
 type SettingsBody = Pick<
   Settings,
-  "businessName" | "address" | "phone" | "email" | "logo" | "emailBills" | "defaultPaymentPolicy" | "defaultPaymentDays" | "payDamagedDefault" | "payRejectedDefault" | "payLostDefault"
+  "businessName" | "address" | "phone" | "email" | "logo" | "defaultPaymentPolicy" | "defaultPaymentDays" | "payDamagedDefault" | "payRejectedDefault" | "payLostDefault"
 >;
 
 const toBody = (f: Settings): SettingsBody => ({
@@ -52,7 +51,6 @@ const toBody = (f: Settings): SettingsBody => ({
   phone: f.phone,
   email: f.email,
   logo: f.logo,
-  emailBills: f.emailBills,
   defaultPaymentPolicy: f.defaultPaymentPolicy,
   defaultPaymentDays: NEEDS_DAYS.includes(f.defaultPaymentPolicy) ? f.defaultPaymentDays : 0,
   payDamagedDefault: f.payDamagedDefault,
@@ -122,7 +120,7 @@ function GeneralSettings({ canEdit }: { canEdit: boolean }) {
       </Card>
     );
   const set = (k: "businessName" | "address" | "phone" | "email") => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => setForm({ ...form, [k]: e.target.value });
-  const toggle = (k: "payDamagedDefault" | "payRejectedDefault" | "payLostDefault" | "emailBills") => (e: React.ChangeEvent<HTMLInputElement>) => setForm({ ...form, [k]: e.target.checked });
+  const toggle = (k: "payDamagedDefault" | "payRejectedDefault" | "payLostDefault") => (e: React.ChangeEvent<HTMLInputElement>) => setForm({ ...form, [k]: e.target.checked });
 
   return (
     <div className="max-w-4xl">
@@ -160,7 +158,7 @@ function GeneralSettings({ canEdit }: { canEdit: boolean }) {
               </Field>
             </div>
           </SettingsGroup>
-          <SettingsGroup title="Logo" description="Shown on printed vouchers, the QR challan view and every voucher email. PNG or JPEG, under 200 KB.">
+          <SettingsGroup title="Logo" description="Shown on printed vouchers, the QR challan view and WhatsApp receipts. PNG or JPEG, under 200 KB.">
             <LogoPicker value={form.logo} onChange={(logo) => setForm({ ...form, logo })} />
           </SettingsGroup>
           <SettingsGroup title="Default payment terms" description={`Used for ${L.clients.toLowerCase()} and ${L.jobs.toLowerCase()} without their own terms. Drives due dates and overdue payments.`}>
@@ -221,17 +219,6 @@ function GeneralSettings({ canEdit }: { canEdit: boolean }) {
               ))}
             </div>
           </SettingsGroup>
-          <SettingsGroup title="Voucher emails" description={`${L.clients} need an email address on their profile. Saving a payment never depends on email.`}>
-            <label className="flex min-h-12 cursor-pointer gap-3 rounded-lg border border-border bg-surface px-4 py-3">
-              <input type="checkbox" className="mt-0.5 size-4 shrink-0 accent-[var(--accent-solid)]" checked={form.emailBills} onChange={toggle("emailBills")} />
-              <span>
-                <span className="block text-[13px] font-medium">Email each new {L.subBill.toLowerCase()} to the {L.client.toLowerCase()} automatically</span>
-                <span className="text-xs text-fg-muted">
-                  Sent once per voucher, with your logo and the challan balance. When a payment settles a challan, the {L.mainBill.toLowerCase()} is included. You can always resend from the voucher.
-                </span>
-              </span>
-            </label>
-          </SettingsGroup>
         </fieldset>
       </form>
     </div>
@@ -252,7 +239,7 @@ function NotificationLogSection() {
     queryKey: ["notifications", status],
     queryFn: () => api.get<NotificationLogRow[]>(`/notifications${qs({ status: status === "all" ? undefined : status, take: 100 })}`),
   });
-  const channel = (c: string) => NOTIFY_CHANNEL_LABEL[c as NotifyChannel] ?? c;
+  const channel = (c: string) => NOTIFY_CHANNEL_LABEL[c as keyof typeof NOTIFY_CHANNEL_LABEL] ?? c;
   const what = (n: NotificationLogRow) => `${NOTIFY_KIND_LABEL[n.kind] ?? n.kind}${n.ref ? ` ${n.ref}` : ""}`;
   const ref = (n: NotificationLogRow) =>
     n.href ? (
@@ -268,7 +255,7 @@ function NotificationLogSection() {
       <div className="mb-3 flex flex-wrap items-end justify-between gap-3">
         <div>
           <h2 className="text-[13px] font-semibold">Notification log</h2>
-          <p className="mt-0.5 text-xs text-fg-muted">Every email, WhatsApp and SMS attempt, newest first. Failures show the error from the mail server.</p>
+          <p className="mt-0.5 text-xs text-fg-muted">Every WhatsApp message attempt, newest first. Failures show the error from WhatsApp.</p>
         </div>
         <div className="flex items-center gap-2">
           <Segmented label="Filter by status" value={status} onChange={setStatus} options={[...STATUS_FILTERS]} />
@@ -284,7 +271,7 @@ function NotificationLogSection() {
           <ErrorBlock error={q.error} onRetry={() => q.refetch()} />
         ) : q.data.length === 0 ? (
           <EmptyState icon={Inbox} title={status === "all" ? "Nothing sent yet" : "No matching notifications"}>
-            Voucher emails will be listed here.
+            WhatsApp messages will be listed here.
           </EmptyState>
         ) : (
           <>

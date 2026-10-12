@@ -1,6 +1,5 @@
 import { db, isDuplicateKey } from "@av/db";
 import type { NotifyChannel } from "@av/shared";
-import { emailChannel } from "./channels/email.js";
 import { inAppChannel } from "./channels/in-app.js";
 import { smsChannel } from "./channels/sms.js";
 import { whatsappChannel } from "./channels/whatsapp.js";
@@ -9,7 +8,6 @@ import type { Channel, OutgoingMessage } from "./types.js";
 export type { Channel, OutgoingMessage, SendResult } from "./types.js";
 
 export const channels: Record<NotifyChannel, Channel> = {
-  email: emailChannel,
   whatsapp: whatsappChannel,
   sms: smsChannel,
   in_app: inAppChannel,

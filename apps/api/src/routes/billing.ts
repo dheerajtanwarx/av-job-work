@@ -4,7 +4,6 @@ import { Router } from "express";
 import { audit, userNames } from "../lib/audit.js";
 import { toDate } from "../lib/dates.js";
 import { param, parse, str } from "../lib/http.js";
-import { emailSubBill } from "../services/bill-email.js";
 import { createSubBill, getMainBill, getSettings, getSubBill, getUnpaid, listMainBills, listSubBills, updateSubBill, voidSubBill } from "../services/billing.js";
 import { OWNER_ONLY, requireRole } from "../middleware/auth.js";
 
@@ -31,18 +30,8 @@ billingRouter.get("/sub-bills", async (req, res) => {
 
 billingRouter.post("/sub-bills", async (req, res) => {
   const { id, created } = await createSubBill(parse(subBillCreateSchema, req.body), req.user);
-  // The voucher is saved either way; the email result is reported alongside it. A repeated submit
-  // (same idempotency key) returns the existing voucher and never emails again.
-  const email = created
-    ? await emailSubBill(id, req.user?.id, { auto: true })
-    : { status: "skipped" as const, to: null, message: "This payment was already recorded" };
-  res.status(created ? 201 : 200).json({ ...(await getSubBill(id)), email, duplicate: !created });
-});
-
-billingRouter.post("/sub-bills/:id/email", async (req, res) => {
-  const id = param(req.params.id);
-  const email = await emailSubBill(id, req.user?.id);
-  res.json({ ...(await getSubBill(id)), email });
+  // A repeated submit (same idempotency key) returns the existing voucher.
+  res.status(created ? 201 : 200).json({ ...(await getSubBill(id)), duplicate: !created });
 });
 
 billingRouter.get("/sub-bills/:id", async (req, res) => {

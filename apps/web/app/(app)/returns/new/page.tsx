@@ -146,7 +146,6 @@ function RecordReturn() {
       setResult({ r, date, lineIdFor });
       window.scrollTo({ top: 0, behavior: "smooth" });
       toast.success(`${r.returnNumber} saved: ${formatQty(r.receivedNow)} ${r.job.unit} on ${r.job.jobNumber}`);
-      if (r.voucher && r.voucher.email.status === "failed") toast.warning(`Payment voucher not emailed. ${r.voucher.email.message}`);
       if (photos.items.length) {
         const failed = await photos.uploadAll(r.id, lineIdFor);
         if (failed) toast.error(`${failed} photo${failed === 1 ? "" : "s"} could not be uploaded. Tap Retry.`);

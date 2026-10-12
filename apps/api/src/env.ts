@@ -10,6 +10,13 @@ export const env = {
   businessTz: process.env.BUSINESS_TZ || "Asia/Kolkata",
   /** Where uploaded photos are stored (local disk driver). */
   uploadDir: process.env.UPLOAD_DIR || new URL("../../../uploads/", import.meta.url).pathname,
+  /** Cloudflare R2 photo storage. When all four are set, photos go there instead of uploadDir. */
+  r2: {
+    endpoint: process.env.R2_ENDPOINT,
+    bucket: process.env.R2_BUCKET,
+    accessKeyId: process.env.R2_ACCESS_KEY_ID,
+    secretAccessKey: process.env.R2_SECRET_ACCESS_KEY,
+  },
   /** apps/api/assets. Resolved from this file, which sits one level below apps/api in both src/ and the dist/ bundle. */
   assetsDir: new URL("../assets/", import.meta.url).pathname,
   /** Public base URL of the web app, used in QR codes. */
@@ -23,14 +30,5 @@ export const env = {
     templateReturn: process.env.WHATSAPP_TEMPLATE_RETURN || "return_receipt",
     templateIssue: process.env.WHATSAPP_TEMPLATE_ISSUE || "material_issue",
     templateLang: process.env.WHATSAPP_TEMPLATE_LANG || "en",
-  },
-  smtp: {
-    host: process.env.SMTP_HOST,
-    port: Number(process.env.SMTP_PORT ?? 587),
-    secure: process.env.SMTP_SECURE === "true", // true for port 465
-    user: process.env.SMTP_USER,
-    pass: process.env.SMTP_PASS,
-    /** e.g. "AV Textiles <billing@example.com>". Defaults to SMTP_USER. */
-    from: process.env.SMTP_FROM ?? process.env.SMTP_USER,
   },
 };

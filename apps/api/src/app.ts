@@ -20,6 +20,12 @@ export function createApp() {
   app.disable("x-powered-by");
   // The web app proxies /api/* to us: trust its X-Forwarded-For so rate limits are per visitor, not per proxy.
   app.set("trust proxy", 1);
+  // Tolerate a proxy that forwards "/api/auth/login" or "//auth/login" (API_URL with a path or trailing slash):
+  // otherwise those miss the public /auth routes and fall through to requireAuth ("Please log in").
+  app.use((req, _res, next) => {
+    req.url = req.url.replace(/^\/{2,}/, "/").replace(/^\/api(?=[/?]|$)/, "") || "/";
+    next();
+  });
   app.use(helmet());
   app.use(cors({ origin: env.webOrigin, credentials: true }));
   app.use(express.json({ limit: "1mb" }));

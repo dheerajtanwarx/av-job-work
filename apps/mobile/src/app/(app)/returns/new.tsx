@@ -710,7 +710,6 @@ function Success({ r, onAnother }: { r: ReturnResult; onAnother: () => void }) {
           {r.voucher ? (
             <Text variant="bodyStrong">
               Paid {formatINR(r.voucher.amountPaise)} · voucher {r.voucher.billNumber}
-              {r.voucher.email.status === "sent" ? <Text variant="caption" tone="muted">{`\nEmailed to ${r.voucher.email.to}`}</Text> : null}
             </Text>
           ) : (
             <Text variant="bodyStrong">No payment made now</Text>
