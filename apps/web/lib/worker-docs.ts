@@ -1,5 +1,7 @@
 "use client";
 
+import { compressPhoto } from "./compress-photo";
+
 export type WorkerDocSlot = "photo" | "aadhaar-front" | "aadhaar-back";
 
 export const WORKER_DOC_FIELD = { photo: "photoId", "aadhaar-front": "aadhaarFrontId", "aadhaar-back": "aadhaarBackId" } as const;
@@ -15,7 +17,8 @@ async function send(path: string, init: RequestInit) {
   return body;
 }
 
-export const uploadWorkerDoc = (clientId: string, slot: WorkerDocSlot, file: File) => {
+export const uploadWorkerDoc = async (clientId: string, slot: WorkerDocSlot, original: File) => {
+  const file = await compressPhoto(original);
   const fd = new FormData();
   fd.append("photo", file, file.name);
   return send(`/clients/${clientId}/documents/${slot}`, { method: "POST", body: fd });

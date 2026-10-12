@@ -43,6 +43,14 @@ describe("security hardening", () => {
     });
   });
 
+  it("accepts login through a proxy that keeps the /api prefix or adds a double slash", async () => {
+    const app = request(createApp());
+    for (const path of ["/api/auth/login", "//auth/login"]) {
+      const res = await app.post(path).send({ email: "test@example.com", password: "secret" });
+      expect(res.status, path).toBe(200);
+    }
+  });
+
   describe("rate limits", () => {
     it("limits failed logins per IP when enabled", async () => {
       enableRateLimitInTests(true);
