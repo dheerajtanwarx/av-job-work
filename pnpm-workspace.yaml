@@ -5,6 +5,7 @@ allowBuilds:
   esbuild: true
   sharp: true
   unrs-resolver: true
+  "@shopify/react-native-skia": true
 minimumReleaseAgeExclude:
   - lucide-react@1.51.0
 # Same list for older pnpm (<11) that build hosts may use
@@ -12,3 +13,4 @@ onlyBuiltDependencies:
   - esbuild
   - sharp
   - unrs-resolver
+  - "@shopify/react-native-skia"

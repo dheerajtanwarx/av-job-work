@@ -43,6 +43,25 @@ describe("security hardening", () => {
     });
   });
 
+  describe("mobile token login", () => {
+    it("returns a bearer token without setting a cookie", async () => {
+      const app = request(createApp());
+      const res = await app.post("/auth/token").send({ email: "test@example.com", password: "secret" }).expect(200);
+      expect(res.headers["set-cookie"]).toBeUndefined();
+      expect(res.body.user.email).toBe("test@example.com");
+      const me = await app.get("/auth/me").set("Authorization", `Bearer ${res.body.token}`).expect(200);
+      expect(me.body.user.role).toBe("OWNER");
+      await app.post("/clients").set("Authorization", `Bearer ${res.body.token}`).send({ name: "Mobile Worker" }).expect(201);
+    });
+
+    it("refuses wrong passwords and turned-off accounts", async () => {
+      const app = request(createApp());
+      await app.post("/auth/token").send({ email: "test@example.com", password: "wrong" }).expect(401);
+      await db.user.create({ email: "off@example.com", name: "Off", role: "SUB_OWNER", passwordHash: await bcrypt.hash("secret", 4), disabledAt: new Date() });
+      await app.post("/auth/token").send({ email: "off@example.com", password: "secret" }).expect(403);
+    });
+  });
+
   describe("rate limits", () => {
     it("limits failed logins per IP when enabled", async () => {
       enableRateLimitInTests(true);
@@ -58,6 +77,14 @@ describe("security hardening", () => {
       const app = request(createApp());
       for (let i = 0; i < 60; i++) await app.get(`/public/challans/${"0".repeat(64)}`).expect(404);
       await app.get(`/public/challans/${"0".repeat(64)}`).expect(429);
+    });
+
+    it("counts failed mobile token logins against the same limit", async () => {
+      enableRateLimitInTests(true);
+      const app = request(createApp());
+      for (let i = 0; i < 5; i++) await app.post("/auth/login").send({ email: "test@example.com", password: "wrong" }).expect(401);
+      for (let i = 0; i < 5; i++) await app.post("/auth/token").send({ email: "test@example.com", password: "wrong" }).expect(401);
+      await app.post("/auth/token").send({ email: "test@example.com", password: "secret" }).expect(429);
     });
 
     it("is off under test by default", async () => {

@@ -7,14 +7,25 @@ import { requireAuth, SESSION_COOKIE, setSessionCookie, signSession } from "../m
 
 export const authRouter = Router();
 
-authRouter.post("/login", async (req, res) => {
-  const { email, password } = parse(loginSchema, req.body);
+/** Checks the credentials and returns the session for a login, or throws 401/403. */
+async function authenticate(body: unknown) {
+  const { email, password } = parse(loginSchema, body);
   const user = await db.user.findOne({ email });
   if (!user || !(await bcrypt.compare(password, user.passwordHash))) throw new HttpError(401, "Email or password is incorrect");
   if (user.disabledAt) throw new HttpError(403, "This account has been turned off. Ask the owner for access.");
-  const session = { id: user.id, email: user.email, name: user.name, role: user.role };
+  return { id: user.id, email: user.email, name: user.name, role: user.role };
+}
+
+authRouter.post("/login", async (req, res) => {
+  const session = await authenticate(req.body);
   setSessionCookie(res, signSession(session));
   res.json({ user: session });
+});
+
+/** For the mobile app: the same login, but the token comes back in the body (sent later as `Authorization: Bearer`). */
+authRouter.post("/token", async (req, res) => {
+  const session = await authenticate(req.body);
+  res.json({ user: session, token: signSession(session) });
 });
 
 authRouter.post("/logout", (_req, res) => {

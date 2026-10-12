@@ -12,7 +12,12 @@
     "typecheck": "turbo run typecheck",
     "db:seed": "pnpm --filter @av/db run seed",
     "db:setup": "pnpm db:indexes && pnpm db:seed",
-    "db:indexes": "pnpm --filter @av/db run indexes"
+    "db:indexes": "pnpm --filter @av/db run indexes",
+    "mobile": "pnpm --filter @av/mobile start",
+    "mobile:android": "pnpm --filter @av/mobile android",
+    "mobile:adb": "sh apps/mobile/scripts/adb-wifi.sh",
+    "mobile:serve-apk": "pnpm --filter @av/mobile mobile:serve-apk",
+    "mobile:needs-rebuild": "pnpm --filter @av/mobile mobile:needs-rebuild"
   },
   "devDependencies": {
     "turbo": "^2.11.7",
