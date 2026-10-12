@@ -1,11 +1,11 @@
-import { amountInWords, formatDate, formatINR, PAYMENT_METHOD_LABEL, type SubBillDetail, type SubBillWithEmail } from "@av/shared";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { amountInWords, formatDate, formatINR, PAYMENT_METHOD_LABEL, type SubBillDetail } from "@av/shared";
+import { useQueryClient } from "@tanstack/react-query";
 import { router, Stack, useLocalSearchParams } from "expo-router";
-import { Ban, EllipsisVertical, FileDown, Mail, Pencil, Printer, ShieldAlert } from "lucide-react-native";
+import { Ban, EllipsisVertical, FileDown, Pencil, Printer, ShieldAlert } from "lucide-react-native";
 import { useRef } from "react";
 import { Pressable, RefreshControl, ScrollView, StyleSheet, View } from "react-native";
-import { ActionSheet, Badge, Button, Card, ErrorBlock, IconButton, ListSkeleton, ReasonSheet, Section, Text, toast, type SheetRef } from "@/components/ui";
-import { api, errorMessage } from "@/lib/api";
+import { ActionSheet, Badge, Card, ErrorBlock, IconButton, ListSkeleton, ReasonSheet, Section, Text, toast, type SheetRef } from "@/components/ui";
+import { api } from "@/lib/api";
 import { useRole } from "@/lib/auth";
 import { voucherHtml } from "@/lib/print/bills";
 import { printHtml, sharePdf } from "@/lib/print/sheet";
@@ -21,15 +21,6 @@ export default function VoucherScreen() {
   const menu = useRef<SheetRef>(null);
   const voidSheet = useRef<SheetRef>(null);
   const qc = useQueryClient();
-  const email = useMutation({
-    mutationFn: () => api.post<SubBillWithEmail>(`/sub-bills/${id}/email`),
-    onSuccess: (r) => {
-      qc.invalidateQueries({ queryKey: ["sub-bill", id] });
-      if (r.email.status === "sent") toast.success(`Emailed to ${r.email.to}`);
-      else toast.error(r.email.message);
-    },
-    onError: (e) => toast.error(errorMessage(e)),
-  });
 
   return (
     <View style={{ flex: 1, backgroundColor: c.bg }}>
@@ -38,14 +29,13 @@ export default function VoucherScreen() {
         q.error ? <ErrorBlock error={q.error} onRetry={q.refetch} /> : <ListSkeleton rows={3} />
       ) : (
         <>
-          <Body b={b} refreshing={q.isRefetching} onRefresh={q.refetch} onEmail={() => email.mutate()} emailing={email.isPending} isOwner={isOwner} />
+          <Body b={b} refreshing={q.isRefetching} onRefresh={q.refetch} isOwner={isOwner} />
           <ActionSheet
             ref={menu}
             title={b.billNumber}
             actions={[
               { label: "Share PDF", icon: FileDown, onPress: () => sharePdf(voucherHtml(b), `${b.billNumber}.pdf`) },
               { label: "Print", icon: Printer, onPress: () => printHtml(voucherHtml(b)) },
-              { label: b.emailedAt ? "Resend email" : "Email to worker", icon: Mail, onPress: () => email.mutate(), hidden: !!b.voidedAt || !b.client.email },
               { label: "Edit payment", icon: Pencil, hint: "Owner only · a reason is required", onPress: () => router.push(`/bills/sub/${b.id}/edit`), hidden: !isOwner || !!b.voidedAt },
               { label: "Void payment", icon: Ban, danger: true, onPress: () => voidSheet.current?.present(), hidden: !isOwner || !!b.voidedAt },
             ]}
@@ -69,7 +59,7 @@ export default function VoucherScreen() {
   );
 }
 
-function Body({ b, refreshing, onRefresh, onEmail, emailing, isOwner }: { b: SubBillDetail; refreshing: boolean; onRefresh: () => void; onEmail: () => void; emailing: boolean; isOwner: boolean }) {
+function Body({ b, refreshing, onRefresh, isOwner }: { b: SubBillDetail; refreshing: boolean; onRefresh: () => void; isOwner: boolean }) {
   const { c } = useTheme();
   const m = b.challanMoney;
   const kv = (k: string, v: string, onPress?: () => void) => (
@@ -136,15 +126,6 @@ function Body({ b, refreshing, onRefresh, onEmail, emailing, isOwner }: { b: Sub
           ))}
         </Card>
       </Section>
-
-      {!b.voidedAt ? (
-        <Section title="Email">
-          <Card style={{ gap: space.sm }}>
-            <Text tone="secondary">{b.emailedAt ? `Emailed to ${b.emailedTo} on ${formatDate(b.emailedAt)}` : b.client.email ? `Not emailed yet. ${b.client.email}` : "This worker has no email address."}</Text>
-            {b.client.email ? <Button title={b.emailedAt ? "Resend email" : "Email voucher"} icon={Mail} variant="secondary" loading={emailing} onPress={onEmail} /> : null}
-          </Card>
-        </Section>
-      ) : null}
 
       {!isOwner && !b.voidedAt ? (
         <View style={{ flexDirection: "row", gap: space.sm, padding: space.md, borderRadius: radius.md, backgroundColor: c.surface2 }}>

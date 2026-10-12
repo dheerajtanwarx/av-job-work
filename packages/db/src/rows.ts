@@ -24,7 +24,6 @@ export interface Settings {
   phone: string | null;
   email: string | null;
   logo: string | null;
-  emailBills: boolean;
   defaultPaymentPolicy: PaymentPolicy;
   defaultPaymentDays: number;
   payDamagedDefault: boolean;
@@ -294,8 +293,6 @@ export interface SubBill {
   enteredById: string | null;
   voidedAt: Date | null;
   voidReason: string | null;
-  emailedAt: Date | null;
-  emailedTo: string | null;
   voidedById: string | null;
   editedAt: Date | null;
   editedById: string | null;

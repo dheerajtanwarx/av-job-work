@@ -2,8 +2,8 @@ import { randomUUID } from "node:crypto";
 import { createReadStream } from "node:fs";
 import { mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { Readable } from "node:stream";
-import { v2 as cloudinary } from "cloudinary";
+import type { Readable } from "node:stream";
+import { DeleteObjectCommand, GetObjectCommand, HeadObjectCommand, PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
 import { env } from "../env.js";
 
 /**
@@ -68,47 +68,44 @@ export class LocalDiskDriver implements StorageDriver {
 }
 
 /**
- * Cloudinary, for hosts without a persistent disk (Vercel). Files are stored byte-for-byte as private "raw" assets
- * (public id = key) and only the API can read them, so photos stay behind login like on local disk.
+ * Cloudflare R2 (S3-compatible), for hosts without a persistent disk. The bucket stays private: only the API reads it,
+ * so photos stay behind login like on local disk.
  */
-export class CloudinaryDriver implements StorageDriver {
-  private static readonly opts = { resource_type: "raw", type: "authenticated" } as const;
+export class R2Driver implements StorageDriver {
+  private client: S3Client;
+  private bucket: string;
 
-  constructor(config: { cloudName: string; apiKey: string; apiSecret: string }) {
-    cloudinary.config({ cloud_name: config.cloudName, api_key: config.apiKey, api_secret: config.apiSecret, secure: true });
-  }
-
-  async put(key: string, body: Buffer) {
-    assertKey(key);
-    await new Promise<void>((resolve, reject) => {
-      cloudinary.uploader
-        // overwrite: false keeps the existing file and reports existing: true instead of failing; treat that as an error.
-        .upload_stream({ ...CloudinaryDriver.opts, public_id: key, overwrite: false }, (err, res) =>
-          err ? reject(err) : res?.existing ? reject(new Error(`Storage key already exists: ${key}`)) : resolve(),
-        )
-        .end(body);
+  constructor(config: { endpoint: string; bucket: string; accessKeyId: string; secretAccessKey: string }) {
+    // The S3 endpoint is the account URL; drop a "/<bucket>" path if it was pasted from the dashboard.
+    this.client = new S3Client({
+      region: "auto",
+      endpoint: new URL(config.endpoint).origin,
+      credentials: { accessKeyId: config.accessKeyId, secretAccessKey: config.secretAccessKey },
     });
+    this.bucket = config.bucket;
   }
 
-  private async fetch(key: string, method: "GET" | "HEAD" = "GET") {
+  async put(key: string, body: Buffer, contentType: string) {
     assertKey(key);
-    const url = cloudinary.url(key, { ...CloudinaryDriver.opts, sign_url: true });
-    const res = await fetch(url, { method });
-    if (!res.ok) throw new Error(`Storage file not found: ${key} (${res.status})`);
-    return res;
+    await this.client.send(new PutObjectCommand({ Bucket: this.bucket, Key: key, Body: body, ContentType: contentType }));
   }
 
   async get(key: string) {
-    const res = await this.fetch(key);
-    return Readable.fromWeb(res.body as import("node:stream/web").ReadableStream);
+    assertKey(key);
+    // Rejects with NoSuchKey before any headers are sent.
+    const res = await this.client.send(new GetObjectCommand({ Bucket: this.bucket, Key: key }));
+    return res.Body as Readable;
   }
 
   async getBuffer(key: string) {
-    return Buffer.from(await (await this.fetch(key)).arrayBuffer());
+    assertKey(key);
+    const res = await this.client.send(new GetObjectCommand({ Bucket: this.bucket, Key: key }));
+    return Buffer.from(await res.Body!.transformToByteArray());
   }
 
   async exists(key: string) {
-    return this.fetch(key, "HEAD").then(
+    assertKey(key);
+    return this.client.send(new HeadObjectCommand({ Bucket: this.bucket, Key: key })).then(
       () => true,
       () => false,
     );
@@ -116,14 +113,14 @@ export class CloudinaryDriver implements StorageDriver {
 
   async delete(key: string) {
     assertKey(key);
-    await cloudinary.uploader.destroy(key, { ...CloudinaryDriver.opts, invalidate: true });
+    await this.client.send(new DeleteObjectCommand({ Bucket: this.bucket, Key: key }));
   }
 }
 
-/** Cloudinary when its credentials are set (never in tests), otherwise the local disk. */
+/** R2 when its settings are all present (never in tests), otherwise the local disk. */
 export const storage: StorageDriver =
-  env.cloudinary.cloudName && env.cloudinary.apiKey && env.cloudinary.apiSecret && !env.isTest
-    ? new CloudinaryDriver(env.cloudinary as { cloudName: string; apiKey: string; apiSecret: string })
+  env.r2.endpoint && env.r2.bucket && env.r2.accessKeyId && env.r2.secretAccessKey && !env.isTest
+    ? new R2Driver(env.r2 as { endpoint: string; bucket: string; accessKeyId: string; secretAccessKey: string })
     : new LocalDiskDriver(() => process.env.UPLOAD_DIR || env.uploadDir);
 
 /** A fresh folder key for one upload: "photos/2026/10/<uuid>". Never derived from the user's file name. */

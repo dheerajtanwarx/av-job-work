@@ -1,4 +1,4 @@
-import { amountInWords, formatDate, formatINR, PAYMENT_POLICY_LABEL, todayISO, type PaymentMethod, type SubBillWithEmail } from "@av/shared";
+import { amountInWords, formatDate, formatINR, PAYMENT_POLICY_LABEL, todayISO, type PaymentMethod, type SubBillDetail } from "@av/shared";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import * as Haptics from "expo-haptics";
 import { router, useLocalSearchParams } from "expo-router";
@@ -72,7 +72,7 @@ export default function NewPayment() {
 
   const create = useMutation({
     mutationFn: () =>
-      api.post<SubBillWithEmail & { duplicate?: boolean }>("/sub-bills", {
+      api.post<SubBillDetail & { duplicate?: boolean }>("/sub-bills", {
         jobId,
         returnId: returnId || null,
         date,
@@ -89,7 +89,6 @@ export default function NewPayment() {
       if (b.duplicate) toast.info(`${b.billNumber} was already recorded`);
       else if (b.mainBill && !b.mainBill.cancelled) toast.success(`${b.billNumber} saved. Challan fully paid: settlement ${b.mainBill.billNumber}`);
       else toast.success(`${b.billNumber}: ${formatINR(b.amountPaise)} paid to ${b.client.name}`);
-      if (b.email.status === "failed") toast.error(`Voucher not emailed. ${b.email.message}`);
       router.replace(`/bills/sub/${b.id}`);
     },
     onError: (e) => {

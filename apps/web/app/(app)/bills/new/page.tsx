@@ -1,6 +1,6 @@
 "use client";
 
-import { amountInWords, formatDate, formatINR, L, PAYMENT_METHOD_LABEL, PAYMENT_POLICY_LABEL, todayISO, type PaymentMethod, type SubBillWithEmail } from "@av/shared";
+import { amountInWords, formatDate, formatINR, L, PAYMENT_METHOD_LABEL, PAYMENT_POLICY_LABEL, todayISO, type PaymentMethod, type SubBillDetail } from "@av/shared";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle, ReceiptText } from "lucide-react";
 import Link from "next/link";
@@ -81,7 +81,7 @@ function NewPayment() {
 
   const create = useMutation({
     mutationFn: () =>
-      api.post<SubBillWithEmail & { duplicate?: boolean }>("/sub-bills", {
+      api.post<SubBillDetail & { duplicate?: boolean }>("/sub-bills", {
         jobId,
         returnId: returnId || null,
         date,
@@ -100,9 +100,7 @@ function NewPayment() {
           b.mainBill && !b.mainBill.cancelled
             ? `${b.billNumber} saved. ${b.job.jobNumber} is fully paid: ${L.mainBill} ${b.mainBill.billNumber} issued.`
             : `${b.billNumber} saved: ${formatINR(b.amountPaise)} paid to ${b.client.name}`,
-          b.email.status === "sent" ? { description: b.email.message } : undefined,
         );
-        if (b.email.status === "failed" || (b.email.status === "skipped" && b.business.emailBills)) toast.warning(`${L.subBill} not emailed. ${b.email.message}`);
       }
       router.push(`/bills/sub/${b.id}`);
     },

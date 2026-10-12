@@ -68,8 +68,7 @@ const settingsSchema = new Schema(
     address: str,
     phone: str,
     email: str,
-    logo: str, // data:image/png|jpeg;base64,… – printed on bills and embedded in bill emails
-    emailBills: flag(true), // email each new payment voucher to the job worker
+    logo: str, // data:image/png|jpeg;base64,… – printed on bills
     defaultPaymentPolicy: oneOf(PAYMENT_POLICIES, "MANUAL"),
     defaultPaymentDays: { type: Number, default: 0 },
     payDamagedDefault: flag(false),
@@ -406,8 +405,6 @@ const subBillSchema = new Schema(
     enteredById: str,
     voidedAt: date,
     voidReason: str,
-    emailedAt: date, // last successful email to the job worker
-    emailedTo: str,
     voidedById: str,
     editedAt: date, // last change by the owner
     editedById: str,

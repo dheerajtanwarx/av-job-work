@@ -10,7 +10,7 @@ import {
   sumTotals,
   type ReturnDetail,
   type ReturnResult,
-  type SubBillWithEmail,
+  type SubBillDetail,
   type Unit,
   returnCreateSchema,
   returnUpdateSchema,
@@ -21,7 +21,6 @@ import { nextNumber } from "../lib/counter.js";
 import { toDate, today } from "../lib/dates.js";
 import { HttpError, notFound, unprocessable } from "../lib/http.js";
 import { MANAGERS } from "../middleware/auth.js";
-import { emailSubBill } from "./bill-email.js";
 import { createVoucherTx, getSettings, getSubBill, voucherFromReturn } from "./billing.js";
 import { type Actor, getJobDetail, loadJob, recomputeJobStatus, subBillRowPopulate, summarizeJobItems, toSubBillRow, type SubBillWithRow } from "./jobs.js";
 import { defaultTerms, num, termsFor } from "./ledger.js";
@@ -42,7 +41,6 @@ const flagNames = (f: { payDamaged: boolean; payRejected: boolean; payLost: bool
 // ───────────────────────── Create ─────────────────────────
 
 export async function createReturn(jobId: string, input: z.output<typeof returnCreateSchema>, actor?: Actor): Promise<ReturnResult> {
-  const userId = actor?.id;
   const defaults = await defaultTerms(db);
   if (input.idempotencyKey) {
     const existing = await db.return.findOne({ idempotencyKey: input.idempotencyKey }, { select: "jobId" });
@@ -63,11 +61,7 @@ export async function createReturn(jobId: string, input: z.output<typeof returnC
     throw e;
   }
 
-  let voucher: SubBillWithEmail | null = null;
-  if (result.voucherId) {
-    const email = await emailSubBill(result.voucherId, userId, { auto: true });
-    voucher = { ...(await getSubBill(result.voucherId)), email };
-  }
+  const voucher: SubBillDetail | null = result.voucherId ? await getSubBill(result.voucherId) : null;
   const [job, rows] = await all([() => getJobDetail(jobId), () => loadReturnRows(db, { _id: result.id }, today())]);
   const terms = termsFor(result.job as never, result.job.client as never, defaults);
   const { voucherId: _v, job: _j, ...rest } = result;
@@ -188,7 +182,7 @@ async function existingReturnResult(id: string, defaults: Awaited<ReturnType<typ
     terms,
     billingPolicy: terms.policy,
     payment: rows[0]?.payment ?? null,
-    voucher: voucherId ? { ...(await getSubBill(voucherId)), email: { status: "skipped", to: null, message: "This return was already recorded" } } : null,
+    voucher: voucherId ? await getSubBill(voucherId) : null,
     warnings: ["This return was already recorded – nothing was saved twice."],
   };
 }

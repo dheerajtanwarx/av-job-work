@@ -1,14 +1,15 @@
-/** API types for notifications (email / WhatsApp / SMS / in-app log) and the public QR challan view. */
+/** API types for notifications (WhatsApp / SMS / in-app log) and the public QR challan view. */
 import type { JobStatus, PayStatus, Unit } from "./enums";
 
-export const NOTIFY_CHANNELS = ["email", "whatsapp", "sms", "in_app"] as const;
+export const NOTIFY_CHANNELS = ["whatsapp", "sms", "in_app"] as const;
 export type NotifyChannel = (typeof NOTIFY_CHANNELS)[number];
 
 /** "pending" only exists while an automatic send is in flight (it claims the voucher so nothing sends twice). */
 export const NOTIFY_STATUSES = ["sent", "skipped", "failed", "pending"] as const;
 export type NotifyStatus = (typeof NOTIFY_STATUSES)[number];
 
-export const NOTIFY_CHANNEL_LABEL: Record<NotifyChannel, string> = { email: "Email", whatsapp: "WhatsApp", sms: "SMS", in_app: "In-app" };
+/** "email" only labels log entries from before email sending was removed. */
+export const NOTIFY_CHANNEL_LABEL: Record<NotifyChannel | "email", string> = { email: "Email", whatsapp: "WhatsApp", sms: "SMS", in_app: "In-app" };
 export const NOTIFY_STATUS_LABEL: Record<NotifyStatus, string> = { sent: "Sent", skipped: "Not sent", failed: "Failed", pending: "Sending" };
 export const NOTIFY_KIND_LABEL: Record<string, string> = { payment_voucher: "Payment Voucher", return_receipt: "Return Receipt", issue_receipt: "Material Issue Slip" };
 
