@@ -35,7 +35,8 @@ export function createApp() {
   app.get("/health", (_req, res) => {
     res.json({ ok: true });
   });
-  app.post("/auth/login", loginRateLimit());
+  // One limiter for both logins, so failed attempts count together.
+  app.post(["/auth/login", "/auth/token"], loginRateLimit());
   app.use("/auth", authRouter);
   app.use("/public", publicRateLimit(), publicRouter);
 
