@@ -10,11 +10,14 @@ type Variant = "development" | "preview" | "production";
 const VARIANT = (process.env.APP_VARIANT as Variant) ?? "production";
 
 const PACKAGE = "in.avcreation.jobwork";
-// The dev build is amber so it's never mistaken for the real app.
+// Every variant wears the AV Creation icon (the needle-and-thread mark on black); the dev and preview builds are told
+// apart by their name under the icon.
+const ICON = "./assets/images/app-icon-1024.png";
+const ICON_BG = "#000000";
 const variants: Record<Variant, { name: string; androidPackage: string; scheme: string; icon: string; iconBg: string }> = {
-  development: { name: "AV Job Work (Dev)", androidPackage: `${PACKAGE}.dev`, scheme: "avjobwork-dev", icon: "./assets/images/icon-dev.png", iconBg: "#b45309" },
-  preview: { name: "AV Job Work (Preview)", androidPackage: `${PACKAGE}.preview`, scheme: "avjobwork-preview", icon: "./assets/images/icon.png", iconBg: "#3b4ba8" },
-  production: { name: "AV Job Work", androidPackage: PACKAGE, scheme: "avjobwork", icon: "./assets/images/icon.png", iconBg: "#3b4ba8" },
+  development: { name: "AV Job Work (Dev)", androidPackage: `${PACKAGE}.dev`, scheme: "avjobwork-dev", icon: ICON, iconBg: ICON_BG },
+  preview: { name: "AV Job Work (Preview)", androidPackage: `${PACKAGE}.preview`, scheme: "avjobwork-preview", icon: ICON, iconBg: ICON_BG },
+  production: { name: "AV Job Work", androidPackage: PACKAGE, scheme: "avjobwork", icon: ICON, iconBg: ICON_BG },
 };
 const v = variants[VARIANT];
 
@@ -22,7 +25,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   ...config,
   name: v.name,
   slug: "av-job-work",
-  version: "1.0.0",
+  version: "1.0.2",
   orientation: "portrait",
   icon: v.icon,
   scheme: v.scheme,
@@ -30,10 +33,12 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   backgroundColor: "#fafaf9",
   android: {
     package: v.androidPackage,
+    // Raise by 1 for every APK you hand out: Android only installs an update over a lower versionCode.
+    versionCode: 3,
     adaptiveIcon: {
       backgroundColor: v.iconBg,
-      foregroundImage: "./assets/images/android-icon-foreground.png",
-      monochromeImage: "./assets/images/android-icon-monochrome.png",
+      foregroundImage: "./assets/images/av-icon-foreground.png",
+      monochromeImage: "./assets/images/av-icon-monochrome.png",
     },
     predictiveBackGestureEnabled: true,
     softwareKeyboardLayoutMode: "resize",
@@ -41,6 +46,8 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     blockedPermissions: ["android.permission.RECORD_AUDIO"],
   },
   plugins: [
+    // Release APKs are signed with our own key from ~/.gradle/gradle.properties (see the plugin).
+    "./plugins/with-release-signing",
     "expo-router",
     "expo-dev-client",
     "expo-secure-store",
@@ -49,9 +56,9 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
       "expo-splash-screen",
       {
         backgroundColor: "#fafaf9",
-        image: "./assets/images/splash-icon.png",
+        image: "./assets/images/av-splash.png",
         imageWidth: 88,
-        dark: { backgroundColor: "#0d0d0f", image: "./assets/images/splash-icon.png" },
+        dark: { backgroundColor: "#0d0d0f", image: "./assets/images/av-splash.png" },
       },
     ],
     [

@@ -2,11 +2,11 @@ import { USER_ROLE_LABEL } from "@av/shared";
 import Constants from "expo-constants";
 import { router, type Href } from "expo-router";
 import { BarChart3, Boxes, Brush, ChartPie, Images, LogOut, Package, Palette as PaletteIcon, Settings, Shapes, Users } from "lucide-react-native";
-import { Alert, ScrollView, StyleSheet, View } from "react-native";
+import { Alert, ScrollView, View } from "react-native";
 import { ServerChip } from "@/components/server-sheet";
-import { Card, ListRow, Segmented, TabHeader, Text } from "@/components/ui";
+import { Card, ListGroup, ListRow, Segmented, TabHeader, Text } from "@/components/ui";
 import { useAuth } from "@/lib/auth";
-import { radius, space, useTheme, type Appearance } from "@/theme";
+import { space, useTheme, type Appearance } from "@/theme";
 
 export default function More() {
   const { user, signOut } = useAuth();
@@ -32,22 +32,22 @@ export default function More() {
           </View>
         </Card>
 
-        <Group title="Work">
+        <ListGroup title="Work">
           <ListRow icon={Users} title="Job workers" subtitle="Profiles, balances, material held" onPress={go("/clients")} />
           <ListRow icon={Boxes} title="Materials & stock" subtitle="Warehouse, with workers, movements" onPress={go("/materials")} />
           <ListRow icon={Images} title="Design gallery" subtitle="Photos from returns" onPress={go("/gallery")} />
           <ListRow icon={BarChart3} title="Reports" subtitle="Material, money, work, ledgers · export" onPress={go("/reports")} />
           <ListRow icon={ChartPie} title="Analytics" subtitle="Trends and charts" onPress={go("/analytics")} last />
-        </Group>
+        </ListGroup>
 
-        <Group title="Setup">
+        <ListGroup title="Setup">
           <ListRow icon={Package} title="Products" onPress={go("/products")} />
           <ListRow icon={Shapes} title="Designs" onPress={go("/designs")} />
           <ListRow icon={Brush} title="Job work types" onPress={go("/job-work-types")} />
           <ListRow icon={Settings} title="Settings" subtitle="Business, users, change log, notifications" onPress={go("/settings")} last />
-        </Group>
+        </ListGroup>
 
-        <Group title="Appearance">
+        <ListGroup title="Appearance">
           <View style={{ padding: space.md, gap: space.sm }}>
             <View style={{ flexDirection: "row", alignItems: "center", gap: space.sm, paddingHorizontal: space.xs }}>
               <PaletteIcon size={18} color={c.fg2} />
@@ -63,9 +63,9 @@ export default function More() {
               ]}
             />
           </View>
-        </Group>
+        </ListGroup>
 
-        <Group title="Account">
+        <ListGroup title="Account">
           <ListRow
             icon={LogOut}
             title="Sign out"
@@ -78,7 +78,7 @@ export default function More() {
               ])
             }
           />
-        </Group>
+        </ListGroup>
 
         <View style={{ alignItems: "center", gap: space.sm }}>
           <ServerChip />
@@ -87,18 +87,6 @@ export default function More() {
           </Text>
         </View>
       </ScrollView>
-    </View>
-  );
-}
-
-function Group({ title, children }: { title: string; children: React.ReactNode }) {
-  const { c } = useTheme();
-  return (
-    <View style={{ gap: space.sm }}>
-      <Text variant="overline" tone="muted" style={{ paddingHorizontal: space.xs }}>
-        {title}
-      </Text>
-      <View style={{ backgroundColor: c.surface, borderRadius: radius.lg, overflow: "hidden", borderWidth: StyleSheet.hairlineWidth * 2, borderColor: c.border }}>{children}</View>
     </View>
   );
 }
