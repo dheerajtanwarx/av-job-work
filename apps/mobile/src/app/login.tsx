@@ -56,7 +56,7 @@ export default function Login() {
             delayLongPress={600}
             accessibilityLabel="AV Job Work logo. Long-press to choose the server."
           >
-            <Image source={require("@/../assets/images/splash-icon.png")} style={s.logo} />
+            <Image source={require("@/../assets/images/av-splash.png")} style={s.logo} />
           </Pressable>
           <View style={{ gap: space.xs }}>
             <Text variant="display">AV Job Work</Text>

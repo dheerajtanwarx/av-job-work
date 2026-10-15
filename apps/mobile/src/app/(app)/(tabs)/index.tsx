@@ -1,17 +1,16 @@
 import { formatINR, formatQty, type AttentionItem, type DashboardV2, type HoldingStatus } from "@av/shared";
+import { Image } from "expo-image";
 import { router } from "expo-router";
 import { ArrowDownToLine, ChevronRight, FilePlus2, IndianRupee, PackageCheck, Plus, Search } from "lucide-react-native";
 import { useState } from "react";
 import { Pressable, RefreshControl, ScrollView, StyleSheet, View } from "react-native";
 import { Badge, Card, Chip, ChipRow, ErrorBlock, IconButton, Section, Skeleton, TabHeader, Text, toneColors, type Tone } from "@/components/ui";
-import { useAuth } from "@/lib/auth";
 import { openHref } from "@/lib/links";
-import { greeting, periodRange, PERIODS, todayLabel, type Period } from "@/lib/period";
+import { periodRange, PERIODS, todayLabel, type Period } from "@/lib/period";
 import { useDashboard } from "@/lib/queries";
 import { type Palette, radius, space, useStyles, useTheme } from "@/theme";
 
 export default function Home() {
-  const { user } = useAuth();
   const { c } = useTheme();
   const [period, setPeriod] = useState<Period>("month");
   const q = useDashboard(periodRange(period));
@@ -20,7 +19,8 @@ export default function Home() {
   return (
     <View style={{ flex: 1, backgroundColor: c.bg }}>
       <TabHeader
-        title={`${greeting()}, ${user?.name.split(" ")[0] ?? ""}`}
+        title="AV Creation"
+        brand={<Image source={require("@/../assets/images/av-logo.png")} style={{ width: 168, height: 67 }} contentFit="contain" contentPosition="left" accessibilityRole="header" accessibilityLabel="AV Creation" />}
         subtitle={todayLabel()}
         right={
           <>

@@ -3,18 +3,20 @@ import { ChevronRight } from "lucide-react-native";
 import type { ReactNode } from "react";
 import { Pressable, StyleSheet, View, type StyleProp, type ViewStyle } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { space, TOUCH, useTheme } from "@/theme";
+import { radius, space, TOUCH, useTheme } from "@/theme";
 import { Text } from "./text";
 
-/** Large title header used at the top of each tab (Material "large top app bar"). */
-export function TabHeader({ title, subtitle, right }: { title: string; subtitle?: string; right?: ReactNode }) {
+/** Large title header used at the top of each tab (Material "large top app bar"). `brand` replaces the title text (Home's logo). */
+export function TabHeader({ title, subtitle, right, brand }: { title: string; subtitle?: string; right?: ReactNode; brand?: ReactNode }) {
   const insets = useSafeAreaInsets();
   return (
     <View style={{ paddingTop: insets.top + space.sm, paddingHorizontal: space.gutter, paddingBottom: space.sm, flexDirection: "row", alignItems: "center", gap: space.sm }}>
       <View style={{ flex: 1 }}>
-        <Text variant="title" accessibilityRole="header" style={{ fontSize: 24, lineHeight: 30 }}>
-          {title}
-        </Text>
+        {brand ?? (
+          <Text variant="title" accessibilityRole="header" style={{ fontSize: 24, lineHeight: 30 }}>
+            {title}
+          </Text>
+        )}
         {subtitle ? (
           <Text variant="label" tone="muted">
             {subtitle}
@@ -77,5 +79,18 @@ export function ListRow({ icon: Icon, title, subtitle, value, onPress, danger, l
         {onPress && !danger ? <ChevronRight size={18} color={c.fgFaint} /> : null}
       </View>
     </Pressable>
+  );
+}
+
+/** A titled, bordered group of ListRows (settings-style). */
+export function ListGroup({ title, children }: { title: string; children: ReactNode }) {
+  const { c } = useTheme();
+  return (
+    <View style={{ gap: space.sm }}>
+      <Text variant="overline" tone="muted" style={{ paddingHorizontal: space.xs }}>
+        {title}
+      </Text>
+      <View style={{ backgroundColor: c.surface, borderRadius: radius.lg, overflow: "hidden", borderWidth: StyleSheet.hairlineWidth * 2, borderColor: c.border }}>{children}</View>
+    </View>
   );
 }

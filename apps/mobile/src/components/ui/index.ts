@@ -18,3 +18,4 @@ export * from "./form-bits";
 export * from "./picker";
 export * from "./form-screen";
 export * from "./zoomable-image";
+export * from "./stat";
