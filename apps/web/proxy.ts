@@ -1,7 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 
-/** Public pages reachable without a session: the read-only QR challan view (`/c/<token>`). */
-const isPublic = (pathname: string) => /^\/c\/[^/]+\/?$/.test(pathname);
+/** Public pages reachable without a session: the read-only QR challan view (`/c/<token>`) and receipt links (`/r/<code>`). */
+const isPublic = (pathname: string) => /^\/[cr]\/[^/]+\/?$/.test(pathname);
 
 /** Send visitors without a session cookie straight to /login (the API still verifies the token). */
 export function proxy(req: NextRequest) {
