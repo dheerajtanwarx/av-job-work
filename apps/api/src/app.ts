@@ -3,6 +3,7 @@ import cors from "cors";
 import express from "express";
 import helmet from "helmet";
 import { env } from "./env.js";
+import { instance, slowRequestLog } from "./lib/perf.js";
 import { requireAuth } from "./middleware/auth.js";
 import { errorHandler } from "./middleware/error.js";
 import { csrfProtection, loginRateLimit, publicRateLimit } from "./middleware/security.js";
@@ -26,6 +27,7 @@ export function createApp() {
     req.url = req.url.replace(/^\/{2,}/, "/").replace(/^\/api(?=[/?]|$)/, "") || "/";
     next();
   });
+  app.use(slowRequestLog);
   app.use(helmet());
   app.use(cors({ origin: env.webOrigin, credentials: true }));
   app.use(express.json({ limit: "1mb" }));
@@ -33,7 +35,8 @@ export function createApp() {
   app.use(csrfProtection);
 
   app.get("/health", (_req, res) => {
-    res.json({ ok: true });
+    // instance + uptime tell restarts and multiple copies of the API apart (see lib/perf).
+    res.json({ ok: true, instance: instance.id, uptimeS: Math.round((Date.now() - instance.startedAt) / 1000) });
   });
   // One limiter for both logins, so failed attempts count together.
   app.post(["/auth/login", "/auth/token"], loginRateLimit());
