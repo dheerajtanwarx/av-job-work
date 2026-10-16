@@ -1,6 +1,7 @@
 import { connectDb, disconnectDb } from "@av/db";
 import { createApp } from "./app.js";
 import { env } from "./env.js";
+import { instance, watchEventLoop } from "./lib/perf.js";
 
 // Listen first so hosts that wait for the port (Hostinger's LiteSpeed) see the app come up; queries issued while the
 // pool is still opening are buffered by Mongoose until it connects. Startup messages go to stderr, the only stream
@@ -10,8 +11,9 @@ const hostKeys = Object.keys(process.env).filter((k) => /PORT|SOCK|LSNODE|LSAPI|
 console.error(`Host settings: PORT=${process.env.PORT ?? "(unset)"} API_PORT=${process.env.API_PORT ?? "(unset)"} keys=[${hostKeys.join(", ")}]`);
 
 const server = createApp().listen(env.port, () => {
-  console.error(`API listening on`, server.address());
+  console.error(`API listening on`, server.address(), `instance ${instance.id}`);
 });
+watchEventLoop();
 
 // Log the first requests that reach the app, to tell "the host never forwards to us" apart from "we answer badly".
 let logged = 0;

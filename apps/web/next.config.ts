@@ -16,7 +16,11 @@ const nextConfig: NextConfig = {
   },
   // The browser talks to /api/*; Next forwards it to Express so auth cookies stay same-origin.
   async rewrites() {
-    return [{ source: "/api/:path*", destination: `${apiUrl}/:path*` }];
+    return [
+      { source: "/api/:path*", destination: `${apiUrl}/:path*` },
+      // Short receipt links sent to job workers on WhatsApp (the API checks the signature and sends the PDF).
+      { source: "/r/:code", destination: `${apiUrl}/public/r/:code` },
+    ];
   },
 };
 

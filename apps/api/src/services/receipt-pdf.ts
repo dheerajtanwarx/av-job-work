@@ -29,10 +29,10 @@ export interface PdfFile {
   content: Buffer;
 }
 
-/** Streams a receipt PDF to the browser (shown inline, saved under its own filename). */
-export function sendPdf(res: Response, pdf: PdfFile) {
+/** Streams a receipt PDF to the browser, saved under its own filename: shown inline, or downloaded straight away. */
+export function sendPdf(res: Response, pdf: PdfFile, disposition: "inline" | "attachment" = "inline") {
   res.setHeader("Content-Type", "application/pdf");
-  res.setHeader("Content-Disposition", `inline; filename="${pdf.filename}"`);
+  res.setHeader("Content-Disposition", `${disposition}; filename="${pdf.filename}"`);
   res.setHeader("Cache-Control", "private, no-store");
   res.send(pdf.content);
 }

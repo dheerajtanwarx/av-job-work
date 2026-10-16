@@ -1,7 +1,7 @@
 import { db } from "@av/db";
 import type { PublicChallan } from "@av/shared";
-import { Router } from "express";
-import { verifyReceipt } from "../lib/signed-link.js";
+import { Router, type Response } from "express";
+import { type ReceiptKind, verifyReceipt, verifyShortReceipt } from "../lib/signed-link.js";
 import { getSettings } from "../services/billing.js";
 import { issueReceiptPdf, returnReceiptPdf, sendPdf } from "../services/receipt-pdf.js";
 import { getJobDetail } from "../services/jobs.js";
@@ -75,14 +75,24 @@ publicRouter.get("/challans/:token", async (req, res) => {
  */
 const BAD_LINK = { message: "This receipt link is not valid. Please ask for the receipt again." };
 
+// Job workers tap these in WhatsApp, so the PDF downloads straight away instead of opening a viewer.
+async function sendReceipt(res: Response, kind: ReceiptKind, id: string | null) {
+  const exists = id && (kind === "return" ? await db.return.exists({ _id: id }) : await db.dispatch.exists({ _id: id }));
+  if (!id || !exists) return res.status(404).json(BAD_LINK);
+  sendPdf(res, kind === "return" ? await returnReceiptPdf(id) : await issueReceiptPdf(id), "attachment");
+}
+
+/** The short link in new messages: /r/<code> on the web app, rewritten here. */
+publicRouter.get("/r/:code", async (req, res) => {
+  const hit = verifyShortReceipt(String(req.params.code ?? ""));
+  await sendReceipt(res, hit?.kind ?? "return", hit?.id ?? null);
+});
+
+/** The long links in messages sent before the short ones. */
 publicRouter.get("/receipts/return/:token", async (req, res) => {
-  const id = verifyReceipt("return", String(req.params.token ?? ""));
-  if (!id || !(await db.return.exists({ _id: id }))) return res.status(404).json(BAD_LINK);
-  sendPdf(res, await returnReceiptPdf(id));
+  await sendReceipt(res, "return", verifyReceipt("return", String(req.params.token ?? "")));
 });
 
 publicRouter.get("/receipts/issue/:token", async (req, res) => {
-  const id = verifyReceipt("issue", String(req.params.token ?? ""));
-  if (!id || !(await db.dispatch.exists({ _id: id }))) return res.status(404).json(BAD_LINK);
-  sendPdf(res, await issueReceiptPdf(id));
+  await sendReceipt(res, "issue", verifyReceipt("issue", String(req.params.token ?? "")));
 });

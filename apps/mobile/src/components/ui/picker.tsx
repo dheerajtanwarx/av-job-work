@@ -109,7 +109,7 @@ export function PickerField({
         backgroundStyle={{ backgroundColor: c.surface, borderRadius: radius.xl }}
         handleIndicatorStyle={{ backgroundColor: c.borderStrong, width: 36 }}
         keyboardBehavior="extend"
-        android_keyboardInputMode="adjustResize"
+        android_keyboardInputMode="adjustPan" // see Sheet: edge-to-edge, so the window never resizes
         onDismiss={() => setQ("")}
       >
         <View style={{ paddingHorizontal: space.gutter, gap: space.md, paddingBottom: space.sm }}>
