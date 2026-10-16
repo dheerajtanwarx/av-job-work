@@ -25,7 +25,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   ...config,
   name: v.name,
   slug: "av-job-work",
-  version: "1.0.2",
+  version: "1.0.3",
   orientation: "portrait",
   icon: v.icon,
   scheme: v.scheme,
@@ -34,7 +34,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   android: {
     package: v.androidPackage,
     // Raise by 1 for every APK you hand out: Android only installs an update over a lower versionCode.
-    versionCode: 3,
+    versionCode: 4,
     adaptiveIcon: {
       backgroundColor: v.iconBg,
       foregroundImage: "./assets/images/av-icon-foreground.png",
@@ -48,6 +48,8 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   plugins: [
     // Release APKs are signed with our own key from ~/.gradle/gradle.properties (see the plugin).
     "./plugins/with-release-signing",
+    // The Material date picker crashes the app unless the theme is Material Components (see the plugin).
+    "./plugins/with-material-theme",
     "expo-router",
     "expo-dev-client",
     "expo-secure-store",

@@ -1,4 +1,4 @@
-import type { Client, ClientListRow, Design, JobWorkType, MaterialRow, Product, ClientSummary, Ledger, WorkerMaterialRow, WorkerPerformance, DashboardV2, JobDetail, JobListRow, MainBillDetail, PhotoView, ReturnDetail, ReturnRow, Settings, SubBillDetail } from "@av/shared";
+import type { Client, ClientListRow, Design, JobWorkType, MaterialRow, Product, ClientSummary, Ledger, WorkerMaterialRow, WorkerPerformance, DashboardV2, JobDetail, JobListRow, MainBillDetail, PhotoFilter, PhotoPage, PhotoView, ReturnDetail, ReturnRow, Settings, SubBillDetail } from "@av/shared";
 import { useInfiniteQuery, useQuery, type QueryClient } from "@tanstack/react-query";
 import { api, qs } from "./api";
 
@@ -83,6 +83,15 @@ export const useClientPerformance = (id: string | undefined, enabled = true) =>
   useQuery({ queryKey: ["client", id, "performance"], queryFn: () => api.get<WorkerPerformance>(`/clients/${id}/performance`), enabled: !!id && enabled });
 
 export const usePhoto = (id: string | undefined) => useQuery({ queryKey: ["photo", id], queryFn: () => api.get<PhotoView>(`/photos/${id}`), enabled: !!id });
+
+/** Gallery pages, newest first (cursor-paged, same key as the web so void/restore refreshes both). */
+export const usePhotoPages = (f: PhotoFilter) =>
+  useInfiniteQuery({
+    queryKey: ["photos", "list", f],
+    initialPageParam: null as string | null,
+    queryFn: ({ pageParam }) => api.get<PhotoPage>(`/photos${qs({ ...f, includeVoided: f.includeVoided || undefined, cursor: pageParam ?? undefined })}`),
+    getNextPageParam: (last) => last.nextCursor,
+  });
 
 export const useProducts = (active = true) => useQuery({ queryKey: ["products", active], queryFn: () => api.get<Product[]>(`/products${active ? "?active=true" : ""}`) });
 export const useDesigns = (active = true) => useQuery({ queryKey: ["designs", active], queryFn: () => api.get<Design[]>(`/designs${active ? "?active=true" : ""}`) });

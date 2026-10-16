@@ -30,7 +30,9 @@ export const Sheet = forwardRef<BottomSheetModal, { title?: string; subtitle?: s
       handleIndicatorStyle={{ backgroundColor: c.borderStrong, width: 36 }}
       keyboardBehavior="interactive"
       keyboardBlurBehavior="restore"
-      android_keyboardInputMode="adjustResize"
+      // "adjustPan" = the sheet lifts itself above the keyboard. Don't use "adjustResize": the app is edge-to-edge, so
+      // Android never shrinks the window and the sheet's inputs would stay hidden behind the keyboard.
+      android_keyboardInputMode="adjustPan"
       enableDynamicSizing
     >
       <BottomSheetView style={{ paddingHorizontal: space.gutter, paddingBottom: insets.bottom + space.lg, gap: space.lg }}>
