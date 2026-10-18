@@ -1,6 +1,6 @@
 import { forwardRef, useState, type ReactNode } from "react";
 import { StyleSheet, TextInput, View, type TextInputProps } from "react-native";
-import { font, type Palette, radius, space, useStyles, useTheme } from "@/theme";
+import { font, hairline, type Palette, radius, space, useStyles, useTheme } from "@/theme";
 import { Text } from "./text";
 
 export interface FieldProps extends TextInputProps {
@@ -64,17 +64,18 @@ const styles = (c: Palette) =>
   StyleSheet.create({
     wrap: { gap: space.xs + 2 },
     box: {
-      minHeight: 50,
+      minHeight: 48,
       flexDirection: "row",
       alignItems: "center",
       gap: space.sm,
-      paddingHorizontal: space.md + 2,
-      borderRadius: radius.md,
+      paddingHorizontal: space.md,
+      borderRadius: radius.control,
       backgroundColor: c.surface,
-      borderWidth: 1,
+      borderWidth: hairline,
       borderColor: c.borderStrong,
     },
-    focused: { borderColor: c.accent, borderWidth: 1.5 },
+    // Same 1px width when focused, so the field never shifts.
+    focused: { borderColor: c.accent },
     error: { borderColor: c.danger },
     input: { flex: 1, fontFamily: font.regular, fontSize: 16, color: c.fg, paddingVertical: space.md },
   });

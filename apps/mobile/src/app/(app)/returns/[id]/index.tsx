@@ -4,7 +4,7 @@ import * as ImagePicker from "expo-image-picker";
 import { router, Stack, useLocalSearchParams } from "expo-router";
 import { Ban, Camera, EllipsisVertical, FileDown, IndianRupee, MessageCircle, Pencil } from "lucide-react-native";
 import { useRef } from "react";
-import { Pressable, RefreshControl, ScrollView, StyleSheet, View } from "react-native";
+import { Pressable, RefreshControl, ScrollView, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { PayStatusBadge } from "@/components/domain/status";
 import { ActionSheet, AuthedImage, Badge, Button, Card, ErrorBlock, IconButton, ListSkeleton, ReasonSheet, Section, Text, toast, type SheetRef } from "@/components/ui";
@@ -96,7 +96,7 @@ function Body({ r, refreshing, onRefresh }: { r: ReturnDetail; refreshing: boole
           {r.enteredBy ? ` · by ${r.enteredBy}` : ""}
         </Text>
         {r.voidedAt ? (
-          <View style={{ padding: space.md, borderRadius: radius.md, backgroundColor: c.dangerSubtle, marginTop: space.sm }}>
+          <View style={{ padding: space.md, borderRadius: radius.control, backgroundColor: c.dangerSubtle, marginTop: space.sm }}>
             <Text variant="label" tone="danger">
               Voided {formatDate(r.voidedAt)}
               {r.voidReason ? `: ${r.voidReason}` : ""}
@@ -118,7 +118,7 @@ function Body({ r, refreshing, onRefresh }: { r: ReturnDetail; refreshing: boole
           <Text variant="caption" tone="muted">
             Not good
           </Text>
-          <Text variant="headline" num tone={bad ? "danger" : undefined}>
+          <Text variant="headline" num>
             {formatQty(bad)}
           </Text>
         </View>
@@ -140,7 +140,7 @@ function Body({ r, refreshing, onRefresh }: { r: ReturnDetail; refreshing: boole
       <Section title="Designs">
         <Card padded={false}>
           {r.lines.map((l, i) => (
-            <View key={l.id} style={{ padding: space.lg, gap: 4, borderTopWidth: i ? StyleSheet.hairlineWidth : 0, borderColor: c.borderStrong }}>
+            <View key={l.id} style={{ padding: space.lg, gap: 4, borderTopWidth: i ? 1 : 0, borderColor: c.border }}>
               <View style={{ flexDirection: "row", justifyContent: "space-between" }}>
                 <Text variant="bodyStrong">{l.designName}</Text>
                 <Text variant="bodyStrong" num>
@@ -178,7 +178,7 @@ function Body({ r, refreshing, onRefresh }: { r: ReturnDetail; refreshing: boole
           <View style={{ flexDirection: "row", flexWrap: "wrap", gap: space.sm }}>
             {r.photos.map((p) => (
               <Pressable key={p.id} onPress={() => router.push(`/photo/${p.id}`)} style={{ width: "31.5%", aspectRatio: 1 }} accessibilityLabel={`Photo of ${p.design?.name ?? "return"}`}>
-                <AuthedImage path={`/photos/${p.id}/thumb`} style={{ width: "100%", height: "100%", borderRadius: radius.md, opacity: p.voidedAt ? 0.4 : 1 }} />
+                <AuthedImage path={`/photos/${p.id}/thumb`} style={{ width: "100%", height: "100%", borderRadius: radius.control, opacity: p.voidedAt ? 0.4 : 1 }} />
               </Pressable>
             ))}
           </View>
@@ -191,7 +191,7 @@ function Body({ r, refreshing, onRefresh }: { r: ReturnDetail; refreshing: boole
         <Section title="Payments">
           <Card padded={false}>
             {r.vouchers.map((b, i) => (
-              <Pressable key={b.id} onPress={() => router.push(`/bills/sub/${b.id}`)} android_ripple={{ color: c.surface3 }} style={{ flexDirection: "row", padding: space.lg, borderTopWidth: i ? StyleSheet.hairlineWidth : 0, borderColor: c.borderStrong, opacity: b.voidedAt ? 0.5 : 1 }}>
+              <Pressable key={b.id} onPress={() => router.push(`/bills/sub/${b.id}`)} android_ripple={{ color: c.surface2 }} style={{ flexDirection: "row", padding: space.lg, borderTopWidth: i ? 1 : 0, borderColor: c.border, opacity: b.voidedAt ? 0.5 : 1 }}>
                 <View style={{ flex: 1 }}>
                   <Text variant="bodyStrong">{b.billNumber}</Text>
                   <Text variant="caption" tone="muted">
@@ -240,7 +240,7 @@ function BottomBar({ r }: { r: ReturnDetail }) {
   const insets = useSafeAreaInsets();
   const due = r.payment?.outstandingPaise ?? 0;
   return (
-    <View style={{ position: "absolute", left: 0, right: 0, bottom: 0, flexDirection: "row", gap: space.sm, padding: space.gutter, paddingBottom: insets.bottom + space.md, backgroundColor: c.bg, borderTopWidth: StyleSheet.hairlineWidth, borderColor: c.borderStrong }}>
+    <View style={{ position: "absolute", left: 0, right: 0, bottom: 0, flexDirection: "row", gap: space.sm, padding: space.gutter, paddingBottom: insets.bottom + space.md, backgroundColor: c.bg, borderTopWidth: 1, borderColor: c.border }}>
       <Button title="WhatsApp" icon={MessageCircle} variant={due ? "secondary" : "primary"} size="lg" style={{ flex: 1 }} onPress={() => sendWhatsApp("returns", r.id)} />
       {due > 0 ? <Button title={`Pay ${formatINR(due)}`} icon={IndianRupee} size="lg" style={{ flex: 1.2 }} onPress={() => router.push(`/bills/new?clientId=${r.client.id}&jobId=${r.job.id}&returnId=${r.id}`)} /> : null}
     </View>

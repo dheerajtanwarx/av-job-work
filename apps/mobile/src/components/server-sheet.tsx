@@ -130,7 +130,7 @@ export const ServerSheet = forwardRef<SheetRef, { onChanged?: () => void }>(func
 
 const styles = (c: Palette) =>
   StyleSheet.create({
-    option: { flexDirection: "row", alignItems: "center", gap: space.md, padding: space.md + 2, borderRadius: radius.md, borderWidth: 1, borderColor: c.border, minHeight: 60 },
+    option: { flexDirection: "row", alignItems: "center", gap: space.md, padding: space.md + 2, borderRadius: radius.control, borderWidth: 1, borderColor: c.border, minHeight: 60 },
     optionOn: { borderColor: c.accent, backgroundColor: c.accentSubtle },
-    input: { minHeight: 50, borderRadius: radius.md, borderWidth: 1, borderColor: c.borderStrong, paddingHorizontal: space.md + 2, fontFamily: font.regular, fontSize: 16, color: c.fg, backgroundColor: c.surface },
+    input: { minHeight: 50, borderRadius: radius.control, borderWidth: 1, borderColor: c.borderStrong, paddingHorizontal: space.md + 2, fontFamily: font.regular, fontSize: 16, color: c.fg, backgroundColor: c.surface },
   });

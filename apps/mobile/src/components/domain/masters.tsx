@@ -91,7 +91,7 @@ export function MasterList<T extends MasterItem>({
           refreshControl={<RefreshControl refreshing={query.isRefetching} onRefresh={query.refetch} colors={[c.accentSolid]} />}
           renderItem={({ item }) => (
             <View style={[s.card, !item.isActive && { opacity: 0.6 }]}>
-              <Pressable onPress={() => router.push(hrefFor(item) as never)} android_ripple={{ color: c.surface3 }} style={s.inner} accessibilityRole="button">
+              <Pressable onPress={() => router.push(hrefFor(item) as never)} android_ripple={{ color: c.surface2 }} style={s.inner} accessibilityRole="button">
                 <View style={{ flex: 1, gap: 2 }}>
                   <Text variant="bodyStrong" numberOfLines={1}>
                     {item.name}
@@ -114,7 +114,7 @@ export function MasterList<T extends MasterItem>({
 
 const styles = (c: Palette) =>
   StyleSheet.create({
-    card: { borderRadius: radius.lg, overflow: "hidden", backgroundColor: c.surface, borderWidth: StyleSheet.hairlineWidth * 2, borderColor: c.border },
+    card: { borderRadius: radius.card, overflow: "hidden", backgroundColor: c.surface, borderWidth: 1, borderColor: c.border },
     inner: { flexDirection: "row", alignItems: "center", gap: space.md, padding: space.md + 2, minHeight: 64 },
   });
 
@@ -252,7 +252,7 @@ export function DesignForm({ design }: { design?: Design }) {
       </View>
       <PickerField label="Job work type" value={f.jobWorkTypeId || null} options={typeOptions} onChange={(v) => setF({ ...f, jobWorkTypeId: v ?? "" })} placeholder="Not set" loading={types.isPending} clearable error={save.errors.jobWorkTypeId} />
       {design ? (
-        <View style={{ padding: space.md, borderRadius: radius.md, backgroundColor: c.surface2 }}>
+        <View style={{ padding: space.md, borderRadius: radius.control, backgroundColor: c.surface2 }}>
           <Text variant="caption" tone="secondary">
             Changing the rate only affects new challans. Existing challans and returns keep their own rates.
           </Text>

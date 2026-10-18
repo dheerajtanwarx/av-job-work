@@ -1,5 +1,7 @@
+import { BottomSheetBackdrop, BottomSheetView, default as BottomSheet, type BottomSheetBackdropProps } from "@gorhom/bottom-sheet";
 import { router, Stack, type Href } from "expo-router";
 import { ArrowDownToLine, FilePlus2, IndianRupee, PackagePlus, Truck, UserPlus } from "lucide-react-native";
+import { useCallback } from "react";
 import { Pressable, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Text } from "@/components/ui";
@@ -14,39 +16,52 @@ const ACTIONS = [
   { label: "New job worker", hint: "Add a worker's details", icon: UserPlus, href: "/clients/new" },
 ] as const;
 
-/** Everything you can create, as a bottom sheet over the current screen (opened by the + button). */
+/** Everything you can create, as a bottom sheet over the current screen (opened by the + button). Swipe down or tap outside to close. */
 export default function Create() {
   const { c } = useTheme();
   const insets = useSafeAreaInsets();
+  const backdrop = useCallback(
+    (p: BottomSheetBackdropProps) => (
+      <BottomSheetBackdrop {...p} appearsOnIndex={0} disappearsOnIndex={-1} opacity={1} pressBehavior="close" style={[p.style, { backgroundColor: c.scrim }]} />
+    ),
+    [c.scrim],
+  );
   return (
-    <>
-      <Stack.Screen options={{ presentation: "transparentModal", headerShown: false, animation: "fade" }} />
-      <Pressable style={{ flex: 1, backgroundColor: c.scrim }} onPress={() => router.back()} accessibilityLabel="Close" />
-      <View style={{ backgroundColor: c.surface, borderTopLeftRadius: radius.xl, borderTopRightRadius: radius.xl, paddingTop: space.md, paddingBottom: insets.bottom + space.md }}>
-        <View style={{ alignSelf: "center", width: 36, height: 4, borderRadius: 2, backgroundColor: c.borderStrong, marginBottom: space.md }} />
-        <Text variant="title" style={{ paddingHorizontal: space.gutter, paddingBottom: space.sm }}>
-          Create
-        </Text>
-        {ACTIONS.map((a) => (
-          <Pressable
-            key={a.label}
-            onPress={() => router.replace(a.href as Href)}
-            android_ripple={{ color: c.surface3 }}
-            accessibilityRole="button"
-            style={{ flexDirection: "row", alignItems: "center", gap: space.lg, paddingHorizontal: space.gutter, minHeight: TOUCH + 12 }}
-          >
-            <View style={{ width: 40, height: 40, borderRadius: 20, backgroundColor: c.accentSubtle, alignItems: "center", justifyContent: "center" }}>
-              <a.icon size={20} color={c.accent} />
-            </View>
-            <View style={{ flex: 1 }}>
-              <Text variant="bodyStrong">{a.label}</Text>
-              <Text variant="caption" tone="muted">
-                {a.hint}
-              </Text>
-            </View>
-          </Pressable>
-        ))}
-      </View>
-    </>
+    <View style={{ flex: 1 }}>
+      <Stack.Screen options={{ presentation: "transparentModal", headerShown: false, animation: "none", contentStyle: { backgroundColor: "transparent" } }} />
+      <BottomSheet
+        index={0}
+        enableDynamicSizing
+        enablePanDownToClose
+        onClose={() => router.back()}
+        backdropComponent={backdrop}
+        backgroundStyle={{ backgroundColor: c.surface, borderRadius: radius.xl, borderWidth: 1, borderColor: c.border }}
+        handleIndicatorStyle={{ backgroundColor: c.borderStrong, width: 36 }}
+      >
+        <BottomSheetView style={{ paddingBottom: insets.bottom + space.md }}>
+          <Text variant="headline" style={{ paddingHorizontal: space.gutter, paddingBottom: space.sm }}>
+            Create
+          </Text>
+          {ACTIONS.map((a) => (
+            <Pressable
+              key={a.label}
+              onPress={() => router.replace(a.href as Href)}
+              accessibilityRole="button"
+              style={({ pressed }) => ({ flexDirection: "row", alignItems: "center", gap: space.md, paddingHorizontal: space.gutter, minHeight: TOUCH + 12, backgroundColor: pressed ? c.surface2 : "transparent" })}
+            >
+              <View style={{ width: 36, height: 36, borderRadius: radius.control, borderWidth: 1, borderColor: c.border, backgroundColor: c.surface2, alignItems: "center", justifyContent: "center" }}>
+                <a.icon size={18} color={c.fg2} strokeWidth={1.75} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text variant="bodyStrong">{a.label}</Text>
+                <Text variant="caption" tone="muted">
+                  {a.hint}
+                </Text>
+              </View>
+            </Pressable>
+          ))}
+        </BottomSheetView>
+      </BottomSheet>
+    </View>
   );
 }

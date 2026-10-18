@@ -1,9 +1,9 @@
 import { Stack, router } from "expo-router";
 import { X } from "lucide-react-native";
 import type { ReactNode } from "react";
-import { KeyboardAvoidingView, ScrollView, StyleSheet, View } from "react-native";
+import { KeyboardAvoidingView, ScrollView, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { space, useTheme } from "@/theme";
+import { hairline, space, useTheme } from "@/theme";
 import { IconButton } from "./button";
 import { Text } from "./text";
 
@@ -17,7 +17,7 @@ export function FormScreen({ title, subtitle, children, footer, onClose }: { tit
   return (
     <KeyboardAvoidingView style={{ flex: 1, backgroundColor: c.bg }} behavior="height">
       <Stack.Screen options={{ headerShown: false, animation: "slide_from_bottom" }} />
-      <View style={{ paddingTop: insets.top, flexDirection: "row", alignItems: "center", paddingHorizontal: space.xs, minHeight: 56 + insets.top, gap: space.xs }}>
+      <View style={{ paddingTop: insets.top, flexDirection: "row", alignItems: "center", paddingHorizontal: space.sm, minHeight: 56 + insets.top, gap: space.sm, borderBottomWidth: hairline, borderColor: c.border }}>
         <IconButton icon={X} label="Close" onPress={onClose ?? (() => router.back())} />
         <View style={{ flex: 1 }}>
           <Text variant="headline">{title}</Text>
@@ -31,7 +31,7 @@ export function FormScreen({ title, subtitle, children, footer, onClose }: { tit
       <ScrollView contentContainerStyle={{ padding: space.gutter, gap: space.xl, paddingBottom: space.xxxl }} keyboardShouldPersistTaps="handled">
         {children}
       </ScrollView>
-      <View style={{ padding: space.gutter, paddingBottom: insets.bottom + space.md, backgroundColor: c.bg, borderTopWidth: StyleSheet.hairlineWidth, borderColor: c.borderStrong, flexDirection: "row", alignItems: "center", gap: space.md }}>{footer}</View>
+      <View style={{ padding: space.gutter, paddingBottom: insets.bottom + space.md, backgroundColor: c.bg, borderTopWidth: hairline, borderColor: c.border, flexDirection: "row", alignItems: "center", gap: space.md }}>{footer}</View>
     </KeyboardAvoidingView>
   );
 }

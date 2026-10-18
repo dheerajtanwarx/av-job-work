@@ -16,6 +16,8 @@ interface Auth {
   /** undefined while the saved session is being read at launch. */
   user: SessionUser | null | undefined;
   signIn: (email: string, password: string) => Promise<void>;
+  /** "Continue with Google": the ID token from Google's account picker (see lib/google). */
+  signInWithGoogle: (idToken: string) => Promise<void>;
   signOut: () => Promise<void>;
 }
 
@@ -64,6 +66,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       user,
       signIn: async (email, password) => {
         const r = await api.post<{ user: SessionUser; token: string }>("/auth/token", { email: email.trim().toLowerCase(), password });
+        await SecureStore.setItemAsync(TOKEN_KEY, r.token);
+        start(r.token, r.user);
+      },
+      signInWithGoogle: async (idToken) => {
+        const r = await api.post<{ user: SessionUser; token: string }>("/auth/google/token", { idToken });
         await SecureStore.setItemAsync(TOKEN_KEY, r.token);
         start(r.token, r.user);
       },

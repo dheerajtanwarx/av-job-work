@@ -113,7 +113,7 @@ const PhotoCard = memo(function PhotoCard({ p, onPress }: { p: PhotoView; onPres
   const { c } = useTheme();
   return (
     <View style={s.card}>
-      <Pressable onPress={onPress} android_ripple={{ color: c.surface3 }} accessibilityRole="button" accessibilityLabel={`${p.design?.name ?? "Design"}, ${p.client.name}`}>
+      <Pressable onPress={onPress} android_ripple={{ color: c.surface2 }} accessibilityRole="button" accessibilityLabel={`${p.design?.name ?? "Design"}, ${p.client.name}`}>
         <View style={{ aspectRatio: 1 }}>
           <AuthedImage path={`/photos/${p.id}/thumb`} style={{ width: "100%", height: "100%", opacity: p.voidedAt ? 0.45 : 1 }} />
           <View style={s.rate}>
@@ -253,6 +253,6 @@ function FilterSheet({ ref, filters, isManager, onApply }: { ref: React.Ref<Shee
 
 const styles = (c: Palette) =>
   StyleSheet.create({
-    card: { borderRadius: radius.lg, overflow: "hidden", backgroundColor: c.surface, borderWidth: StyleSheet.hairlineWidth * 2, borderColor: c.border },
+    card: { borderRadius: radius.card, overflow: "hidden", backgroundColor: c.surface, borderWidth: 1, borderColor: c.border },
     rate: { position: "absolute", left: space.sm, bottom: space.sm, paddingHorizontal: space.sm, paddingVertical: 3, borderRadius: radius.sm, backgroundColor: "rgba(0,0,0,0.7)" },
   });

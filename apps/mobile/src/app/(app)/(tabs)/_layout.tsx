@@ -6,11 +6,11 @@ export default function TabsLayout() {
   const { c } = useTheme();
   return (
     <NativeTabs
-      backgroundColor={c.surface}
-      indicatorColor={c.accentSubtle}
-      rippleColor={c.surface3}
-      iconColor={{ default: c.fgMuted, selected: c.accent }}
-      labelStyle={{ default: { color: c.fgMuted, fontFamily: font.medium, fontSize: 12 }, selected: { color: c.fg, fontFamily: font.semibold, fontSize: 12 } }}
+      backgroundColor={c.bg}
+      disableIndicator
+      rippleColor={c.surface2}
+      iconColor={{ default: c.fgFaint, selected: c.accent }}
+      labelStyle={{ default: { color: c.fgMuted, fontFamily: font.medium, fontSize: 12 }, selected: { color: c.fg, fontFamily: font.medium, fontSize: 12 } }}
       labelVisibilityMode="labeled"
       backBehavior="initialRoute"
     >

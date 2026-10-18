@@ -98,7 +98,7 @@ const MaterialCard = memo(function MaterialCard({ m }: { m: MaterialRow }) {
   const detail = [m.color, m.fabricType, m.lotNumber && `Lot ${m.lotNumber}`, m.rollNumber && `Roll ${m.rollNumber}`].filter(Boolean).join(" · ");
   return (
     <View style={[s.card, !m.isActive && { opacity: 0.6 }]}>
-      <Pressable onPress={() => router.push(`/materials/${m.id}`)} android_ripple={{ color: c.surface3 }} style={s.inner} accessibilityRole="button">
+      <Pressable onPress={() => router.push(`/materials/${m.id}`)} android_ripple={{ color: c.surface2 }} style={s.inner} accessibilityRole="button">
         <View style={{ flexDirection: "row", alignItems: "center", gap: space.sm }}>
           <View style={{ flex: 1, gap: 2 }}>
             <Text variant="bodyStrong" numberOfLines={1}>
@@ -152,7 +152,7 @@ function Movements() {
 
 const styles = (c: Palette) =>
   StyleSheet.create({
-    card: { borderRadius: radius.lg, overflow: "hidden", backgroundColor: c.surface, borderWidth: StyleSheet.hairlineWidth * 2, borderColor: c.border },
+    card: { borderRadius: radius.card, overflow: "hidden", backgroundColor: c.surface, borderWidth: 1, borderColor: c.border },
     inner: { padding: space.md + 2, gap: space.md },
-    figures: { flexDirection: "row", gap: space.md, paddingTop: space.sm, borderTopWidth: StyleSheet.hairlineWidth, borderColor: c.borderStrong },
+    figures: { flexDirection: "row", gap: space.md, paddingTop: space.sm, borderTopWidth: 1, borderColor: c.border },
   });

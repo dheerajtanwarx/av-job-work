@@ -218,7 +218,7 @@ export function StockForm({ material, action }: { material: MaterialRow; action:
         hint={action === "RECEIPT" ? "Bill / supplier reference (optional)" : "Kept in the material ledger and the change log"}
       />
       {n > 0 ? (
-        <View style={{ padding: space.md, borderRadius: radius.md, backgroundColor: after < 0 ? c.dangerSubtle : c.surface2 }}>
+        <View style={{ padding: space.md, borderRadius: radius.control, backgroundColor: after < 0 ? c.dangerSubtle : c.surface2 }}>
           <Text variant="caption" tone={after < 0 ? "danger" : "secondary"}>
             Warehouse stock after this:{" "}
             <Text variant="caption" num style={{ fontWeight: "600" }} tone={after < 0 ? "danger" : "default"}>
@@ -344,7 +344,7 @@ function MovementRow({ r, showMaterial, balance, onVoid }: { r: MaterialMovement
   const effect = r.warehouseEffect;
   return (
     <View style={[styles.card, { backgroundColor: c.surface, borderColor: c.border, opacity: r.voided ? 0.6 : 1 }]}>
-      <Pressable disabled={!open} onPress={() => open && router.push(open as never)} android_ripple={{ color: c.surface3 }} style={{ padding: space.md + 2, gap: space.xs }}>
+      <Pressable disabled={!open} onPress={() => open && router.push(open as never)} android_ripple={{ color: c.surface2 }} style={{ padding: space.md + 2, gap: space.xs }}>
         <View style={{ flexDirection: "row", alignItems: "center", gap: space.sm }}>
           <Badge tone={r.voided ? "neutral" : (TYPE_TONE[r.type] ?? "neutral")} label={MOVEMENT_TYPE_LABEL[r.type] ?? r.type} />
           {r.voided ? <Badge tone="danger" label="Void" /> : null}
@@ -407,5 +407,5 @@ function MovementRow({ r, showMaterial, balance, onVoid }: { r: MaterialMovement
 }
 
 const styles = StyleSheet.create({
-  card: { borderRadius: radius.lg, overflow: "hidden", borderWidth: StyleSheet.hairlineWidth * 2 },
+  card: { borderRadius: radius.card, overflow: "hidden", borderWidth: 1 },
 });

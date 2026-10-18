@@ -1,10 +1,10 @@
 import * as Haptics from "expo-haptics";
 import type { LucideIcon } from "lucide-react-native";
 import { Pressable } from "react-native";
-import { radius, space, useTheme } from "@/theme";
+import { font, radius, space, useTheme } from "@/theme";
 import { Text } from "./text";
 
-/** Extended floating action button, bottom-right in the thumb zone. Long-press for alternatives. */
+/** The screen's one primary action, floating bottom-right in the thumb zone. Long-press for alternatives. */
 export function Fab({ icon: Icon, label, onPress, onLongPress }: { icon: LucideIcon; label: string; onPress: () => void; onLongPress?: () => void }) {
   const { c } = useTheme();
   return (
@@ -16,25 +16,27 @@ export function Fab({ icon: Icon, label, onPress, onLongPress }: { icon: LucideI
         onPress();
       }}
       onLongPress={onLongPress}
-      android_ripple={{ color: "rgba(255,255,255,0.2)" }}
-      style={{
+      style={({ pressed }) => ({
         position: "absolute",
         right: space.gutter,
         bottom: space.gutter,
-        height: 56,
-        paddingHorizontal: space.xl,
-        borderRadius: radius.lg + 2,
-        backgroundColor: c.accentSolid,
+        height: 48,
+        paddingHorizontal: space.lg,
+        borderRadius: radius.card,
+        backgroundColor: pressed ? c.accentPressed : c.accentSolid,
         flexDirection: "row",
         alignItems: "center",
-        gap: space.sm + 2,
-        overflow: "hidden",
-        elevation: 6,
+        gap: space.sm,
+        // Just enough lift to separate it from the list scrolling underneath.
+        elevation: 3,
         shadowColor: "#000",
-      }}
+        shadowOpacity: 0.12,
+        shadowRadius: 6,
+        shadowOffset: { width: 0, height: 2 },
+      })}
     >
-      <Icon size={22} color={c.onAccent} strokeWidth={2.1} />
-      <Text variant="headline" style={{ color: c.onAccent, fontSize: 16 }}>
+      <Icon size={18} color={c.onAccent} strokeWidth={2} />
+      <Text variant="bodyStrong" style={{ color: c.onAccent, fontFamily: font.medium }}>
         {label}
       </Text>
     </Pressable>

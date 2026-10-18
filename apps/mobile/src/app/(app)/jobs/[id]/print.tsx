@@ -63,7 +63,7 @@ export default function ChallanPrint() {
             </Text>
             {publicUrl ? (
               <>
-                <View style={{ padding: space.md, backgroundColor: "#fff", borderRadius: radius.lg }}>
+                <View style={{ padding: space.md, backgroundColor: "#fff", borderRadius: radius.card }}>
                   <SvgXml xml={qrSvg(publicUrl, 220)} width={220} height={220} />
                 </View>
                 <Text variant="caption" tone="muted" num align="center" selectable>

@@ -39,7 +39,7 @@ export function createApp() {
     res.json({ ok: true, instance: instance.id, uptimeS: Math.round((Date.now() - instance.startedAt) / 1000) });
   });
   // One limiter for both logins, so failed attempts count together.
-  app.post(["/auth/login", "/auth/token"], loginRateLimit());
+  app.post(["/auth/login", "/auth/token", "/auth/google", "/auth/google/token"], loginRateLimit());
   app.use("/auth", authRouter);
   app.use("/public", publicRateLimit(), publicRouter);
 

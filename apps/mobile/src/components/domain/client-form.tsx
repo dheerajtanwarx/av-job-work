@@ -136,7 +136,7 @@ function DocTile({ label, localUri, serverId, onPick, onRemove }: { label: strin
   const has = localUri || serverId;
   return (
     <View style={{ flex: 1, gap: 4 }}>
-      <Pressable onPress={onPick} accessibilityRole="button" accessibilityLabel={`${has ? "Retake" : "Take"} ${label}`} style={{ aspectRatio: 1, borderRadius: radius.md, borderWidth: has ? 0 : 1.5, borderStyle: "dashed", borderColor: c.borderStrong, overflow: "hidden", alignItems: "center", justifyContent: "center", backgroundColor: c.surface }}>
+      <Pressable onPress={onPick} accessibilityRole="button" accessibilityLabel={`${has ? "Retake" : "Take"} ${label}`} style={{ aspectRatio: 1, borderRadius: radius.control, borderWidth: has ? 0 : 1.5, borderStyle: "dashed", borderColor: c.borderStrong, overflow: "hidden", alignItems: "center", justifyContent: "center", backgroundColor: c.surface }}>
         {localUri ? (
           <Image source={{ uri: localUri }} style={{ width: "100%", height: "100%" }} contentFit="cover" />
         ) : serverId ? (

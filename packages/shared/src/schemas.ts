@@ -47,6 +47,11 @@ export const loginSchema = z.object({
   password: z.string().min(1, "Enter your password"),
 });
 
+/** "Continue with Google": the ID token Google gave the web page or phone, checked by the API. */
+export const googleLoginSchema = z.object({
+  idToken: z.string().min(1, "Google sign-in failed. Please try again."),
+});
+
 export const clientSchema = z.object({
   name: z.string().trim().min(1, "Name is required").max(200),
   businessName: optText,

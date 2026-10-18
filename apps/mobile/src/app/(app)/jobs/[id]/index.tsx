@@ -127,16 +127,16 @@ function Body({ j, refreshing, onRefresh }: { j: JobDetail; refreshing: boolean;
         <FlowBar sent={t.sent} ok={t.ok} exceptions={t.exceptions} pending={t.pending} height={10} />
         <View style={s.stats}>
           <Stat label="Good back" value={t.ok} unit={j.unit} color={c.success} />
-          <Stat label="Not good" value={t.exceptions} unit={j.unit} color={c.danger} hint={t.exceptions ? `${formatQty(t.damaged)} dmg · ${formatQty(t.rejected)} rej · ${formatQty(t.lost)} lost` : undefined} />
-          <Stat label="Still out" value={t.pending} unit={j.unit} color={c.warning} hint={t.pending && j.daysOut ? `${j.daysOut} days` : undefined} />
+          <Stat label="Not good" value={t.exceptions} unit={j.unit} color={c.dangerSolid} hint={t.exceptions ? `${formatQty(t.damaged)} dmg · ${formatQty(t.rejected)} rej · ${formatQty(t.lost)} lost` : undefined} />
+          <Stat label="Still out" value={t.pending} unit={j.unit} color={c.warningSolid} hint={t.pending && j.daysOut ? `${j.daysOut} days` : undefined} />
         </View>
         {t.notYetSent > 0 && j.status !== "CANCELLED" ? (
           <Pressable onPress={() => router.push(`/jobs/${j.id}/issue`)} style={s.notice} accessibilityRole="button">
-            <Truck size={16} color={c.accent} />
-            <Text variant="label" tone="accent" style={{ flex: 1 }}>
+            <Truck size={16} color={c.fgMuted} strokeWidth={1.75} />
+            <Text variant="label" tone="secondary" style={{ flex: 1 }}>
               {formatQty(t.notYetSent)} {j.unit} not issued yet. Issue material
             </Text>
-            <ChevronRight size={16} color={c.accent} />
+            <ChevronRight size={16} color={c.fgFaint} />
           </Pressable>
         ) : null}
       </Card>
@@ -167,7 +167,7 @@ function Stat({ label, value, unit, color, hint }: { label: string; value: numbe
   return (
     <View style={{ flex: 1, gap: 2 }}>
       <View style={{ flexDirection: "row", alignItems: "center", gap: 5 }}>
-        <View style={{ width: 8, height: 8, borderRadius: 2, backgroundColor: color }} />
+        <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: color }} />
         <Text variant="caption" tone="muted">
           {label}
         </Text>
@@ -230,7 +230,7 @@ function DesignCard({ it }: { it: JobItemView }) {
       <FlowBar sent={it.sent} ok={it.ok} exceptions={it.exceptions} pending={it.pending} />
       <Text variant="caption" tone="secondary" num>
         Ordered {formatQty(it.quantity)} · Issued {formatQty(it.sent)} · Good {formatQty(it.ok)}
-        {it.exceptions ? ` · Not good ${formatQty(it.exceptions)}` : ""} · <Text variant="caption" tone={it.pending ? "warning" : "muted"}>Out {formatQty(it.pending)}</Text>
+        {it.exceptions ? ` · Not good ${formatQty(it.exceptions)}` : ""} · <Text variant="caption" tone={it.pending ? "secondary" : "muted"}>Out {formatQty(it.pending)}</Text>
       </Text>
       {it.photos.length ? (
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: space.sm }}>
@@ -262,8 +262,8 @@ function Returns({ j }: { j: JobDetail }) {
         <Pressable
           key={r.id}
           onPress={() => router.push(`/returns/${r.id}`)}
-          android_ripple={{ color: c.surface3 }}
-          style={{ flexDirection: "row", gap: space.md, padding: space.lg, borderTopWidth: i ? StyleSheet.hairlineWidth : 0, borderColor: c.borderStrong, opacity: r.voidedAt ? 0.5 : 1 }}
+          android_ripple={{ color: c.surface2 }}
+          style={{ flexDirection: "row", gap: space.md, padding: space.lg, borderTopWidth: i ? 1 : 0, borderColor: c.border, opacity: r.voidedAt ? 0.5 : 1 }}
         >
           <View style={{ flex: 1, gap: 2 }}>
             <Text variant="bodyStrong">{r.returnNumber}</Text>
@@ -309,8 +309,8 @@ function Payments({ j }: { j: JobDetail }) {
             <Pressable
               key={b.id}
               onPress={() => router.push(`/bills/sub/${b.id}`)}
-              android_ripple={{ color: c.surface3 }}
-              style={{ flexDirection: "row", gap: space.md, padding: space.lg, borderTopWidth: i ? StyleSheet.hairlineWidth : 0, borderColor: c.borderStrong, opacity: b.voidedAt ? 0.5 : 1 }}
+              android_ripple={{ color: c.surface2 }}
+              style={{ flexDirection: "row", gap: space.md, padding: space.lg, borderTopWidth: i ? 1 : 0, borderColor: c.border, opacity: b.voidedAt ? 0.5 : 1 }}
             >
               <View style={{ flex: 1, gap: 2 }}>
                 <Text variant="bodyStrong">{b.billNumber}</Text>
@@ -393,7 +393,7 @@ function BottomBar({ j }: { j: JobDetail }) {
   const due = j.money.outstandingPaise;
   const notIssued = j.totals.sent === 0;
   return (
-    <View style={{ position: "absolute", left: 0, right: 0, bottom: 0, flexDirection: "row", gap: space.sm, padding: space.gutter, paddingBottom: insets.bottom + space.md, backgroundColor: c.bg, borderTopWidth: StyleSheet.hairlineWidth, borderColor: c.borderStrong }}>
+    <View style={{ position: "absolute", left: 0, right: 0, bottom: 0, flexDirection: "row", gap: space.sm, padding: space.gutter, paddingBottom: insets.bottom + space.md, backgroundColor: c.bg, borderTopWidth: 1, borderColor: c.border }}>
       {notIssued ? (
         <Button title="Issue material" icon={Send} size="lg" style={{ flex: 1 }} onPress={() => router.push(`/jobs/${j.id}/issue`)} />
       ) : (
@@ -412,6 +412,6 @@ function BottomBar({ j }: { j: JobDetail }) {
 const styles = (c: Palette) =>
   StyleSheet.create({
     stats: { flexDirection: "row", gap: space.md },
-    banner: { flexDirection: "row", gap: space.sm, alignItems: "center", padding: space.md, borderRadius: radius.md, backgroundColor: c.dangerSubtle },
-    notice: { flexDirection: "row", gap: space.sm, alignItems: "center", padding: space.md, borderRadius: radius.md, backgroundColor: c.accentSubtle },
+    banner: { flexDirection: "row", gap: space.sm, alignItems: "center", padding: space.md, borderRadius: radius.control, backgroundColor: c.dangerSubtle },
+    notice: { flexDirection: "row", gap: space.sm, alignItems: "center", padding: space.md, borderRadius: radius.control, backgroundColor: c.surface2, borderWidth: 1, borderColor: c.border },
   });

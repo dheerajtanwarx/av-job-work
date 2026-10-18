@@ -5,9 +5,9 @@ import { ArrowDownToLine, Camera, Inbox, Search } from "lucide-react-native";
 import { memo, useCallback, useState } from "react";
 import { ActivityIndicator, Pressable, RefreshControl, StyleSheet, View } from "react-native";
 import { PayStatusBadge } from "@/components/domain/status";
-import { AuthedImage, Badge, EmptyState, ErrorBlock, Fab, IconButton, ListSkeleton, SearchBar, Segmented, TabHeader, Text } from "@/components/ui";
+import { AuthedImage, Badge, EmptyState, ErrorBlock, Fab, IconButton, ListSkeleton, SearchBar, Segmented, TabBarRule, TabHeader, Text } from "@/components/ui";
 import { useReturnsInfinite } from "@/lib/queries";
-import { type Palette, radius, space, useStyles, useTheme } from "@/theme";
+import { hairline, type Palette, radius, space, useStyles, useTheme } from "@/theme";
 
 type Tab = "today" | "all";
 
@@ -70,6 +70,7 @@ export default function Returns() {
         />
       )}
       <Fab icon={ArrowDownToLine} label="Record return" onPress={() => router.push("/returns/new")} />
+      <TabBarRule />
     </View>
   );
 }
@@ -82,7 +83,7 @@ const ReturnCard = memo(function ReturnCard({ r, showDate }: { r: ReturnRow; sho
   const bad = r.damagedQty + r.rejectedQty + r.lostQty;
   return (
     <View style={[s.card, r.voidedAt && { opacity: 0.55 }]}>
-      <Pressable onPress={() => router.push(`/returns/${r.id}`)} android_ripple={{ color: c.surface3 }} style={s.inner} accessibilityRole="button">
+      <Pressable onPress={() => router.push(`/returns/${r.id}`)} style={({ pressed }) => [s.inner, pressed && { backgroundColor: c.surface2 }]} accessibilityRole="button">
         <View>
           <AuthedImage path={r.coverPhotoId ? `/photos/${r.coverPhotoId}/thumb` : null} size={56} />
           {r.photoCount > 1 ? (
@@ -107,9 +108,10 @@ const ReturnCard = memo(function ReturnCard({ r, showDate }: { r: ReturnRow; sho
             {r.returnNumber} · {r.job.jobNumber} · {r.designs.join(", ")}
           </Text>
           <View style={[s.row, { marginTop: 4 }]}>
-            <Text variant="label" tone="secondary" num>
+            {bad ? <View style={s.dot} /> : null}
+            <Text variant="label" tone="secondary" num style={{ flex: 1 }}>
               {formatQty(r.okQty)} {r.unit} good
-              {bad ? <Text variant="label" tone="danger">{`  ·  ${formatQty(bad)} not good`}</Text> : null}
+              {bad ? <Text variant="label" tone="muted">{`  ·  ${formatQty(bad)} not good`}</Text> : null}
             </Text>
             {r.voidedAt ? <Badge tone="danger" label="Voided" /> : r.payment ? <PayStatusBadge status={r.payment.status} /> : null}
           </View>
@@ -125,8 +127,9 @@ const ReturnCard = memo(function ReturnCard({ r, showDate }: { r: ReturnRow; sho
 
 const styles = (c: Palette) =>
   StyleSheet.create({
-    card: { borderRadius: radius.lg, overflow: "hidden", backgroundColor: c.surface, borderWidth: StyleSheet.hairlineWidth * 2, borderColor: c.border },
-    inner: { padding: space.md + 2, gap: space.md, flexDirection: "row" },
+    card: { borderRadius: radius.card, overflow: "hidden", backgroundColor: c.surface, borderWidth: hairline, borderColor: c.border },
+    inner: { padding: space.md, gap: space.md, flexDirection: "row" },
+    dot: { width: 6, height: 6, borderRadius: 3, backgroundColor: c.dangerSolid },
     row: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: space.sm },
     count: { position: "absolute", right: 3, bottom: 3, flexDirection: "row", alignItems: "center", gap: 2, paddingHorizontal: 4, borderRadius: 6, backgroundColor: "rgba(0,0,0,0.55)" },
   });

@@ -194,7 +194,7 @@ export default function NewPayment() {
             <Text variant="caption" tone="muted">
               {money.advancePaise ? "Advance" : "Due"}
             </Text>
-            <Text variant="bodyStrong" num tone={money.outstandingPaise ? "warning" : undefined}>
+            <Text variant="bodyStrong" num>
               {formatINR(money.advancePaise || money.outstandingPaise)}
             </Text>
           </View>

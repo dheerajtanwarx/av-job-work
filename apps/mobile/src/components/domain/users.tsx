@@ -1,7 +1,7 @@
 import { USER_ROLE_HELP, USER_ROLE_LABEL, USER_ROLES, type UserRole, type UserRow } from "@av/shared";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Check } from "lucide-react-native";
-import { Pressable, StyleSheet, View } from "react-native";
+import { Pressable, View } from "react-native";
 import { Text, toast } from "@/components/ui";
 import { api, errorMessage } from "@/lib/api";
 import { radius, space, useTheme } from "@/theme";
@@ -34,7 +34,7 @@ export function RolePicker({ value, onChange }: { value: UserRole; onChange: (r:
       <Text variant="label" tone="secondary">
         Role
       </Text>
-      <View style={{ borderRadius: radius.md, borderWidth: 1, borderColor: c.border, backgroundColor: c.surface, overflow: "hidden" }}>
+      <View style={{ borderRadius: radius.control, borderWidth: 1, borderColor: c.border, backgroundColor: c.surface, overflow: "hidden" }}>
         {USER_ROLES.map((r, i) => {
           const on = r === value;
           return (
@@ -43,8 +43,8 @@ export function RolePicker({ value, onChange }: { value: UserRole; onChange: (r:
               onPress={() => onChange(r)}
               accessibilityRole="radio"
               accessibilityState={{ checked: on }}
-              android_ripple={{ color: c.surface3 }}
-              style={{ flexDirection: "row", gap: space.md, padding: space.md + 2, backgroundColor: on ? c.accentSubtle : undefined, borderTopWidth: i ? StyleSheet.hairlineWidth : 0, borderColor: c.borderStrong }}
+              android_ripple={{ color: c.surface2 }}
+              style={{ flexDirection: "row", gap: space.md, padding: space.md + 2, backgroundColor: on ? c.accentSubtle : undefined, borderTopWidth: i ? 1 : 0, borderColor: c.border }}
             >
               <View style={{ flex: 1, gap: 2 }}>
                 <Text variant={on ? "bodyStrong" : "body"}>{USER_ROLE_LABEL[r]}</Text>

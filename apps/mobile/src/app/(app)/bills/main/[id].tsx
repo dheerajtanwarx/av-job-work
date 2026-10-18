@@ -1,7 +1,7 @@
 import { formatDate, formatINR, formatQty, PAYMENT_METHOD_LABEL } from "@av/shared";
 import { router, Stack, useLocalSearchParams } from "expo-router";
 import { FileDown, Printer } from "lucide-react-native";
-import { Pressable, ScrollView, StyleSheet, View } from "react-native";
+import { Pressable, ScrollView, View } from "react-native";
 import { Badge, Button, Card, ErrorBlock, ListSkeleton, Section, Text } from "@/components/ui";
 import { settlementHtml } from "@/lib/print/bills";
 import { printHtml, sharePdf } from "@/lib/print/sheet";
@@ -23,7 +23,7 @@ export default function SettlementScreen() {
         <ScrollView contentContainerStyle={{ padding: space.gutter, gap: space.xl, paddingBottom: space.xxxl * 2 }}>
           <View style={{ alignItems: "center", gap: space.xs, paddingVertical: space.lg }}>
             {m.cancelledAt ? <Badge tone="danger" label="Cancelled" /> : <Badge tone="success" label="Settled" />}
-            <Text variant="display" num style={{ fontSize: 40, lineHeight: 48, marginTop: space.sm }}>
+            <Text variant="hero" num style={{ marginTop: space.sm }}>
               {formatINR(m.totalPaise)}
             </Text>
             <Text tone="muted">
@@ -42,7 +42,7 @@ export default function SettlementScreen() {
           <Section title={`Work done · ${m.product.name}`}>
             <Card padded={false}>
               {m.designs.map((d, i) => (
-                <View key={d.jobItemId} style={{ padding: space.lg, gap: 3, borderTopWidth: i ? StyleSheet.hairlineWidth : 0, borderColor: c.borderStrong }}>
+                <View key={d.jobItemId} style={{ padding: space.lg, gap: 3, borderTopWidth: i ? 1 : 0, borderColor: c.border }}>
                   <View style={{ flexDirection: "row", justifyContent: "space-between" }}>
                     <Text variant="bodyStrong">{d.designName}</Text>
                     <Text variant="bodyStrong" num>
@@ -60,7 +60,7 @@ export default function SettlementScreen() {
           <Section title="Payments">
             <Card padded={false}>
               {m.subBills.map((s, i) => (
-                <Pressable key={s.id} onPress={() => router.push(`/bills/sub/${s.id}`)} android_ripple={{ color: c.surface3 }} style={{ flexDirection: "row", padding: space.lg, borderTopWidth: i ? StyleSheet.hairlineWidth : 0, borderColor: c.borderStrong, opacity: s.voidedAt ? 0.5 : 1 }}>
+                <Pressable key={s.id} onPress={() => router.push(`/bills/sub/${s.id}`)} android_ripple={{ color: c.surface2 }} style={{ flexDirection: "row", padding: space.lg, borderTopWidth: i ? 1 : 0, borderColor: c.border, opacity: s.voidedAt ? 0.5 : 1 }}>
                   <View style={{ flex: 1 }}>
                     <Text variant="bodyStrong">{s.billNumber}</Text>
                     <Text variant="caption" tone="muted">

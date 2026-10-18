@@ -4,6 +4,8 @@ export const env = {
   port: Number(process.env.PORT ?? process.env.API_PORT ?? 4000),
   jwtSecret: process.env.JWT_SECRET ?? "dev-secret-change-me",
   webOrigin: process.env.WEB_ORIGIN ?? "http://localhost:3000",
+  /** Google OAuth "Web application" client ID. Empty: "Continue with Google" is hidden on web and mobile. */
+  googleClientId: process.env.GOOGLE_CLIENT_ID || undefined,
   isProd: process.env.NODE_ENV === "production",
   isTest: process.env.NODE_ENV === "test",
   /** Calendar days (today, overdue, aging) are counted in this time zone. */

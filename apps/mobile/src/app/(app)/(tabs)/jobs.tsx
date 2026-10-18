@@ -6,9 +6,9 @@ import { memo, useCallback, useMemo, useState } from "react";
 import { Pressable, RefreshControl, StyleSheet, View } from "react-native";
 import { FlowBar } from "@/components/domain/flow-bar";
 import { JobStatusBadge, PayStatusBadge } from "@/components/domain/status";
-import { Chip, ChipRow, EmptyState, ErrorBlock, Fab, IconButton, ListSkeleton, SearchBar, TabHeader, Text } from "@/components/ui";
+import { Chip, ChipRow, EmptyState, ErrorBlock, Fab, IconButton, ListSkeleton, SearchBar, TabBarRule, TabHeader, Text } from "@/components/ui";
 import { useJobs } from "@/lib/queries";
-import { type Palette, radius, space, useStyles, useTheme } from "@/theme";
+import { hairline, type Palette, radius, space, useStyles, useTheme } from "@/theme";
 
 const STATUS_CHIPS = [
   { value: "open", label: "Open" },
@@ -56,7 +56,7 @@ export default function Jobs() {
           keyExtractor={(j) => j.id}
           renderItem={renderItem}
           contentContainerStyle={{ paddingHorizontal: space.gutter, paddingBottom: 96 }}
-          ItemSeparatorComponent={() => <View style={{ height: space.sm + 2 }} />}
+          ItemSeparatorComponent={() => <View style={{ height: space.sm }} />}
           ListHeaderComponent={rows?.length ? <Totals count={rows.length} {...totals} /> : null}
           ListEmptyComponent={
             <EmptyState
@@ -70,6 +70,7 @@ export default function Jobs() {
         />
       )}
       <Fab icon={FilePlus2} label="New challan" onPress={() => router.push("/jobs/new")} />
+      <TabBarRule />
     </View>
   );
 }
@@ -81,7 +82,7 @@ function Totals({ count, value, paid, out }: { count: number; value: number; pai
         {count} challan{count === 1 ? "" : "s"}
       </Text>
       <Text variant="caption" tone="muted" num>
-        Work {formatINR(value)} · Paid {formatINR(paid)} · <Text variant="caption" tone={out ? "warning" : "muted"}>Due {formatINR(out)}</Text>
+        Work {formatINR(value)} · Paid {formatINR(paid)} · <Text variant="caption" tone={out ? "secondary" : "muted"}>Due {formatINR(out)}</Text>
       </Text>
     </View>
   );
@@ -93,16 +94,16 @@ const JobCard = memo(function JobCard({ j }: { j: JobListRow }) {
   const t = j.totals;
   return (
     <View style={s.card}>
-      <Pressable onPress={() => router.push(`/jobs/${j.id}`)} android_ripple={{ color: c.surface3 }} style={s.inner} accessibilityRole="button" accessibilityLabel={`Challan ${j.jobNumber}, ${j.client.name}`}>
+      <Pressable onPress={() => router.push(`/jobs/${j.id}`)} style={({ pressed }) => [s.inner, pressed && { backgroundColor: c.surface2 }]} accessibilityRole="button" accessibilityLabel={`Challan ${j.jobNumber}, ${j.client.name}`}>
         <View style={s.row}>
-          <Text variant="bodyStrong" num>
+          <Text variant="label" tone="muted" num>
             {j.jobNumber}
           </Text>
           <JobStatusBadge status={j.status} overdue={j.overdue} />
         </View>
         <View style={s.row}>
           <View style={{ flex: 1 }}>
-            <Text variant="headline" numberOfLines={1}>
+            <Text variant="bodyStrong" numberOfLines={1}>
               {j.client.name}
             </Text>
             <Text variant="caption" tone="muted" numberOfLines={1}>
@@ -116,7 +117,7 @@ const JobCard = memo(function JobCard({ j }: { j: JobListRow }) {
           <Text variant="label" tone="secondary" num>
             {t.pending > 0 ? (
               <>
-                <Text variant="label" tone="warning" num>
+                <Text variant="label" num>
                   {formatQty(t.pending)} {j.unit}
                 </Text>{" "}
                 out{j.daysOut ? ` · ${j.daysOut}d` : ""}
@@ -143,7 +144,7 @@ const JobCard = memo(function JobCard({ j }: { j: JobListRow }) {
 
 const styles = (c: Palette) =>
   StyleSheet.create({
-    card: { borderRadius: radius.lg, overflow: "hidden", backgroundColor: c.surface, borderWidth: StyleSheet.hairlineWidth * 2, borderColor: c.border },
-    inner: { padding: space.lg, gap: space.sm + 2 },
+    card: { borderRadius: radius.card, overflow: "hidden", backgroundColor: c.surface, borderWidth: hairline, borderColor: c.border },
+    inner: { padding: space.lg, gap: space.sm },
     row: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: space.sm },
   });

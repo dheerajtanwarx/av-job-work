@@ -246,7 +246,7 @@ export function ChallanForm({ job, defaultClientId }: { job?: JobDetail; default
           return (
             <Card key={l.key} contentStyle={{ gap: space.md }}>
               <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
-                <Text variant="overline" tone="muted">
+                <Text variant="label" tone="muted">
                   Design {idx + 1}
                 </Text>
                 {lines.length > 1 && !l.locked ? (
@@ -353,7 +353,7 @@ function PhotoRow({ line, onAdd, onRemoveNew, onRemoveSaved }: { line: Line; onA
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: space.sm }}>
           {thumbs.map((t) => (
             <View key={t.key} style={{ gap: 2 }}>
-              {t.saved ? <AuthedImage path={`/job-photos/${t.uri}/thumb`} size={72} /> : <Image source={{ uri: t.uri }} style={{ width: 72, height: 72, borderRadius: radius.md }} />}
+              {t.saved ? <AuthedImage path={`/job-photos/${t.uri}/thumb`} size={72} /> : <Image source={{ uri: t.uri }} style={{ width: 72, height: 72, borderRadius: radius.control }} />}
               <Pressable onPress={() => (t.saved ? onRemoveSaved(t.key) : onRemoveNew(t.key))} hitSlop={8} accessibilityLabel="Remove photo" style={{ position: "absolute", top: 3, right: 3, width: 22, height: 22, borderRadius: 11, backgroundColor: "rgba(0,0,0,0.6)", alignItems: "center", justifyContent: "center" }}>
                 <X size={12} color="#fff" />
               </Pressable>

@@ -6,6 +6,7 @@ import { Suspense, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Field, Input } from "@/components/ui/input";
 import { api, errorMessage } from "@/lib/api";
+import { GoogleButton } from "./google-button";
 
 function LoginForm() {
   const router = useRouter();
@@ -15,14 +16,18 @@ function LoginForm() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
+  function goNext() {
+    const next = params.get("next");
+    router.replace(next && next.startsWith("/") ? next : "/");
+  }
+
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     setLoading(true);
     setError(null);
     try {
       await api.post("/auth/login", { email, password });
-      const next = params.get("next");
-      router.replace(next && next.startsWith("/") ? next : "/");
+      goNext();
     } catch (err) {
       setError(errorMessage(err));
       setLoading(false);
@@ -46,6 +51,7 @@ function LoginForm() {
       <Button type="submit" size="lg" className="w-full" loading={loading}>
         Log in
       </Button>
+      <GoogleButton onSignedIn={goNext} onError={setError} />
     </form>
   );
 }

@@ -5,9 +5,9 @@ import { router } from "expo-router";
 import { IndianRupee, Search, Wallet } from "lucide-react-native";
 import { memo, useState } from "react";
 import { Pressable, RefreshControl, StyleSheet, View } from "react-native";
-import { Badge, EmptyState, ErrorBlock, Fab, IconButton, ListSkeleton, SearchBar, Segmented, TabHeader, Text } from "@/components/ui";
+import { Badge, EmptyState, ErrorBlock, Fab, IconButton, ListSkeleton, SearchBar, Segmented, TabBarRule, TabHeader, Text } from "@/components/ui";
 import { api, qs } from "@/lib/api";
-import { type Palette, radius, space, useStyles, useTheme } from "@/theme";
+import { hairline, type Palette, radius, space, useStyles, useTheme } from "@/theme";
 
 type Tab = "vouchers" | "settlements";
 
@@ -67,18 +67,22 @@ export default function Bills() {
         />
       )}
       <Fab icon={IndianRupee} label="New payment" onPress={() => router.push("/bills/new")} />
+      <TabBarRule />
     </View>
   );
 }
 
 function Summary({ m }: { m?: MoneySummary }) {
   const s = useStyles(styles);
-  const cell = (label: string, v: number | undefined, tone?: "warning") => (
+  const cell = (label: string, v: number | undefined, due?: boolean) => (
     <View style={{ flex: 1, gap: 2 }}>
-      <Text variant="caption" tone="muted">
-        {label}
-      </Text>
-      <Text variant="headline" num tone={tone} numberOfLines={1} adjustsFontSizeToFit>
+      <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+        {due ? <View style={s.dot} /> : null}
+        <Text variant="caption" tone="muted">
+          {label}
+        </Text>
+      </View>
+      <Text variant="headline" num numberOfLines={1} adjustsFontSizeToFit style={{ letterSpacing: -0.4 }}>
         {v === undefined ? "—" : formatINR(v)}
       </Text>
     </View>
@@ -89,7 +93,7 @@ function Summary({ m }: { m?: MoneySummary }) {
       <View style={s.divider} />
       {cell("Paid", m?.paidPaise)}
       <View style={s.divider} />
-      {cell("To pay", m?.toPayPaise, m?.toPayPaise ? "warning" : undefined)}
+      {cell("To pay", m?.toPayPaise, !!m?.toPayPaise)}
     </View>
   );
 }
@@ -99,7 +103,7 @@ const VoucherRow = memo(function VoucherRow({ b }: { b: SubBillRow }) {
   const { c } = useTheme();
   return (
     <View style={[s.card, b.voidedAt && { opacity: 0.55 }]}>
-      <Pressable onPress={() => router.push(`/bills/sub/${b.id}`)} android_ripple={{ color: c.surface3 }} style={s.inner} accessibilityRole="button">
+      <Pressable onPress={() => router.push(`/bills/sub/${b.id}`)} style={({ pressed }) => [s.inner, pressed && { backgroundColor: c.surface2 }]} accessibilityRole="button">
         <View style={{ flex: 1, gap: 2 }}>
           <Text variant="bodyStrong" numberOfLines={1}>
             {b.client.name}
@@ -114,7 +118,7 @@ const VoucherRow = memo(function VoucherRow({ b }: { b: SubBillRow }) {
           </Text>
         </View>
         <View style={{ alignItems: "flex-end", gap: 4 }}>
-          <Text variant="headline" num style={b.voidedAt ? { textDecorationLine: "line-through" } : undefined}>
+          <Text variant="bodyStrong" num style={b.voidedAt ? { textDecorationLine: "line-through" } : undefined}>
             {formatINR(b.amountPaise)}
           </Text>
           {b.voidedAt ? <Badge tone="danger" label="Voided" /> : b.edited ? <Badge label="Edited" /> : null}
@@ -129,7 +133,7 @@ const SettlementRow = memo(function SettlementRow({ b }: { b: MainBillRow }) {
   const { c } = useTheme();
   return (
     <View style={[s.card, b.cancelledAt && { opacity: 0.55 }]}>
-      <Pressable onPress={() => router.push(`/bills/main/${b.id}`)} android_ripple={{ color: c.surface3 }} style={s.inner} accessibilityRole="button">
+      <Pressable onPress={() => router.push(`/bills/main/${b.id}`)} style={({ pressed }) => [s.inner, pressed && { backgroundColor: c.surface2 }]} accessibilityRole="button">
         <View style={{ flex: 1, gap: 2 }}>
           <Text variant="bodyStrong" numberOfLines={1}>
             {b.client.name}
@@ -142,7 +146,7 @@ const SettlementRow = memo(function SettlementRow({ b }: { b: MainBillRow }) {
           </Text>
         </View>
         <View style={{ alignItems: "flex-end", gap: 4 }}>
-          <Text variant="headline" num>
+          <Text variant="bodyStrong" num>
             {formatINR(b.totalPaise)}
           </Text>
           {b.cancelledAt ? <Badge tone="danger" label="Cancelled" /> : <Badge tone="success" label="Settled" />}
@@ -154,8 +158,9 @@ const SettlementRow = memo(function SettlementRow({ b }: { b: MainBillRow }) {
 
 const styles = (c: Palette) =>
   StyleSheet.create({
-    summary: { flexDirection: "row", padding: space.lg, borderRadius: radius.lg, backgroundColor: c.surface, borderWidth: StyleSheet.hairlineWidth * 2, borderColor: c.border, gap: space.md },
-    divider: { width: StyleSheet.hairlineWidth, backgroundColor: c.borderStrong },
-    card: { borderRadius: radius.lg, overflow: "hidden", backgroundColor: c.surface, borderWidth: StyleSheet.hairlineWidth * 2, borderColor: c.border },
+    summary: { flexDirection: "row", padding: space.lg, borderRadius: radius.card, backgroundColor: c.surface, borderWidth: hairline, borderColor: c.border, gap: space.md },
+    divider: { width: hairline, backgroundColor: c.border },
+    dot: { width: 6, height: 6, borderRadius: 3, backgroundColor: c.warningSolid },
+    card: { borderRadius: radius.card, overflow: "hidden", backgroundColor: c.surface, borderWidth: hairline, borderColor: c.border },
     inner: { padding: space.lg, gap: space.md, flexDirection: "row", alignItems: "center" },
   });

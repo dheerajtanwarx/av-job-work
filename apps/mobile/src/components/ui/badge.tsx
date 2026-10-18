@@ -15,23 +15,25 @@ export const toneColors = (c: Palette, tone: Tone) =>
   })[tone];
 
 /**
- * Status as a word plus colour (never colour alone). `dot` = calm inline status; `pill` = soft filled chip.
+ * Status as a word plus colour (never colour alone). `dot` = calm inline status; `pill` = soft tinted pill with a dot.
  */
 export function Badge({ label, tone = "neutral", look = "pill" }: { label: string; tone?: Tone; look?: "pill" | "dot" }) {
   const { c } = useTheme();
   const t = toneColors(c, tone);
+  const dot = <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: t.dot }} />;
   if (look === "dot")
     return (
       <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-        <View style={{ width: 7, height: 7, borderRadius: 4, backgroundColor: t.dot }} />
+        {dot}
         <Text variant="label" style={{ color: tone === "neutral" ? c.fg2 : t.fg }} numberOfLines={1}>
           {label}
         </Text>
       </View>
     );
   return (
-    <View style={{ alignSelf: "flex-start", paddingHorizontal: 8, paddingVertical: 2, borderRadius: radius.pill, backgroundColor: t.bg }}>
-      <Text variant="caption" style={{ color: t.fg, fontFamily: font.medium }} numberOfLines={1}>
+    <View style={{ flexDirection: "row", alignItems: "center", alignSelf: "flex-start", gap: 6, height: 22, paddingHorizontal: 8, borderRadius: radius.pill, backgroundColor: t.bg }}>
+      {dot}
+      <Text variant="caption" num style={{ color: t.fg, fontFamily: font.medium }} numberOfLines={1}>
         {label}
       </Text>
     </View>

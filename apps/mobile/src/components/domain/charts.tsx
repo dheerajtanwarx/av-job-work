@@ -1,6 +1,6 @@
 import * as Haptics from "expo-haptics";
 import { useState, type ReactNode } from "react";
-import { Pressable, StyleSheet, View } from "react-native";
+import { Pressable, View } from "react-native";
 import { Card, Text } from "@/components/ui";
 import { radius, space, useTheme } from "@/theme";
 
@@ -69,7 +69,7 @@ function DataTable({ spec }: { spec: TableSpec }) {
   const { c } = useTheme();
   return (
     <View>
-      <View style={{ flexDirection: "row", gap: space.sm, paddingBottom: space.xs, borderBottomWidth: StyleSheet.hairlineWidth, borderColor: c.borderStrong }}>
+      <View style={{ flexDirection: "row", gap: space.sm, paddingBottom: space.xs, borderBottomWidth: 1, borderColor: c.border }}>
         {spec.columns.map((col, i) => (
           <Text key={i} variant="caption" tone="muted" align={col.right ? "right" : "left"} style={{ flex: i === 0 ? 1.6 : 1 }} numberOfLines={2}>
             {col.label}
@@ -77,7 +77,7 @@ function DataTable({ spec }: { spec: TableSpec }) {
         ))}
       </View>
       {spec.rows.map((row, r) => (
-        <View key={r} style={{ flexDirection: "row", gap: space.sm, paddingVertical: space.xs + 2, borderBottomWidth: r === spec.rows.length - 1 ? 0 : StyleSheet.hairlineWidth, borderColor: c.border }}>
+        <View key={r} style={{ flexDirection: "row", gap: space.sm, paddingVertical: space.xs + 2, borderBottomWidth: r === spec.rows.length - 1 ? 0 : 1, borderColor: c.border }}>
           {row.map((cell, i) => (
             <Text key={i} variant="caption" num={i > 0} align={spec.columns[i]?.right ? "right" : "left"} style={{ flex: i === 0 ? 1.6 : 1 }} numberOfLines={2}>
               {String(cell)}
@@ -156,7 +156,7 @@ export function Columns<T extends Record<string, unknown>>({ data, category, val
           </Text>
         ) : null}
       </Text>
-      <View style={{ flexDirection: "row", alignItems: "flex-end", height: 140, gap: 2, borderBottomWidth: StyleSheet.hairlineWidth, borderColor: c.borderStrong }}>
+      <View style={{ flexDirection: "row", alignItems: "flex-end", height: 140, gap: 2, borderBottomWidth: 1, borderColor: c.border }}>
         {data.map((d, i) => {
           const v = values[i];
           const on = i === shown;

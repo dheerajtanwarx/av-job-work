@@ -329,7 +329,7 @@ function ReturnForm({ jobId, onChangeJob, onSaved }: { jobId: string; onChangeJo
         )}
       </ScrollView>
       {/* Sticky footer: what will be saved, and the next step */}
-      <View style={{ position: "absolute", left: 0, right: 0, bottom: 0, padding: space.gutter, paddingBottom: insets.bottom + space.md, backgroundColor: c.bg, borderTopWidth: StyleSheet.hairlineWidth, borderColor: c.borderStrong, flexDirection: "row", alignItems: "center", gap: space.md }}>
+      <View style={{ position: "absolute", left: 0, right: 0, bottom: 0, padding: space.gutter, paddingBottom: insets.bottom + space.md, backgroundColor: c.bg, borderTopWidth: 1, borderColor: c.border, flexDirection: "row", alignItems: "center", gap: space.md }}>
         <View style={{ flex: 1 }}>
           <Text variant="bodyStrong" num>
             {formatQty(received)} {j.unit} · {formatINR(value)}
@@ -527,7 +527,7 @@ function LineCard({
       ) : null}
 
       {x.over ? (
-        <View style={{ gap: space.sm, padding: space.md, borderRadius: radius.md, backgroundColor: c.warningSubtle }}>
+        <View style={{ gap: space.sm, padding: space.md, borderRadius: radius.control, backgroundColor: c.warningSubtle }}>
           <Text variant="label" tone="warning">
             This is more than the {formatQty(it.pending)} {it.unit} pending.
           </Text>
@@ -558,7 +558,7 @@ function PhotoStep({ photos, setPhotos, take, tags }: { photos: Photo[]; setPhot
         <View style={{ flexDirection: "row", flexWrap: "wrap", gap: space.sm }}>
           {photos.map((p, i) => (
             <View key={p.uri} style={{ width: "48.5%", gap: space.xs }}>
-              <Image source={{ uri: p.uri }} style={{ width: "100%", aspectRatio: 1, borderRadius: radius.md, backgroundColor: c.surface2 }} contentFit="cover" />
+              <Image source={{ uri: p.uri }} style={{ width: "100%", aspectRatio: 1, borderRadius: radius.control, backgroundColor: c.surface2 }} contentFit="cover" />
               <Pressable
                 onPress={() => setPhotos((ps) => ps.filter((_, k) => k !== i))}
                 accessibilityLabel="Remove photo"
@@ -584,7 +584,7 @@ function PhotoStep({ photos, setPhotos, take, tags }: { photos: Photo[]; setPhot
           ))}
         </View>
       ) : (
-        <View style={{ alignItems: "center", padding: space.xxxl, borderRadius: radius.lg, borderWidth: 1.5, borderStyle: "dashed", borderColor: c.borderStrong, gap: space.sm }}>
+        <View style={{ alignItems: "center", padding: space.xxxl, borderRadius: radius.card, borderWidth: 1.5, borderStyle: "dashed", borderColor: c.borderStrong, gap: space.sm }}>
           <Camera size={32} color={c.fgFaint} />
           <Text tone="muted" align="center">
             No photo yet. Photos upload after saving, so you don't have to wait.
@@ -620,7 +620,7 @@ function PayStep(p: {
   const row = (label: string, value: string, tone?: "warning" | "muted") => (
     <View style={{ flexDirection: "row", justifyContent: "space-between", paddingVertical: 3 }}>
       <Text tone="muted">{label}</Text>
-      <Text variant="bodyStrong" num tone={tone === "warning" ? "warning" : undefined}>
+      <Text variant="bodyStrong" num>
         {value}
       </Text>
     </View>
@@ -628,7 +628,7 @@ function PayStep(p: {
   return (
     <>
       <Card style={{ gap: 2 }}>
-        <Text variant="overline" tone="muted" style={{ marginBottom: space.xs }}>
+        <Text variant="label" tone="muted" style={{ marginBottom: space.xs }}>
           Summary
         </Text>
         {row("Received now", `${formatQty(p.received)} ${p.j.unit}`)}
@@ -654,7 +654,7 @@ function PayStep(p: {
               p.setPayMode("partial");
               p.setPartial(String((p.earlier + p.value) / 100));
             }}
-            style={{ padding: space.md, borderRadius: radius.md, backgroundColor: c.accentSubtle }}
+            style={({ pressed }) => ({ padding: space.md, borderRadius: radius.control, backgroundColor: pressed ? c.surface3 : c.surface2, borderWidth: 1, borderColor: c.border })}
             accessibilityRole="button"
           >
             <Text variant="label" tone="accent">
@@ -714,7 +714,7 @@ function Success({ r, onAnother }: { r: ReturnResult; onAnother: () => void }) {
           ) : (
             <Text variant="bodyStrong">No payment made now</Text>
           )}
-          <Text variant="caption" tone={due ? "warning" : "muted"} num>
+          <Text variant="caption" tone={due ? "secondary" : "muted"} num>
             {due ? `${formatINR(due)} still to pay on this challan` : "Nothing more to pay on this challan"}
           </Text>
           {queue.length ? (
@@ -746,5 +746,5 @@ function Success({ r, onAnother }: { r: ReturnResult; onAnother: () => void }) {
 
 const styles = (c: Palette) =>
   StyleSheet.create({
-    disclosure: { flexDirection: "row", alignItems: "center", gap: space.sm, minHeight: 44, paddingHorizontal: space.md, borderRadius: radius.md, backgroundColor: c.surface2 },
+    disclosure: { flexDirection: "row", alignItems: "center", gap: space.sm, minHeight: 44, paddingHorizontal: space.md, borderRadius: radius.control, backgroundColor: c.surface2 },
   });

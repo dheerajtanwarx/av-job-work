@@ -37,7 +37,7 @@ export const ReasonSheet = forwardRef<
         placeholderTextColor={c.fgFaint}
         multiline
         autoFocus
-        style={{ minHeight: 88, textAlignVertical: "top", borderRadius: radius.md, borderWidth: 1, borderColor: c.borderStrong, padding: space.md, fontFamily: font.regular, fontSize: 16, color: c.fg, backgroundColor: c.surface }}
+        style={{ minHeight: 88, textAlignVertical: "top", borderRadius: radius.control, borderWidth: 1, borderColor: c.borderStrong, padding: space.md, fontFamily: font.regular, fontSize: 15, color: c.fg, backgroundColor: c.surface }}
       />
       {error ? (
         <Text variant="label" tone="danger">

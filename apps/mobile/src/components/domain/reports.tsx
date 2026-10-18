@@ -16,7 +16,7 @@ import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { router } from "expo-router";
 import { ChevronDown, ChevronUp, FileSpreadsheet, FileText, FileX, Filter, PackageCheck, ReceiptText, Wallet, X } from "lucide-react-native";
 import { useState, type ReactNode } from "react";
-import { Pressable, StyleSheet, View } from "react-native";
+import { Pressable, View } from "react-native";
 import { AuthedImage, Badge, Button, Card, DateField, EmptyState, ErrorBlock, ListSkeleton, PickerField, Stat, StatGrid, Text, ToggleRow, type Tone } from "@/components/ui";
 import { api, qs } from "@/lib/api";
 import { downloadAndShare } from "@/lib/files";
@@ -111,8 +111,8 @@ export function ReportFilters({ meta, value, onChange }: { meta: ReportMeta; val
   if (!meta.filters.length && !extras) return null;
 
   return (
-    <View style={{ borderRadius: radius.lg, borderWidth: StyleSheet.hairlineWidth * 2, borderColor: c.border, backgroundColor: c.surface, overflow: "hidden" }}>
-      <Pressable onPress={() => setOpen(!open)} android_ripple={{ color: c.surface3 }} accessibilityRole="button" accessibilityState={{ expanded: open }} style={{ flexDirection: "row", alignItems: "center", gap: space.sm, padding: space.md + 2 }}>
+    <View style={{ borderRadius: radius.card, borderWidth: 1, borderColor: c.border, backgroundColor: c.surface, overflow: "hidden" }}>
+      <Pressable onPress={() => setOpen(!open)} android_ripple={{ color: c.surface2 }} accessibilityRole="button" accessibilityState={{ expanded: open }} style={{ flexDirection: "row", alignItems: "center", gap: space.sm, padding: space.md + 2 }}>
         <Filter size={18} color={c.fg2} />
         <Text variant="bodyStrong" style={{ flex: 1 }}>
           Filters{count ? ` (${count})` : ""}
@@ -281,7 +281,7 @@ export function CatalogReport({ meta, filters }: { meta: ReportMeta; filters: Re
 function TotalsCard({ title, children }: { title: string; children: ReactNode }) {
   const { c } = useTheme();
   return (
-    <View style={{ borderRadius: radius.lg, backgroundColor: c.surface2, padding: space.md + 2, gap: space.sm }}>
+    <View style={{ borderRadius: radius.card, backgroundColor: c.surface2, padding: space.md + 2, gap: space.sm }}>
       <Text variant="bodyStrong">{title}</Text>
       <View style={{ flexDirection: "row", flexWrap: "wrap", rowGap: space.sm }}>{children}</View>
     </View>
@@ -507,7 +507,7 @@ export function ToPayReport({ filters }: { filters: ReportFilterValues }) {
               {d.byClient.length > 1 ? (
                 <Card padded={false}>
                   {d.byClient.map((w, i) => (
-                    <Pressable key={w.clientId} onPress={() => router.push(`/bills/new?clientId=${w.clientId}`)} style={{ flexDirection: "row", alignItems: "center", gap: space.md, paddingHorizontal: space.lg, paddingVertical: space.md, borderTopWidth: i ? StyleSheet.hairlineWidth : 0, borderColor: c.borderStrong }}>
+                    <Pressable key={w.clientId} onPress={() => router.push(`/bills/new?clientId=${w.clientId}`)} style={{ flexDirection: "row", alignItems: "center", gap: space.md, paddingHorizontal: space.lg, paddingVertical: space.md, borderTopWidth: i ? 1 : 0, borderColor: c.border }}>
                       <Text style={{ flex: 1 }} numberOfLines={1}>
                         {w.clientName}{" "}
                         <Text variant="caption" tone="muted">

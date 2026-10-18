@@ -59,7 +59,7 @@ export function Toaster() {
       <View
         accessibilityLiveRegion="polite"
         accessibilityRole="alert"
-        style={{ flexDirection: "row", alignItems: "center", gap: space.md, paddingLeft: space.lg, paddingRight: item.action ? space.sm : space.lg, minHeight: 52, borderRadius: radius.lg, backgroundColor: dark ? c.surface3 : "#232328", elevation: 8 }}
+        style={{ flexDirection: "row", alignItems: "center", gap: space.md, paddingLeft: space.lg, paddingRight: item.action ? space.sm : space.lg, minHeight: 52, borderRadius: radius.card, backgroundColor: dark ? c.surface3 : "#18181b", borderWidth: 1, borderColor: dark ? c.borderStrong : "#18181b", elevation: 3 }}
       >
         <Icon size={20} color={iconColor} />
         <Text variant="bodyStrong" style={{ color: "#f4f4f2", flex: 1, paddingVertical: space.md }}>
