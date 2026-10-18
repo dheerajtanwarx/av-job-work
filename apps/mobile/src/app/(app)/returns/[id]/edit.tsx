@@ -134,7 +134,7 @@ function EditForm({ r }: { r: ReturnDetail }) {
             {formatQty(payable)} payable × {formatINR(Number.isNaN(rupeesInput(e.rate)) ? 0 : rupeesInput(e.rate))} = {formatINR(valuePaise)}
           </Text>
           {over ? (
-            <View style={{ padding: space.md, borderRadius: radius.md, backgroundColor: c.warningSubtle, gap: space.sm }}>
+            <View style={{ padding: space.md, borderRadius: radius.control, backgroundColor: c.warningSubtle, gap: space.sm }}>
               <Text variant="label" tone="warning">
                 More than was pending for this return.
               </Text>

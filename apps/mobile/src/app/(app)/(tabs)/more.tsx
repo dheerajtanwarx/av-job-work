@@ -4,9 +4,9 @@ import { router, type Href } from "expo-router";
 import { BarChart3, Boxes, Brush, ChartPie, Images, LogOut, Package, Palette as PaletteIcon, Settings, Shapes, Users } from "lucide-react-native";
 import { Alert, ScrollView, View } from "react-native";
 import { ServerChip } from "@/components/server-sheet";
-import { Card, ListGroup, ListRow, Segmented, TabHeader, Text } from "@/components/ui";
+import { Card, ListGroup, ListRow, Segmented, TabBarRule, TabHeader, Text } from "@/components/ui";
 import { useAuth } from "@/lib/auth";
-import { space, useTheme, type Appearance } from "@/theme";
+import { hairline, space, useTheme, type Appearance } from "@/theme";
 
 export default function More() {
   const { user, signOut } = useAuth();
@@ -19,13 +19,13 @@ export default function More() {
       <TabHeader title="More" />
       <ScrollView contentContainerStyle={{ padding: space.gutter, paddingTop: space.sm, gap: space.xxl, paddingBottom: space.xxxl * 2 }}>
         <Card style={{ flexDirection: "row", gap: space.md, alignItems: "center" }}>
-          <View style={{ width: 48, height: 48, borderRadius: 24, backgroundColor: c.accentSubtle, alignItems: "center", justifyContent: "center" }}>
-            <Text variant="headline" tone="accent">
+          <View style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: c.surface2, borderWidth: hairline, borderColor: c.border, alignItems: "center", justifyContent: "center" }}>
+            <Text variant="label" tone="secondary">
               {initials}
             </Text>
           </View>
           <View style={{ flex: 1, gap: 2 }}>
-            <Text variant="headline">{user?.name}</Text>
+            <Text variant="bodyStrong">{user?.name}</Text>
             <Text variant="caption" tone="muted" numberOfLines={1}>
               {user ? USER_ROLE_LABEL[user.role] : ""} · {user?.email}
             </Text>
@@ -50,8 +50,8 @@ export default function More() {
         <ListGroup title="Appearance">
           <View style={{ padding: space.md, gap: space.sm }}>
             <View style={{ flexDirection: "row", alignItems: "center", gap: space.sm, paddingHorizontal: space.xs }}>
-              <PaletteIcon size={18} color={c.fg2} />
-              <Text>Theme</Text>
+              <PaletteIcon size={18} color={c.fgMuted} strokeWidth={1.75} />
+              <Text variant="bodyStrong">Theme</Text>
             </View>
             <Segmented<Appearance>
               value={appearance}
@@ -87,6 +87,7 @@ export default function More() {
           </Text>
         </View>
       </ScrollView>
+      <TabBarRule />
     </View>
   );
 }

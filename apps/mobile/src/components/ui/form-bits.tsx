@@ -2,7 +2,7 @@ import { PAYMENT_METHOD_LABEL, PAYMENT_METHODS, type PaymentMethod } from "@av/s
 import * as Haptics from "expo-haptics";
 import { Minus, Plus } from "lucide-react-native";
 import { Pressable, Switch, TextInput, View } from "react-native";
-import { font, radius, space, TOUCH, useTheme } from "@/theme";
+import { font, hairline, radius, space, TOUCH, useTheme } from "@/theme";
 import { Chip } from "./chip";
 import { Text } from "./text";
 
@@ -44,15 +44,14 @@ export function QtyInput({ value, onChange, decimals = 0, max, error, label, siz
         disabled={disabled}
         accessibilityRole="button"
         accessibilityLabel={a11y}
-        android_ripple={{ color: c.surface3, borderless: false }}
-        style={{ width: h, height: h, alignItems: "center", justifyContent: "center", opacity: disabled ? 0.35 : 1 }}
+        style={({ pressed }) => ({ width: h, height: h, alignItems: "center", justifyContent: "center", opacity: disabled ? 0.35 : 1, backgroundColor: pressed ? c.surface2 : "transparent" })}
       >
-        <Icon size={20} color={c.accent} strokeWidth={2.2} />
+        <Icon size={20} color={c.fg2} strokeWidth={2} />
       </Pressable>
     );
   };
   return (
-    <View style={{ flexDirection: "row", alignItems: "center", borderRadius: radius.md, borderWidth: error ? 1.5 : 1, borderColor: error ? c.danger : c.borderStrong, backgroundColor: c.surface, overflow: "hidden" }}>
+    <View style={{ flexDirection: "row", alignItems: "center", borderRadius: radius.control, borderWidth: hairline, borderColor: error ? c.danger : c.borderStrong, backgroundColor: c.surface, overflow: "hidden" }}>
       {btn(Minus, -1, `Decrease ${label}`, n <= 0)}
       <TextInput
         value={value}
@@ -63,7 +62,7 @@ export function QtyInput({ value, onChange, decimals = 0, max, error, label, siz
         selectTextOnFocus
         accessibilityLabel={label}
         cursorColor={c.accent}
-        style={{ flex: 1, textAlign: "center", fontFamily: font.semibold, fontSize: size === "lg" ? 24 : 18, color: c.fg, fontVariant: ["tabular-nums"], paddingVertical: 0, height: h, borderLeftWidth: 1, borderRightWidth: 1, borderColor: c.border }}
+        style={{ flex: 1, textAlign: "center", fontFamily: font.semibold, fontSize: size === "lg" ? 24 : 18, color: c.fg, fontVariant: ["tabular-nums"], paddingVertical: 0, height: h, borderLeftWidth: hairline, borderRightWidth: hairline, borderColor: c.border }}
       />
       {btn(Plus, 1, `Increase ${label}`, max !== undefined && n >= max)}
     </View>

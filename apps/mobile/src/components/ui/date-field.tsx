@@ -2,7 +2,7 @@ import { formatDate } from "@av/shared";
 import { DateTimePickerAndroid } from "@react-native-community/datetimepicker";
 import { CalendarDays, X } from "lucide-react-native";
 import { Pressable, View } from "react-native";
-import { radius, space, useTheme } from "@/theme";
+import { hairline, radius, space, useTheme } from "@/theme";
 import { Text } from "./text";
 
 const toISO = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
@@ -57,10 +57,9 @@ export function DateField({
         onPress={open}
         accessibilityRole="button"
         accessibilityLabel={`${label ?? "Date"}: ${value ? formatDate(value) : "not set"}`}
-        android_ripple={{ color: c.surface3 }}
-        style={{ minHeight: 50, flexDirection: "row", alignItems: "center", gap: space.sm, paddingHorizontal: space.md + 2, borderRadius: radius.md, borderWidth: 1, borderColor: error ? c.danger : c.borderStrong, backgroundColor: c.surface, overflow: "hidden" }}
+        style={({ pressed }) => ({ minHeight: 48, flexDirection: "row", alignItems: "center", gap: space.sm, paddingHorizontal: space.md, borderRadius: radius.control, borderWidth: hairline, borderColor: error ? c.danger : c.borderStrong, backgroundColor: pressed ? c.surface2 : c.surface, overflow: "hidden" })}
       >
-        <CalendarDays size={18} color={c.fgMuted} />
+        <CalendarDays size={16} color={c.fgMuted} strokeWidth={1.75} />
         <Text style={{ flex: 1 }} tone={value ? "default" : "faint"} num>
           {value ? formatDate(value) : placeholder}
         </Text>

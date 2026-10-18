@@ -48,7 +48,7 @@ export default function UsersScreen() {
                   setSel(u);
                   menu.current?.present();
                 }}
-                android_ripple={{ color: c.surface3 }}
+                android_ripple={{ color: c.surface2 }}
                 accessibilityRole="button"
                 accessibilityHint="Opens actions for this user"
                 style={{ flexDirection: "row", alignItems: "center", gap: space.md, padding: space.md + 2 }}
@@ -99,5 +99,5 @@ export default function UsersScreen() {
 }
 
 const styles = StyleSheet.create({
-  card: { borderRadius: radius.lg, overflow: "hidden", borderWidth: StyleSheet.hairlineWidth * 2 },
+  card: { borderRadius: radius.card, overflow: "hidden", borderWidth: 1 },
 });

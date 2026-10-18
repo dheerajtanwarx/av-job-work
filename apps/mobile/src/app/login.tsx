@@ -6,12 +6,13 @@ import { Keyboard, KeyboardAvoidingView, Pressable, ScrollView, StyleSheet, View
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { ServerChip, ServerSheet } from "@/components/server-sheet";
 import { Button, Field, Text, type SheetRef } from "@/components/ui";
-import { errorMessage } from "@/lib/api";
+import { api, errorMessage } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
+import { googleIdToken } from "@/lib/google";
 import { type Palette, radius, space, useStyles, useTheme } from "@/theme";
 
 export default function Login() {
-  const { signIn } = useAuth();
+  const { signIn, signInWithGoogle } = useAuth();
   const { c } = useTheme();
   const s = useStyles(styles);
   const insets = useSafeAreaInsets();
@@ -28,6 +29,33 @@ export default function Login() {
   const [show, setShow] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
+  // The API's Google client ID; null hides the Google button (not set up, or the server can't be reached).
+  const [googleClientId, setGoogleClientId] = useState<string | null>(null);
+  const [googleBusy, setGoogleBusy] = useState(false);
+  const loadGoogle = () =>
+    api
+      .get<{ clientId: string | null }>("/auth/google")
+      .then((r) => setGoogleClientId(r.clientId))
+      .catch(() => setGoogleClientId(null));
+  useEffect(() => {
+    loadGoogle();
+  }, []);
+
+  const google = async () => {
+    if (!googleClientId) return;
+    setGoogleBusy(true);
+    setError(undefined);
+    try {
+      const idToken = await googleIdToken(googleClientId);
+      if (!idToken) return setGoogleBusy(false); // backed out of the picker
+      await signInWithGoogle(idToken);
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    } catch (e) {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+      setError(errorMessage(e));
+      setGoogleBusy(false);
+    }
+  };
 
   const submit = async () => {
     if (!email.trim() || !password) return setError("Enter your email and password.");
@@ -104,14 +132,26 @@ export default function Login() {
               </Text>
             </View>
           ) : null}
-          <Button title="Sign in" size="lg" block loading={busy} onPress={submit} style={{ marginTop: space.sm }} />
+          <Button title="Sign in" size="lg" block loading={busy} disabled={googleBusy} onPress={submit} style={{ marginTop: space.sm }} />
+          {googleClientId ? (
+            <>
+              <View style={s.divider}>
+                <View style={s.rule} />
+                <Text variant="caption" tone="muted">
+                  or
+                </Text>
+                <View style={s.rule} />
+              </View>
+              <Button title="Continue with Google" variant="secondary" size="lg" block loading={googleBusy} disabled={busy} onPress={google} />
+            </>
+          ) : null}
         </View>
 
         <View style={s.footer}>
           <ServerChip onPress={__DEV__ ? () => serverSheet.current?.present() : undefined} />
         </View>
       </ScrollView>
-      <ServerSheet ref={serverSheet} onChanged={() => setError(undefined)} />
+      <ServerSheet ref={serverSheet} onChanged={() => (setError(undefined), loadGoogle())} />
     </KeyboardAvoidingView>
   );
 }
@@ -122,6 +162,8 @@ const styles = (c: Palette) =>
     brand: { gap: space.xl },
     logo: { width: 64, height: 64 },
     form: { gap: space.lg },
-    error: { flexDirection: "row", gap: space.sm, alignItems: "center", padding: space.md, borderRadius: radius.md, backgroundColor: c.dangerSubtle },
+    error: { flexDirection: "row", gap: space.sm, alignItems: "center", padding: space.md, borderRadius: radius.control, backgroundColor: c.dangerSubtle },
+    divider: { flexDirection: "row", alignItems: "center", gap: space.md },
+    rule: { flex: 1, height: 1, backgroundColor: c.border },
     footer: { flex: 1, justifyContent: "flex-end", alignItems: "center" },
   });

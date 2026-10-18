@@ -127,7 +127,7 @@ function BusinessForm({ initial }: { initial: Settings }) {
             Logo
           </Text>
           <View style={{ flexDirection: "row", alignItems: "center", gap: space.md }}>
-            <View style={{ width: 80, height: 80, borderRadius: radius.md, borderWidth: 1, borderColor: c.border, backgroundColor: f.logo ? "#fff" /* logos are made for white paper */ : c.surface2, alignItems: "center", justifyContent: "center", overflow: "hidden" }}>
+            <View style={{ width: 80, height: 80, borderRadius: radius.control, borderWidth: 1, borderColor: c.border, backgroundColor: f.logo ? "#fff" /* logos are made for white paper */ : c.surface2, alignItems: "center", justifyContent: "center", overflow: "hidden" }}>
               {f.logo ? <Image source={{ uri: f.logo }} style={{ width: 72, height: 72 }} contentFit="contain" accessibilityLabel="Business logo" /> : <ImageUp size={22} color={c.fgFaint} />}
             </View>
             <View style={{ flex: 1, gap: space.sm }}>
@@ -156,8 +156,8 @@ function BusinessForm({ initial }: { initial: Settings }) {
                   onPress={() => setF({ ...f, defaultPaymentPolicy: p })}
                   accessibilityRole="radio"
                   accessibilityState={{ checked: on }}
-                  android_ripple={{ color: c.surface3 }}
-                  style={{ flexDirection: "row", gap: space.md, padding: space.md + 2, backgroundColor: on ? c.accentSubtle : undefined, borderTopWidth: i ? StyleSheet.hairlineWidth : 0, borderColor: c.borderStrong }}
+                  android_ripple={{ color: c.surface2 }}
+                  style={{ flexDirection: "row", gap: space.md, padding: space.md + 2, backgroundColor: on ? c.accentSubtle : undefined, borderTopWidth: i ? 1 : 0, borderColor: c.border }}
                 >
                   <View style={{ flex: 1, gap: 2 }}>
                     <Text variant={on ? "bodyStrong" : "body"}>{PAYMENT_POLICY_LABEL[p]}</Text>
@@ -190,5 +190,5 @@ function BusinessForm({ initial }: { initial: Settings }) {
 }
 
 const styles = StyleSheet.create({
-  box: { borderRadius: radius.md, borderWidth: 1, overflow: "hidden" },
+  box: { borderRadius: radius.control, borderWidth: 1, overflow: "hidden" },
 });

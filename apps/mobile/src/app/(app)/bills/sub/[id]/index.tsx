@@ -3,7 +3,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { router, Stack, useLocalSearchParams } from "expo-router";
 import { Ban, EllipsisVertical, FileDown, Pencil, Printer, ShieldAlert } from "lucide-react-native";
 import { useRef } from "react";
-import { Pressable, RefreshControl, ScrollView, StyleSheet, View } from "react-native";
+import { Pressable, RefreshControl, ScrollView, View } from "react-native";
 import { ActionSheet, Badge, Card, ErrorBlock, IconButton, ListSkeleton, ReasonSheet, Section, Text, toast, type SheetRef } from "@/components/ui";
 import { api } from "@/lib/api";
 import { useRole } from "@/lib/auth";
@@ -74,7 +74,7 @@ function Body({ b, refreshing, onRefresh, isOwner }: { b: SubBillDetail; refresh
     <ScrollView contentContainerStyle={{ padding: space.gutter, gap: space.xl, paddingBottom: space.xxxl * 2 }} refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={[c.accentSolid]} />}>
       <View style={{ alignItems: "center", gap: space.xs, paddingVertical: space.lg }}>
         {b.voidedAt ? <Badge tone="danger" label="Voided" /> : b.edited ? <Badge label={`Edited${b.edited.by ? ` by ${b.edited.by}` : ""}`} /> : <Badge tone="success" label="Paid" />}
-        <Text variant="display" num style={[{ fontSize: 40, lineHeight: 48, marginTop: space.sm }, b.voidedAt ? { textDecorationLine: "line-through", color: c.fgMuted } : null]}>
+        <Text variant="hero" num style={[{ marginTop: space.sm }, b.voidedAt ? { textDecorationLine: "line-through", color: c.fgMuted } : null]}>
           {formatINR(b.amountPaise)}
         </Text>
         <Text tone="muted" align="center" style={{ fontStyle: "italic", paddingHorizontal: space.xl }}>
@@ -88,7 +88,7 @@ function Body({ b, refreshing, onRefresh, isOwner }: { b: SubBillDetail; refresh
       </View>
 
       {b.voidedAt ? (
-        <View style={{ padding: space.md, borderRadius: radius.md, backgroundColor: c.dangerSubtle }}>
+        <View style={{ padding: space.md, borderRadius: radius.control, backgroundColor: c.dangerSubtle }}>
           <Text variant="label" tone="danger">
             Voided {formatDate(b.voidedAt)}
             {b.voidedBy ? ` by ${b.voidedBy}` : ""}
@@ -128,7 +128,7 @@ function Body({ b, refreshing, onRefresh, isOwner }: { b: SubBillDetail; refresh
       </Section>
 
       {!isOwner && !b.voidedAt ? (
-        <View style={{ flexDirection: "row", gap: space.sm, padding: space.md, borderRadius: radius.md, backgroundColor: c.surface2 }}>
+        <View style={{ flexDirection: "row", gap: space.sm, padding: space.md, borderRadius: radius.control, backgroundColor: c.surface2 }}>
           <ShieldAlert size={16} color={c.fgMuted} />
           <Text variant="caption" tone="muted" style={{ flex: 1 }}>
             Only the owner can change or void a payment.
@@ -153,7 +153,7 @@ function Body({ b, refreshing, onRefresh, isOwner }: { b: SubBillDetail; refresh
             </View>
           ))}
           {b.notifications.map((n) => (
-            <View key={n.id} style={{ borderTopWidth: StyleSheet.hairlineWidth, borderColor: c.borderStrong, paddingTop: space.sm }}>
+            <View key={n.id} style={{ borderTopWidth: 1, borderColor: c.border, paddingTop: space.sm }}>
               <Text variant="label">
                 {n.channel} · {n.status}
                 {n.recipient ? ` · ${n.recipient}` : ""}

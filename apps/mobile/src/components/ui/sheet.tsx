@@ -2,7 +2,7 @@ import { BottomSheetBackdrop, BottomSheetModal, BottomSheetView, type BottomShee
 import { forwardRef, useCallback, type ReactNode } from "react";
 import { View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { radius, space, useTheme } from "@/theme";
+import { hairline, radius, space, useTheme } from "@/theme";
 import { Text } from "./text";
 
 export type SheetRef = BottomSheetModal;
@@ -26,7 +26,7 @@ export const Sheet = forwardRef<BottomSheetModal, { title?: string; subtitle?: s
       ref={ref}
       onDismiss={onDismiss}
       backdropComponent={backdrop}
-      backgroundStyle={{ backgroundColor: c.surface, borderRadius: radius.xl }}
+      backgroundStyle={{ backgroundColor: c.surface, borderRadius: radius.xl, borderWidth: hairline, borderColor: c.border }}
       handleIndicatorStyle={{ backgroundColor: c.borderStrong, width: 36 }}
       keyboardBehavior="interactive"
       keyboardBlurBehavior="restore"
@@ -38,8 +38,8 @@ export const Sheet = forwardRef<BottomSheetModal, { title?: string; subtitle?: s
       <BottomSheetView style={{ paddingHorizontal: space.gutter, paddingBottom: insets.bottom + space.lg, gap: space.lg }}>
         {title ? (
           <View style={{ gap: space.xxs, paddingTop: space.xs }}>
-            <Text variant="title">{title}</Text>
-            {subtitle ? <Text tone="muted">{subtitle}</Text> : null}
+            <Text variant="headline">{title}</Text>
+            {subtitle ? <Text variant="label" tone="muted">{subtitle}</Text> : null}
           </View>
         ) : null}
         {children}

@@ -3,7 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { router, Stack, type Href } from "expo-router";
 import { ArrowLeft, Boxes, Clock, Inbox, Package, ReceiptText, Search as SearchIcon, Shapes, User, Wallet, X } from "lucide-react-native";
 import { useEffect, useState } from "react";
-import { Pressable, ScrollView, StyleSheet, TextInput, View } from "react-native";
+import { Pressable, ScrollView, TextInput, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { EmptyState, IconButton, Text } from "@/components/ui";
 import { api, qs } from "@/lib/api";
@@ -49,14 +49,14 @@ export default function SearchScreen() {
   return (
     <View style={{ flex: 1, backgroundColor: c.bg }}>
       <Stack.Screen options={{ headerShown: false, animation: "fade" }} />
-      <View style={{ paddingTop: insets.top + space.xs, paddingHorizontal: space.xs, flexDirection: "row", alignItems: "center", gap: space.xs, borderBottomWidth: StyleSheet.hairlineWidth, borderColor: c.borderStrong, paddingBottom: space.xs }}>
+      <View style={{ paddingTop: insets.top + space.xs, paddingHorizontal: space.xs, flexDirection: "row", alignItems: "center", gap: space.xs, borderBottomWidth: 1, borderColor: c.border, paddingBottom: space.xs }}>
         <IconButton icon={ArrowLeft} label="Back" onPress={() => router.back()} />
         <TextInput
           value={text}
           onChangeText={setText}
           autoFocus
           placeholder="Search challans, workers, ₹2,000, 04 Oct…"
-          placeholderTextColor={c.fgMuted}
+          placeholderTextColor={c.fgFaint}
           returnKeyType="search"
           autoCorrect={false}
           cursorColor={c.accent}
@@ -69,11 +69,11 @@ export default function SearchScreen() {
         {q.length < 2 ? (
           recent.length ? (
             <View style={{ paddingTop: space.md }}>
-              <Text variant="overline" tone="muted" style={{ paddingHorizontal: space.gutter, paddingVertical: space.sm }}>
+              <Text variant="label" tone="muted" style={{ paddingHorizontal: space.gutter, paddingVertical: space.sm }}>
                 Recent
               </Text>
               {recent.map((r) => (
-                <Pressable key={r} onPress={() => setText(r)} android_ripple={{ color: c.surface3 }} style={{ flexDirection: "row", alignItems: "center", gap: space.md, paddingHorizontal: space.gutter, minHeight: TOUCH }}>
+                <Pressable key={r} onPress={() => setText(r)} android_ripple={{ color: c.surface2 }} style={{ flexDirection: "row", alignItems: "center", gap: space.md, paddingHorizontal: space.gutter, minHeight: TOUCH }}>
                   <Clock size={18} color={c.fgMuted} />
                   <Text>{r}</Text>
                 </Pressable>
@@ -93,13 +93,13 @@ export default function SearchScreen() {
             ) : null}
             {groups.map((g) => (
               <View key={g.title} style={{ paddingTop: space.md }}>
-                <Text variant="overline" tone="muted" style={{ paddingHorizontal: space.gutter, paddingVertical: space.sm }}>
+                <Text variant="label" tone="muted" style={{ paddingHorizontal: space.gutter, paddingVertical: space.sm }}>
                   {g.title}
                 </Text>
                 {g.hits.map((h) => (
-                  <Pressable key={h.key} onPress={() => open(h)} android_ripple={{ color: c.surface3 }} style={{ flexDirection: "row", alignItems: "center", gap: space.md, paddingHorizontal: space.gutter, paddingVertical: space.md }}>
-                    <View style={{ width: 36, height: 36, borderRadius: radius.md, backgroundColor: c.surface2, alignItems: "center", justifyContent: "center" }}>
-                      <h.icon size={18} color={c.fg2} />
+                  <Pressable key={h.key} onPress={() => open(h)} android_ripple={{ color: c.surface2 }} style={{ flexDirection: "row", alignItems: "center", gap: space.md, paddingHorizontal: space.gutter, paddingVertical: space.md }}>
+                    <View style={{ width: 36, height: 36, borderRadius: radius.control, backgroundColor: c.surface2, borderWidth: 1, borderColor: c.border, alignItems: "center", justifyContent: "center" }}>
+                      <h.icon size={16} color={c.fgMuted} strokeWidth={1.75} />
                     </View>
                     <View style={{ flex: 1 }}>
                       <Text variant="bodyStrong" numberOfLines={1}>

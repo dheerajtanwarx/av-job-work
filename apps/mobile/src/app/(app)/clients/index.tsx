@@ -53,12 +53,12 @@ const WorkerRow = memo(function WorkerRow({ w }: { w: ClientListRow }) {
   const initials = w.name.split(/\s+/).map((x) => x[0]).slice(0, 2).join("").toUpperCase();
   return (
     <View style={[s.card, !w.isActive && { opacity: 0.6 }]}>
-      <Pressable onPress={() => router.push(`/clients/${w.id}`)} android_ripple={{ color: c.surface3 }} style={s.inner} accessibilityRole="button">
+      <Pressable onPress={() => router.push(`/clients/${w.id}`)} style={({ pressed }) => [s.inner, pressed && { backgroundColor: c.surface2 }]} accessibilityRole="button">
         {w.photoId ? (
           <AuthedImage path={`/worker-documents/${w.photoId}/thumb`} style={s.avatar} />
         ) : (
-          <View style={[s.avatar, { alignItems: "center", justifyContent: "center", backgroundColor: c.accentSubtle }]}>
-            <Text variant="bodyStrong" tone="accent">
+          <View style={[s.avatar, { alignItems: "center", justifyContent: "center", backgroundColor: c.surface2, borderWidth: 1, borderColor: c.border }]}>
+            <Text variant="label" tone="secondary">
               {initials}
             </Text>
           </View>
@@ -76,7 +76,7 @@ const WorkerRow = memo(function WorkerRow({ w }: { w: ClientListRow }) {
         </View>
         <View style={{ alignItems: "flex-end", gap: 2 }}>
           {w.toPayPaise > 0 ? (
-            <Text variant="bodyStrong" num tone="warning">
+            <Text variant="bodyStrong" num>
               {formatINR(w.toPayPaise)}
             </Text>
           ) : null}
@@ -93,7 +93,7 @@ const WorkerRow = memo(function WorkerRow({ w }: { w: ClientListRow }) {
 
 const styles = (c: Palette) =>
   StyleSheet.create({
-    card: { borderRadius: radius.lg, overflow: "hidden", backgroundColor: c.surface, borderWidth: StyleSheet.hairlineWidth * 2, borderColor: c.border },
-    inner: { flexDirection: "row", alignItems: "center", gap: space.md, padding: space.md + 2 },
-    avatar: { width: 46, height: 46, borderRadius: 23 },
+    card: { borderRadius: radius.card, overflow: "hidden", backgroundColor: c.surface, borderWidth: 1, borderColor: c.border },
+    inner: { flexDirection: "row", alignItems: "center", gap: space.md, padding: space.md },
+    avatar: { width: 40, height: 40, borderRadius: 20 },
   });

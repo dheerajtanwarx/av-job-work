@@ -1,7 +1,7 @@
 import { formatDate, formatINR, formatQty, roundQty } from "@av/shared";
 import { router, Stack, useLocalSearchParams } from "expo-router";
 import { MinusCircle, PackagePlus, Pencil, Users } from "lucide-react-native";
-import { Pressable, RefreshControl, ScrollView, StyleSheet, View } from "react-native";
+import { Pressable, RefreshControl, ScrollView, View } from "react-native";
 import { MovementLedger, useMaterial, useMovements } from "@/components/domain/materials";
 import { Badge, Button, Card, EmptyState, ErrorBlock, IconButton, ListSkeleton, Section, Stat, StatGrid, Text } from "@/components/ui";
 import { space, useTheme } from "@/theme";
@@ -159,8 +159,8 @@ function Place({ title, sub, qty, unit, tone, last, onPress }: { title: string; 
     <Pressable
       disabled={!onPress}
       onPress={onPress}
-      android_ripple={{ color: c.surface3 }}
-      style={{ flexDirection: "row", alignItems: "center", gap: space.md, paddingHorizontal: space.lg, paddingVertical: space.md, minHeight: 56, borderBottomWidth: last ? 0 : StyleSheet.hairlineWidth, borderColor: c.borderStrong }}
+      android_ripple={{ color: c.surface2 }}
+      style={{ flexDirection: "row", alignItems: "center", gap: space.md, paddingHorizontal: space.lg, paddingVertical: space.md, minHeight: 56, borderBottomWidth: last ? 0 : 1, borderColor: c.border }}
     >
       <View style={{ flex: 1, gap: 2 }}>
         <Text variant="bodyStrong" numberOfLines={1}>

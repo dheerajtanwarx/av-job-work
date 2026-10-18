@@ -100,7 +100,7 @@ function Entry({ r }: { r: ChangeLogRow }) {
   const a = actionOf(r.action);
   return (
     <View style={[styles.card, { backgroundColor: c.surface, borderColor: c.border }]}>
-      <Pressable disabled={!r.href} onPress={() => r.href && openHref(r.href)} android_ripple={{ color: c.surface3 }} style={{ padding: space.md + 2, gap: space.xs }}>
+      <Pressable disabled={!r.href} onPress={() => r.href && openHref(r.href)} android_ripple={{ color: c.surface2 }} style={{ padding: space.md + 2, gap: space.xs }}>
         <View style={{ flexDirection: "row", alignItems: "baseline", gap: space.sm }}>
           <Text variant="bodyStrong" style={{ flex: 1 }} numberOfLines={1}>
             <Text variant="bodyStrong" tone={a.tone}>
@@ -130,5 +130,5 @@ function Entry({ r }: { r: ChangeLogRow }) {
 }
 
 const styles = StyleSheet.create({
-  card: { borderRadius: radius.lg, overflow: "hidden", borderWidth: StyleSheet.hairlineWidth * 2 },
+  card: { borderRadius: radius.card, overflow: "hidden", borderWidth: 1 },
 });

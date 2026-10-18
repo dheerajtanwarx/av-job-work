@@ -34,13 +34,15 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   android: {
     package: v.androidPackage,
     // Raise by 1 for every APK you hand out: Android only installs an update over a lower versionCode.
-    versionCode: 4,
+    versionCode: 5,
     adaptiveIcon: {
       backgroundColor: v.iconBg,
       foregroundImage: "./assets/images/av-icon-foreground.png",
       monochromeImage: "./assets/images/av-icon-monochrome.png",
     },
-    predictiveBackGestureEnabled: true,
+    // Keep predictive back off: with it on, the system back button/swipe never reached React Navigation and closed the
+    // app instead of popping one screen.
+    predictiveBackGestureEnabled: false,
     softwareKeyboardLayoutMode: "resize",
     permissions: ["android.permission.CAMERA", "android.permission.USE_BIOMETRIC"],
     blockedPermissions: ["android.permission.RECORD_AUDIO"],

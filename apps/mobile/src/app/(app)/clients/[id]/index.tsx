@@ -3,8 +3,9 @@ import { useQueryClient } from "@tanstack/react-query";
 import { router, Stack, useLocalSearchParams, type Href } from "expo-router";
 import { Archive, ArchiveRestore, EllipsisVertical, FilePlus2, IndianRupee, Mail, MessageCircle, Pencil, Phone } from "lucide-react-native";
 import { useRef, useState } from "react";
-import { Linking, Pressable, RefreshControl, ScrollView, StyleSheet, View } from "react-native";
+import { Linking, Pressable, RefreshControl, ScrollView, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { StatusDot } from "@/components/ds";
 import { FlowBar } from "@/components/domain/flow-bar";
 import { LedgerView } from "@/components/domain/ledger";
 import { JobStatusBadge } from "@/components/domain/status";
@@ -89,11 +90,11 @@ function Hero({ d }: { d: ClientSummary }) {
       <View style={{ flexDirection: "row", gap: space.lg, alignItems: "center" }}>
         {w.photoId ? (
           <Pressable onPress={() => router.push(`/worker-doc/${w.photoId}` as Href)}>
-            <AuthedImage path={`/worker-documents/${w.photoId}/thumb`} style={{ width: 72, height: 72, borderRadius: 36 }} />
+            <AuthedImage path={`/worker-documents/${w.photoId}/thumb`} style={{ width: 64, height: 64, borderRadius: 32 }} />
           </Pressable>
         ) : (
-          <View style={{ width: 72, height: 72, borderRadius: 36, backgroundColor: c.accentSubtle, alignItems: "center", justifyContent: "center" }}>
-            <Text variant="title" tone="accent">
+          <View style={{ width: 64, height: 64, borderRadius: 32, backgroundColor: c.surface2, borderWidth: 1, borderColor: c.border, alignItems: "center", justifyContent: "center" }}>
+            <Text variant="headline" tone="secondary">
               {initials}
             </Text>
           </View>
@@ -128,10 +129,13 @@ function Hero({ d }: { d: ClientSummary }) {
 
 const Metric = ({ label, value, warn }: { label: string; value: string; warn?: boolean }) => (
   <View style={{ flex: 1 }}>
-    <Text variant="caption" tone="muted">
-      {label}
-    </Text>
-    <Text variant="headline" num tone={warn ? "warning" : undefined} numberOfLines={1} adjustsFontSizeToFit>
+    <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+      {warn ? <StatusDot status="warning" /> : null}
+      <Text variant="caption" tone="muted">
+        {label}
+      </Text>
+    </View>
+    <Text variant="headline" num numberOfLines={1} adjustsFontSizeToFit style={{ letterSpacing: -0.4 }}>
       {value}
     </Text>
   </View>
@@ -175,7 +179,7 @@ function Overview({ d }: { d: ClientSummary }) {
         <View style={{ flexDirection: "row", gap: space.sm }}>
           {[w.aadhaarFrontId, w.aadhaarBackId].filter(Boolean).map((docId) => (
             <Pressable key={docId} style={{ flex: 1 }} onPress={() => router.push(`/worker-doc/${docId}` as Href)} accessibilityLabel="Aadhaar photo">
-              <AuthedImage path={`/worker-documents/${docId}/thumb`} style={{ width: "100%", aspectRatio: 1.58, borderRadius: radius.md }} />
+              <AuthedImage path={`/worker-documents/${docId}/thumb`} style={{ width: "100%", aspectRatio: 1.58, borderRadius: radius.control }} />
             </Pressable>
           ))}
         </View>
@@ -185,7 +189,7 @@ function Overview({ d }: { d: ClientSummary }) {
       </Text>
       <Card padded={false}>
         {d.timeline.slice(0, 12).map((t, i) => (
-          <Pressable key={i} onPress={() => router.push(t.href as Href)} android_ripple={{ color: c.surface3 }} style={{ flexDirection: "row", padding: space.md + 2, gap: space.md, borderTopWidth: i ? StyleSheet.hairlineWidth : 0, borderColor: c.borderStrong }}>
+          <Pressable key={i} onPress={() => router.push(t.href as Href)} android_ripple={{ color: c.surface2 }} style={{ flexDirection: "row", padding: space.md + 2, gap: space.md, borderTopWidth: i ? 1 : 0, borderColor: c.border }}>
             <Text variant="caption" tone="muted" style={{ width: 48 }}>
               {formatShortDate(t.date)}
             </Text>
@@ -234,7 +238,7 @@ function Material({ id }: { id: string }) {
             <Text variant="bodyStrong" style={{ flex: 1 }}>
               {m.materialName}
             </Text>
-            <Text variant="bodyStrong" num tone={m.pending ? "warning" : undefined}>
+            <Text variant="bodyStrong" num>
               {formatQty(m.pending)} {m.unit} out
             </Text>
           </View>
@@ -268,7 +272,7 @@ function Payments({ d }: { d: ClientSummary }) {
   return (
     <Card padded={false}>
       {d.subBills.map((b, i) => (
-        <Pressable key={b.id} onPress={() => router.push(`/bills/sub/${b.id}`)} android_ripple={{ color: c.surface3 }} style={{ flexDirection: "row", padding: space.lg, borderTopWidth: i ? StyleSheet.hairlineWidth : 0, borderColor: c.borderStrong, opacity: b.voidedAt ? 0.5 : 1 }}>
+        <Pressable key={b.id} onPress={() => router.push(`/bills/sub/${b.id}`)} android_ripple={{ color: c.surface2 }} style={{ flexDirection: "row", padding: space.lg, borderTopWidth: i ? 1 : 0, borderColor: c.border, opacity: b.voidedAt ? 0.5 : 1 }}>
           <View style={{ flex: 1 }}>
             <Text variant="bodyStrong">
               {b.billNumber} · {b.job.jobNumber}
@@ -326,7 +330,7 @@ function BottomBar({ d }: { d: ClientSummary }) {
   const insets = useSafeAreaInsets();
   if (!d.client.isActive) return null;
   return (
-    <View style={{ position: "absolute", left: 0, right: 0, bottom: 0, flexDirection: "row", gap: space.sm, padding: space.gutter, paddingBottom: insets.bottom + space.md, backgroundColor: c.bg, borderTopWidth: StyleSheet.hairlineWidth, borderColor: c.borderStrong }}>
+    <View style={{ position: "absolute", left: 0, right: 0, bottom: 0, flexDirection: "row", gap: space.sm, padding: space.gutter, paddingBottom: insets.bottom + space.md, backgroundColor: c.bg, borderTopWidth: 1, borderColor: c.border }}>
       <Button title="New challan" icon={FilePlus2} variant="secondary" size="lg" style={{ flex: 1 }} onPress={() => router.push(`/jobs/new?clientId=${d.client.id}`)} />
       <Button title={d.totals.toPayPaise ? `Pay ${formatINR(d.totals.toPayPaise)}` : "Payment"} icon={IndianRupee} size="lg" style={{ flex: 1 }} onPress={() => router.push(`/bills/new?clientId=${d.client.id}`)} />
     </View>

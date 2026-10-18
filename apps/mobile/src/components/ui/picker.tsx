@@ -3,7 +3,7 @@ import { Check, ChevronDown, Plus, Search } from "lucide-react-native";
 import { useCallback, useMemo, useRef, useState } from "react";
 import { Pressable, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { font, radius, space, TOUCH, useTheme } from "@/theme";
+import { font, hairline, radius, space, TOUCH, useTheme } from "@/theme";
 import { Text } from "./text";
 
 export interface PickerOption {
@@ -71,8 +71,7 @@ export function PickerField({
         onPress={() => ref.current?.present()}
         accessibilityRole="button"
         accessibilityLabel={`${label}: ${selected?.label ?? "not chosen"}`}
-        android_ripple={{ color: c.surface3 }}
-        style={{ minHeight: 52, flexDirection: "row", alignItems: "center", gap: space.sm, paddingHorizontal: space.md + 2, paddingVertical: space.sm, borderRadius: radius.md, borderWidth: 1, borderColor: error ? c.danger : c.borderStrong, backgroundColor: c.surface, overflow: "hidden", opacity: disabled ? 0.5 : 1 }}
+        style={({ pressed }) => ({ minHeight: 48, flexDirection: "row", alignItems: "center", gap: space.sm, paddingHorizontal: space.md, paddingVertical: space.sm, borderRadius: radius.control, borderWidth: hairline, borderColor: error ? c.danger : c.borderStrong, backgroundColor: pressed ? c.surface2 : c.surface, overflow: "hidden", opacity: disabled ? 0.5 : 1 })}
       >
         <View style={{ flex: 1 }}>
           <Text tone={selected ? "default" : "faint"} numberOfLines={1}>
@@ -89,7 +88,7 @@ export function PickerField({
             {selected.aside}
           </Text>
         ) : null}
-        <ChevronDown size={18} color={c.fgMuted} />
+        <ChevronDown size={16} color={c.fgMuted} strokeWidth={1.75} />
       </Pressable>
       {error ? (
         <Text variant="caption" tone="danger">
@@ -106,23 +105,23 @@ export function PickerField({
         snapPoints={["88%"]}
         enableDynamicSizing={false}
         backdropComponent={backdrop}
-        backgroundStyle={{ backgroundColor: c.surface, borderRadius: radius.xl }}
+        backgroundStyle={{ backgroundColor: c.surface, borderRadius: radius.xl, borderWidth: hairline, borderColor: c.border }}
         handleIndicatorStyle={{ backgroundColor: c.borderStrong, width: 36 }}
         keyboardBehavior="extend"
         android_keyboardInputMode="adjustPan" // see Sheet: edge-to-edge, so the window never resizes
         onDismiss={() => setQ("")}
       >
         <View style={{ paddingHorizontal: space.gutter, gap: space.md, paddingBottom: space.sm }}>
-          <Text variant="title">{label}</Text>
-          <View style={{ flexDirection: "row", alignItems: "center", gap: space.sm, height: 46, paddingHorizontal: space.md, borderRadius: radius.pill, backgroundColor: c.surface2 }}>
-            <Search size={18} color={c.fgMuted} />
+          <Text variant="headline">{label}</Text>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: space.sm, height: 40, paddingHorizontal: space.md, borderRadius: radius.control, backgroundColor: c.surface2, borderWidth: hairline, borderColor: c.border }}>
+            <Search size={16} color={c.fgMuted} strokeWidth={1.75} />
             <BottomSheetTextInput
               value={q}
               onChangeText={setQ}
               placeholder="Search"
-              placeholderTextColor={c.fgMuted}
+              placeholderTextColor={c.fgFaint}
               autoCorrect={false}
-              style={{ flex: 1, fontFamily: font.regular, fontSize: 16, color: c.fg, paddingVertical: 0 }}
+              style={{ flex: 1, fontFamily: font.regular, fontSize: 15, color: c.fg, paddingVertical: 0 }}
             />
           </View>
         </View>
@@ -162,7 +161,7 @@ export function PickerField({
 function Row({ option, label, selected, onPress, icon, accent }: { option?: PickerOption; label: string; selected?: boolean; onPress: () => void; icon?: React.ReactNode; accent?: boolean }) {
   const { c } = useTheme();
   return (
-    <Pressable onPress={onPress} android_ripple={{ color: c.surface3 }} accessibilityRole="button" accessibilityState={{ selected }} style={{ flexDirection: "row", alignItems: "center", gap: space.md, minHeight: TOUCH + 8, paddingHorizontal: space.gutter, paddingVertical: space.sm, backgroundColor: selected ? c.accentSubtle : undefined }}>
+    <Pressable onPress={onPress} accessibilityRole="button" accessibilityState={{ selected }} style={({ pressed }) => ({ flexDirection: "row", alignItems: "center", gap: space.md, minHeight: TOUCH + 8, paddingHorizontal: space.gutter, paddingVertical: space.sm, backgroundColor: pressed || selected ? c.surface2 : undefined })}>
       {icon}
       <View style={{ flex: 1 }}>
         <Text tone={accent ? "accent" : "default"} variant={selected ? "bodyStrong" : "body"} numberOfLines={1}>

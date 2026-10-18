@@ -31,10 +31,9 @@ export const ActionSheet = forwardRef<SheetRef, { title?: string; actions: Sheet
                 close();
                 setTimeout(a.onPress, 180);
               }}
-              android_ripple={{ color: c.surface3 }}
-              style={{ flexDirection: "row", alignItems: "center", gap: space.lg, minHeight: TOUCH + 4, paddingHorizontal: space.gutter + space.xs }}
+              style={({ pressed }) => ({ flexDirection: "row", alignItems: "center", gap: space.md, minHeight: TOUCH + 4, paddingHorizontal: space.gutter + space.xs, backgroundColor: pressed ? c.surface2 : "transparent" })}
             >
-              <a.icon size={21} color={a.danger ? c.danger : c.fg2} strokeWidth={1.8} />
+              <a.icon size={18} color={a.danger ? c.danger : c.fgMuted} strokeWidth={1.75} />
               <View style={{ flex: 1 }}>
                 <Text tone={a.danger ? "danger" : "default"}>{a.label}</Text>
                 {a.hint ? (

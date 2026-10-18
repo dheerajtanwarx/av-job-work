@@ -1,6 +1,6 @@
 import { formatDate, formatINR, type Ledger } from "@av/shared";
 import { router, type Href } from "expo-router";
-import { Pressable, StyleSheet, View } from "react-native";
+import { Pressable, View } from "react-native";
 import { Card, Text } from "@/components/ui";
 import { space, useTheme } from "@/theme";
 
@@ -20,7 +20,7 @@ export function LedgerView({ ledger }: { ledger: Ledger }) {
             <Text variant="caption" tone="muted">
               {k}
             </Text>
-            <Text variant="bodyStrong" num tone={k === "Balance" && (v as number) > 0 ? "warning" : undefined}>
+            <Text variant="bodyStrong" num>
               {formatINR(v as number)}
             </Text>
           </View>
@@ -37,8 +37,8 @@ export function LedgerView({ ledger }: { ledger: Ledger }) {
           <Pressable
             key={`${r.ref}-${i}`}
             onPress={() => router.push(r.href.replace(/^\/api/, "") as Href)}
-            android_ripple={{ color: c.surface3 }}
-            style={{ flexDirection: "row", gap: space.md, padding: space.lg, borderTopWidth: i || ledger.openingPaise ? StyleSheet.hairlineWidth : 0, borderColor: c.borderStrong, opacity: r.type === "void" ? 0.6 : 1 }}
+            android_ripple={{ color: c.surface2 }}
+            style={{ flexDirection: "row", gap: space.md, padding: space.lg, borderTopWidth: i || ledger.openingPaise ? 1 : 0, borderColor: c.border, opacity: r.type === "void" ? 0.6 : 1 }}
           >
             <View style={{ flex: 1, gap: 2 }}>
               <Text variant="bodyStrong" numberOfLines={1}>
@@ -55,7 +55,7 @@ export function LedgerView({ ledger }: { ledger: Ledger }) {
                   +{formatINR(r.debitPaise)}
                 </Text>
               ) : (
-                <Text variant="bodyStrong" num tone="success">
+                <Text variant="bodyStrong" num>
                   −{formatINR(r.creditPaise)}
                 </Text>
               )}

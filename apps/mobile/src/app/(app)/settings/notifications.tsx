@@ -65,7 +65,7 @@ function Entry({ n }: { n: NotificationLogRow }) {
   const s = (n.status in STATUS_TONE ? n.status : "skipped") as NotifyStatus;
   return (
     <View style={[styles.card, { backgroundColor: c.surface, borderColor: c.border }]}>
-      <Pressable disabled={!n.href} onPress={() => n.href && openHref(n.href)} android_ripple={{ color: c.surface3 }} style={{ padding: space.md + 2, gap: space.xs }}>
+      <Pressable disabled={!n.href} onPress={() => n.href && openHref(n.href)} android_ripple={{ color: c.surface2 }} style={{ padding: space.md + 2, gap: space.xs }}>
         <View style={{ flexDirection: "row", alignItems: "center", gap: space.sm }}>
           <Text variant="bodyStrong" tone={n.href ? "accent" : "default"} numberOfLines={1} style={{ flex: 1 }}>
             {NOTIFY_KIND_LABEL[n.kind] ?? n.kind}
@@ -86,5 +86,5 @@ function Entry({ n }: { n: NotificationLogRow }) {
 }
 
 const styles = StyleSheet.create({
-  card: { borderRadius: radius.lg, overflow: "hidden", borderWidth: StyleSheet.hairlineWidth * 2 },
+  card: { borderRadius: radius.card, overflow: "hidden", borderWidth: 1 },
 });

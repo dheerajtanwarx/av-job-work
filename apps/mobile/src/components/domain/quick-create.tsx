@@ -76,7 +76,7 @@ export const QuickCreate = forwardRef<QuickCreateRef>(function QuickCreate(_, re
       onChangeText={onChange}
       placeholder={placeholder}
       placeholderTextColor={c.fgFaint}
-      style={{ minHeight: 50, borderRadius: radius.md, borderWidth: 1, borderColor: c.borderStrong, paddingHorizontal: space.md + 2, fontFamily: font.regular, fontSize: 16, color: c.fg, backgroundColor: c.surface }}
+      style={{ minHeight: 50, borderRadius: radius.control, borderWidth: 1, borderColor: c.borderStrong, paddingHorizontal: space.md + 2, fontFamily: font.regular, fontSize: 16, color: c.fg, backgroundColor: c.surface }}
       {...opts}
     />
   );
