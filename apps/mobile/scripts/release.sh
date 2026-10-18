@@ -28,7 +28,8 @@ version=$(npx expo config --json | node -e 'let d="";process.stdin.on("data",c=>
 echo "Building AV Job Work $version (production, API $EXPO_PUBLIC_API_URL)…"
 
 npx expo prebuild --platform android --clean --no-install
-(cd android && ./gradlew assembleRelease -PreactNativeArchitectures=armeabi-v7a,arm64-v8a)
+# 64-bit only: every phone we hand the APK to is arm64, and a 32-bit copy of the native code added ~25 MB.
+(cd android && ./gradlew assembleRelease -PreactNativeArchitectures=arm64-v8a)
 
 apk="$mobile/android/app/build/outputs/apk/release/app-release.apk"
 [ -f "$apk" ] || { echo "No signed APK at $apk (an unsigned build means the release key settings weren't picked up)."; exit 1; }
