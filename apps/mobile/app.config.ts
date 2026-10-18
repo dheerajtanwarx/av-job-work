@@ -25,7 +25,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   ...config,
   name: v.name,
   slug: "av-job-work",
-  version: "1.0.3",
+  version: "1.0.4",
   orientation: "portrait",
   icon: v.icon,
   scheme: v.scheme,

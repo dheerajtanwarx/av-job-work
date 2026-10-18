@@ -29,10 +29,12 @@ let sharpLoading: Promise<SharpFn> | undefined;
 /**
  * sharp (native libvips) is loaded on the first photo operation rather than at server start, and runs one image at a
  * time: on shared hosting (Hostinger) its thread pool and memory at boot can get the whole process stopped.
+ * Its operation cache is off too: every upload is a different image, so the cache only holds memory.
  */
 function loadSharp() {
   sharpLoading ??= import("sharp").then(({ default: sharp }) => {
     sharp.concurrency(1);
+    sharp.cache(false);
     return sharp;
   });
   return sharpLoading;

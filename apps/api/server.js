@@ -6,6 +6,10 @@
 import { existsSync } from "node:fs";
 
 process.env.NODE_ENV ??= "production";
+// Hostinger counts every thread against the plan's "Max processes" limit (120, shared by all sites), and LiteSpeed runs
+// several API instances. libuv's pool (default 4 threads per instance, also used by sharp) is started lazily, so
+// shrinking it here, before anything uses it, keeps a photo upload from tipping the plan over and getting killed.
+process.env.UV_THREADPOOL_SIZE ??= "2";
 const bundle = new URL("./dist/index.js", import.meta.url);
 console.error(existsSync(bundle) ? "Starting API from dist/index.js" : "Starting API from src/index.ts (tsx)");
 
