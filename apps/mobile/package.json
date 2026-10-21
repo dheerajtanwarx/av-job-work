@@ -36,6 +36,7 @@
     "expo-splash-screen": "~57.0.9",
     "expo-status-bar": "~57.0.1",
     "expo-system-ui": "~57.0.4",
+    "expo-updates": "~57.0.26",
     "lucide-react-native": "^1.55.0",
     "qrcode": "^1.5.4",
     "react": "19.2.3",
@@ -70,6 +71,7 @@
     "mobile:adb": "sh scripts/adb-wifi.sh",
     "mobile:serve-apk": "sh scripts/serve-apk.sh",
     "mobile:needs-rebuild": "node scripts/needs-rebuild.mjs",
+    "mobile:update": "APP_VARIANT=production eas update --channel production --environment production",
     "mobile:android": "pnpm android",
     "mobile": "pnpm start"
   },

@@ -20,12 +20,23 @@ const variants: Record<Variant, { name: string; androidPackage: string; scheme: 
   production: { name: "AV Job Work", androidPackage: PACKAGE, scheme: "avjobwork", icon: ICON, iconBg: ICON_BG },
 };
 const v = variants[VARIANT];
+const EAS_PROJECT_ID = "9e76a451-f030-460f-b4c7-adb71b798066";
 
 export default ({ config }: ConfigContext): ExpoConfig => ({
   ...config,
   name: v.name,
   slug: "av-job-work",
-  version: "1.0.4",
+  // The Expo account that hosts over-the-air updates.
+  owner: "avcreations-team",
+  version: "1.0.5",
+  // Over-the-air updates (`pnpm mobile:update`) only reach APKs with the same `version`: raise it whenever native code
+  // changes (a new native package, a plugin, permissions), so older APKs never get JS they can't run.
+  runtimeVersion: { policy: "appVersion" },
+  updates: {
+    url: `https://u.expo.dev/${EAS_PROJECT_ID}`,
+    // Each variant listens on its own channel: production, preview or development.
+    requestHeaders: { "expo-channel-name": VARIANT },
+  },
   orientation: "portrait",
   icon: v.icon,
   scheme: v.scheme,
@@ -34,7 +45,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   android: {
     package: v.androidPackage,
     // Raise by 1 for every APK you hand out: Android only installs an update over a lower versionCode.
-    versionCode: 5,
+    versionCode: 6,
     adaptiveIcon: {
       backgroundColor: v.iconBg,
       foregroundImage: "./assets/images/av-icon-foreground.png",
@@ -88,5 +99,6 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   extra: {
     variant: VARIANT,
     apiUrl: process.env.EXPO_PUBLIC_API_URL,
+    eas: { projectId: EAS_PROJECT_ID },
   },
 });

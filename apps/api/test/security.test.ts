@@ -113,7 +113,8 @@ describe("security hardening", () => {
       expect(res.status).toBe(403);
       expect(res.body.message).toMatch(/owner/i);
       await sub.get("/users").expect(403);
-      await sub.get("/change-log").expect(403);
+      await sub.get("/activity").expect(403);
+      await sub.get("/activity/folders").expect(403);
     });
   });
 });

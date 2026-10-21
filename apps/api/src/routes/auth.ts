@@ -3,6 +3,7 @@ import { googleLoginSchema, loginSchema, type UserRole } from "@av/shared";
 import bcrypt from "bcryptjs";
 import { Router } from "express";
 import { env } from "../env.js";
+import { audit } from "../lib/audit.js";
 import { verifyGoogleIdToken } from "../lib/google.js";
 import { HttpError, parse } from "../lib/http.js";
 import { requireAuth, SESSION_COOKIE, setSessionCookie, signSession } from "../middleware/auth.js";
@@ -34,6 +35,13 @@ async function authenticateGoogle(body: unknown) {
   return sessionFor(user);
 }
 
+/** Writes the sign-in to the activity log. Never blocks the login. */
+async function logLogin(session: { id: string; name: string }, how: "password" | "Google", app: "web" | "mobile app") {
+  await audit(db, { entity: "User", entityId: session.id, action: "login", summary: `${session.name} signed in (${how}, ${app})`, userId: session.id }).catch((e) =>
+    console.error("could not record sign-in", e),
+  );
+}
+
 /** Tells the login screens whether to show the Google button, and which client ID to ask Google for. */
 authRouter.get("/google", (_req, res) => {
   res.json({ clientId: env.googleClientId ?? null });
@@ -41,6 +49,7 @@ authRouter.get("/google", (_req, res) => {
 
 authRouter.post("/google", async (req, res) => {
   const session = await authenticateGoogle(req.body);
+  await logLogin(session, "Google", "web");
   setSessionCookie(res, signSession(session));
   res.json({ user: session });
 });
@@ -48,11 +57,13 @@ authRouter.post("/google", async (req, res) => {
 /** For the mobile app: the token comes back in the body, like /auth/token. */
 authRouter.post("/google/token", async (req, res) => {
   const session = await authenticateGoogle(req.body);
+  await logLogin(session, "Google", "mobile app");
   res.json({ user: session, token: signSession(session) });
 });
 
 authRouter.post("/login", async (req, res) => {
   const session = await authenticate(req.body);
+  await logLogin(session, "password", "web");
   setSessionCookie(res, signSession(session));
   res.json({ user: session });
 });
@@ -60,6 +71,7 @@ authRouter.post("/login", async (req, res) => {
 /** For the mobile app: the same login, but the token comes back in the body (sent later as `Authorization: Bearer`). */
 authRouter.post("/token", async (req, res) => {
   const session = await authenticate(req.body);
+  await logLogin(session, "password", "mobile app");
   res.json({ user: session, token: signSession(session) });
 });
 

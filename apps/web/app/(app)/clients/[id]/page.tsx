@@ -2,9 +2,9 @@
 
 import { formatDate, formatINR, formatQty, L, OPEN_JOB_STATUSES, PAYMENT_METHOD_LABEL, type ClientSummary } from "@av/shared";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Archive, ArchiveRestore, Boxes, Briefcase, Eye, Pencil, Phone, Plus, Printer, ReceiptText, StickyNote, Wallet } from "lucide-react";
+import { Archive, ArchiveRestore, Boxes, Briefcase, Eye, History, Pencil, Phone, Plus, Printer, ReceiptText, StickyNote, Wallet } from "lucide-react";
 import Link from "next/link";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import { useState } from "react";
 import { toast } from "sonner";
 import { ClientDialog } from "@/components/forms/master-dialogs";
@@ -24,7 +24,7 @@ import { DocThumb, WorkerAvatar } from "@/components/workers/worker-docs";
 import { WorkerPreviewDialog } from "@/components/workers/worker-sheet";
 import { api } from "@/lib/api";
 import { useClientLedger, useClientMaterial, useClientPerformance, useClientSummary, useSettings } from "@/lib/queries";
-import { useIsManager } from "@/lib/returns";
+import { useIsManager, useRole } from "@/lib/returns";
 import { workerDocDisplay } from "@/lib/worker-docs";
 import { EditedTag } from "@/components/ui/edited";
 import { cn } from "@/lib/utils";
@@ -56,6 +56,8 @@ export default function ClientPage() {
   const [archiveOpen, setArchiveOpen] = useState(false);
   const [previewOpen, setPreviewOpen] = useState(false);
   const isManager = useIsManager();
+  const { isOwner } = useRole();
+  const router = useRouter();
 
   const archive = useMutation({
     mutationFn: (isActive: boolean) => api.put(`/clients/${id}`, { isActive }),
@@ -160,6 +162,11 @@ export default function ClientPage() {
             </Link>
           </Button>
           <Menu>
+            {isOwner && (
+              <MenuItem icon={<History />} onSelect={() => router.push(`/activity?worker=${c.id}`)}>
+                View activity
+              </MenuItem>
+            )}
             <MenuItem icon={c.isActive ? <Archive /> : <ArchiveRestore />} danger={c.isActive} onSelect={() => setArchiveOpen(true)}>
               {c.isActive ? "Archive worker" : "Reactivate worker"}
             </MenuItem>

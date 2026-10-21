@@ -2,6 +2,7 @@ import {
   BarChart3,
   Boxes,
   Briefcase,
+  History,
   Images,
   Layers,
   LayoutDashboard,
@@ -20,6 +21,7 @@ export interface NavItem {
   label: string;
   icon: LucideIcon;
   match?: (path: string) => boolean;
+  ownerOnly?: boolean;
 }
 
 export const mainNav: NavItem[] = [
@@ -38,6 +40,7 @@ export const setupNav: NavItem[] = [
   { href: "/products", label: "Products", icon: Package },
   { href: "/designs", label: "Designs", icon: Palette },
   { href: "/job-work-types", label: "Job Work Types", icon: Layers },
+  { href: "/activity", label: "Activity", icon: History, ownerOnly: true },
   { href: "/settings", label: "Settings", icon: Settings },
 ];
 

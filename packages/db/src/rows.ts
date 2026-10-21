@@ -338,5 +338,7 @@ export interface AuditLog {
   before: unknown;
   after: unknown;
   userId: string | null;
+  jobId: string | null;
+  clientId: string | null;
   createdAt: Date;
 }

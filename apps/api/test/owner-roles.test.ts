@@ -1,5 +1,5 @@
 import { db } from "@av/db";
-import type { ChangeLogRow, Design, JobDetail, SubBillDetail, UserRow } from "@av/shared";
+import type { ActivityRow, Design, JobDetail, SubBillDetail, UserRow } from "@av/shared";
 import request from "supertest";
 import type TestAgent from "supertest/lib/agent.js";
 import { beforeAll, describe, expect, it } from "vitest";
@@ -173,16 +173,16 @@ describe("edited marks on other records", () => {
   });
 });
 
-describe("change log (owner only)", () => {
+describe("activity log (owner only)", () => {
   it("lists changes newest first with who made them, once per change", async () => {
-    const res = (await owner.get("/change-log?kind=edits").expect(200)).body as { rows: ChangeLogRow[]; more: boolean };
+    const res = (await owner.get("/activity?kind=edits").expect(200)).body as { rows: ActivityRow[]; more: boolean };
     const pay = res.rows.filter((r) => r.entity === "SubBill" && r.action === "update");
     expect(pay.length).toBeGreaterThan(0);
     expect(pay[0]).toMatchObject({ entityLabel: "Payment voucher", user: "Anil" });
     expect(pay[0].href).toMatch(/^\/bills\/sub\//);
     // The copy written on the challan is folded into the voucher's own entry.
     expect(res.rows.filter((r) => r.entity === "Job" && r.summary?.includes("edited: amount"))).toHaveLength(0);
-    const all = (await owner.get("/change-log").expect(200)).body as { rows: ChangeLogRow[] };
+    const all = (await owner.get("/activity").expect(200)).body as { rows: ActivityRow[] };
     expect(all.rows.some((r) => r.entity === "User" && r.summary?.includes("added as Sub-owner"))).toBe(true);
     const times = all.rows.map((r) => r.at);
     expect([...times].sort().reverse()).toEqual(times);

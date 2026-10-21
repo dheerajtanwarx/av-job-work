@@ -19,7 +19,7 @@ export default function NewUser() {
     },
     onSuccess: (u) => {
       qc.invalidateQueries({ queryKey: ["users"] });
-      qc.invalidateQueries({ queryKey: ["change-log"] });
+      qc.invalidateQueries({ queryKey: ["activity"] });
       toast.success(`${u.name} added as ${USER_ROLE_LABEL[u.role].toLowerCase()}. Share the email and password with them.`);
       router.back();
     },

@@ -1,10 +1,23 @@
-import type { DB } from "@av/db";
+import { auditOwner, type DB } from "@av/db";
 import type { EditMark } from "@av/shared";
 
 export async function audit(
   db: DB,
-  e: { entity: string; entityId: string; action: string; summary?: string; reason?: string | null; before?: unknown; after?: unknown; userId?: string | null },
+  e: {
+    entity: string;
+    entityId: string;
+    action: string;
+    summary?: string;
+    reason?: string | null;
+    before?: unknown;
+    after?: unknown;
+    userId?: string | null;
+    /** The challan / job worker it belongs to; worked out from the entity when left out. */
+    jobId?: string | null;
+    clientId?: string | null;
+  },
 ) {
+  const owner = e.jobId !== undefined || e.clientId !== undefined ? { jobId: e.jobId ?? null, clientId: e.clientId ?? null } : await auditOwner(db, e.entity, e.entityId, e.after);
   await db.auditLog.create({
     entity: e.entity,
     entityId: e.entityId,
@@ -14,6 +27,7 @@ export async function audit(
     before: e.before === undefined ? null : JSON.parse(JSON.stringify(e.before)),
     after: e.after === undefined ? null : JSON.parse(JSON.stringify(e.after)),
     userId: e.userId ?? null,
+    ...owner,
   });
 }
 

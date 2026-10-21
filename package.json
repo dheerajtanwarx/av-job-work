@@ -17,6 +17,7 @@
     "mobile:android": "pnpm --filter @av/mobile android",
     "mobile:adb": "sh apps/mobile/scripts/adb-wifi.sh",
     "mobile:release": "sh apps/mobile/scripts/release.sh",
+    "mobile:update": "pnpm --filter @av/mobile mobile:update",
     "mobile:serve-apk": "pnpm --filter @av/mobile mobile:serve-apk",
     "mobile:needs-rebuild": "pnpm --filter @av/mobile mobile:needs-rebuild"
   },
