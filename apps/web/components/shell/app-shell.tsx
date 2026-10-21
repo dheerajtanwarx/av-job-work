@@ -90,7 +90,7 @@ function Sidebar({
       <nav className="mt-4 flex-1 overflow-y-auto px-3" aria-label="Main">
         <NavLinks items={mainNav} path={path} onNavigate={onNavigate} />
         <div className="mt-5 mb-1 px-2 text-[11px] font-medium text-fg-faint">Setup</div>
-        <NavLinks items={setupNav} path={path} onNavigate={onNavigate} />
+        <NavLinks items={setupNav.filter((i) => !i.ownerOnly || user?.role === "OWNER")} path={path} onNavigate={onNavigate} />
       </nav>
       <div className="flex items-center gap-2 border-t border-border px-3 py-2.5">
         <span className="grid size-6 shrink-0 place-items-center rounded-full bg-surface-3 text-[10px] font-semibold text-fg-2">{initials || "?"}</span>

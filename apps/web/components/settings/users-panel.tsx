@@ -30,7 +30,7 @@ export function UsersPanel() {
     mutationFn: ({ id, ...body }: { id: string; role?: UserRole; disabled?: boolean; password?: string }) => api.patch<UserRow>(`/users/${id}`, body),
     onSuccess: (u, v) => {
       qc.invalidateQueries({ queryKey: ["users"] });
-      qc.invalidateQueries({ queryKey: ["change-log"] });
+      qc.invalidateQueries({ queryKey: ["activity"] });
       if (v.role) toast.success(`${u.name} is now ${v.role === "OWNER" ? "an owner" : "a sub-owner"}`);
       else if (v.disabled !== undefined) toast.success(v.disabled ? `${u.name} can no longer log in` : `${u.name} can log in again`);
       else if (v.password) toast.success(`New password set for ${u.name}`);
@@ -186,7 +186,7 @@ function AddUserDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (o
     mutationFn: () => api.post<UserRow>("/users", { ...f, name: f.name.trim(), email: f.email.trim() }),
     onSuccess: (u) => {
       qc.invalidateQueries({ queryKey: ["users"] });
-      qc.invalidateQueries({ queryKey: ["change-log"] });
+      qc.invalidateQueries({ queryKey: ["activity"] });
       toast.success(`${u.name} added as ${USER_ROLE_LABEL[u.role].toLowerCase()}. Share the email and password with them.`);
       close(false);
     },

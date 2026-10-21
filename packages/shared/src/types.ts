@@ -1,5 +1,5 @@
 import type { ItemSummary, JobTotals, MoneyPosition, PaymentTerms, ReturnPayment, WorkerMetrics } from "./calc";
-import type { AgingBucket, DispatchKind, JobStatus, PaymentMethod, PaymentPolicy, PayStatus, StockMovementType, Unit, UserRole } from "./enums";
+import type { ActivityFolderKey, AgingBucket, DispatchKind, JobStatus, PaymentMethod, PaymentPolicy, PayStatus, StockMovementType, Unit, UserRole } from "./enums";
 
 /** API response shapes shared by the web app. Dates are ISO strings. */
 
@@ -586,8 +586,8 @@ export interface UserRow {
   isYou: boolean;
 }
 
-/** Settings → Change log: one audit entry, newest first. */
-export interface ChangeLogRow {
+/** Activity monitor: one audit entry, newest first. */
+export interface ActivityRow {
   id: string;
   at: string;
   entity: string;
@@ -598,4 +598,30 @@ export interface ChangeLogRow {
   reason: string | null;
   user: string | null;
   href: string | null;
+  /** The job worker / challan it belongs to, when it belongs to one. */
+  worker: { id: string; name: string } | null;
+  jobNumber: string | null;
+}
+
+/** Activity monitor: a "by type" folder. */
+export interface ActivityFolderCount {
+  key: ActivityFolderKey;
+  label: string;
+  count: number;
+  lastAt: string | null;
+}
+
+/** Activity monitor: one job worker's folder. */
+export interface ActivityWorkerFolder {
+  clientId: string;
+  name: string;
+  code: string | null;
+  count: number;
+  lastAt: string;
+}
+
+export interface ActivityFolders {
+  total: number;
+  types: ActivityFolderCount[];
+  workers: ActivityWorkerFolder[];
 }

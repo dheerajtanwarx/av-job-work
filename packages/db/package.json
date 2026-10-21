@@ -11,6 +11,7 @@
   "scripts": {
     "seed": "tsx scripts/seed.ts",
     "indexes": "tsx scripts/sync-indexes.ts",
+    "backfill:activity": "tsx scripts/backfill-activity.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

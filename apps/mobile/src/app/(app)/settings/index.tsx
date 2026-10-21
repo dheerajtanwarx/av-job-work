@@ -7,8 +7,8 @@ import { termsLabel } from "@/lib/terms";
 import { useSettings } from "@/lib/queries";
 import { space, useTheme } from "@/theme";
 
-/** The web's `?tab=` links (e.g. from the change log) open the matching screen here. */
-const TABS: Record<string, Href> = { general: "/settings/business", users: "/settings/users", changes: "/settings/change-log", notifications: "/settings/notifications" };
+/** The web's `?tab=` links (e.g. from the activity monitor) open the matching screen here. */
+const TABS: Record<string, Href> = { general: "/settings/business", users: "/settings/users", changes: "/activity", notifications: "/settings/notifications" };
 
 export default function SettingsHome() {
   const { c } = useTheme();
@@ -33,7 +33,7 @@ export default function SettingsHome() {
         {isOwner ? (
           <ListGroup title="Team">
             <ListRow icon={Users} title="Users" subtitle="Who can log in, owner or sub-owner" onPress={() => router.push("/settings/users")} />
-            <ListRow icon={History} title="Change log" subtitle="Who changed what, newest first" onPress={() => router.push("/settings/change-log")} last />
+            <ListRow icon={History} title="Activity monitor" subtitle="Everything anyone did, in folders" onPress={() => router.push("/activity")} last />
           </ListGroup>
         ) : null}
         <ListGroup title="Messages">

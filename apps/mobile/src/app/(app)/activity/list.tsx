@@ -1,52 +1,50 @@
-import type { ChangeLogRow } from "@av/shared";
+import type { ActivityRow } from "@av/shared";
 import { FlashList } from "@shopify/flash-list";
 import { useInfiniteQuery } from "@tanstack/react-query";
-import { Stack } from "expo-router";
+import { Stack, useLocalSearchParams } from "expo-router";
 import { History } from "lucide-react-native";
 import { useState } from "react";
 import { ActivityIndicator, Pressable, RefreshControl, StyleSheet, View } from "react-native";
 import { useUsers } from "@/components/domain/users";
-import { EmptyState, ErrorBlock, ListSkeleton, PickerField, Segmented, Text } from "@/components/ui";
+import { EmptyState, ErrorBlock, ListSkeleton, PickerField, SearchBar, Segmented, Text } from "@/components/ui";
 import { api, qs } from "@/lib/api";
 import { openHref } from "@/lib/links";
 import { radius, space, useTheme } from "@/theme";
 
 const PAGE = 100;
-const ENTITIES = [
-  ["", "Everything"],
-  ["SubBill", "Payments"],
-  ["Job", "Challans"],
-  ["Return", "Returns"],
-  ["Client", "Job workers"],
-  ["Design", "Designs"],
-  ["Product", "Products"],
-  ["Material", "Materials"],
-  ["StockMovement", "Stock entries"],
-  ["JobWorkType", "Job work types"],
-  ["Settings", "Settings"],
-  ["User", "Users"],
-] as const;
-const ACTION: Record<string, { label: string; tone: "secondary" | "warning" | "danger" }> = {
+const ACTION: Record<string, { label: string; tone: "secondary" | "warning" | "danger" | "success" | "muted" }> = {
   create: { label: "Added", tone: "secondary" },
   update: { label: "Edited", tone: "warning" },
   void: { label: "Voided", tone: "danger" },
   cancel: { label: "Cancelled", tone: "danger" },
   restore: { label: "Restored", tone: "secondary" },
   exception: { label: "Exception", tone: "warning" },
+  completed: { label: "Completed", tone: "success" },
+  reopened: { label: "Reopened", tone: "warning" },
+  login: { label: "Signed in", tone: "muted" },
+  whatsapp: { label: "WhatsApp", tone: "secondary" },
 };
 const actionOf = (a: string) => ACTION[a] ?? { label: a.replace(/_/g, " "), tone: "secondary" as const };
 const when = (iso: string) => new Date(iso).toLocaleString("en-IN", { day: "2-digit", month: "short", year: "numeric", hour: "numeric", minute: "2-digit" });
 
-/** Settings → Change log: every change anyone made, newest first. Owner only; nothing here can be edited. */
-export default function ChangeLog() {
+/** One activity folder (a record type, one job worker, or everything), newest first. Owner only. */
+export default function ActivityList() {
   const { c } = useTheme();
-  const [kind, setKind] = useState<"edits" | "all">("edits");
-  const [entity, setEntity] = useState("");
+  const params = useLocalSearchParams<{ folder?: string; worker?: string; title?: string }>();
+  const [kind, setKind] = useState<"all" | "edits">("all");
   const [userId, setUserId] = useState("");
+  const [search, setSearch] = useState("");
   const users = useUsers();
+  const filter = {
+    folder: params.folder && params.folder !== "all" ? params.folder : undefined,
+    clientId: params.worker || undefined,
+    kind: kind === "edits" ? "edits" : undefined,
+    userId: userId || undefined,
+    q: search.trim() || undefined,
+  };
   const q = useInfiniteQuery({
-    queryKey: ["change-log", kind, entity, userId],
-    queryFn: ({ pageParam }) => api.get<{ rows: ChangeLogRow[]; more: boolean }>(`/change-log${qs({ kind: kind === "edits" ? "edits" : undefined, entity: entity || undefined, userId: userId || undefined, take: PAGE, skip: pageParam })}`),
+    queryKey: ["activity", filter],
+    queryFn: ({ pageParam }) => api.get<{ rows: ActivityRow[]; more: boolean }>(`/activity${qs({ ...filter, take: PAGE, skip: pageParam })}`),
     initialPageParam: 0,
     getNextPageParam: (last, all) => (last.more ? all.length * PAGE : undefined),
   });
@@ -54,7 +52,7 @@ export default function ChangeLog() {
 
   return (
     <View style={{ flex: 1, backgroundColor: c.bg }}>
-      <Stack.Screen options={{ title: "Change log" }} />
+      <Stack.Screen options={{ title: params.title || "Activity" }} />
       <FlashList
         data={q.isPending || (q.error && !q.data) ? [] : rows}
         keyExtractor={(r) => r.id}
@@ -65,39 +63,31 @@ export default function ChangeLog() {
         refreshControl={<RefreshControl refreshing={q.isRefetching && !q.isFetchingNextPage} onRefresh={q.refetch} colors={[c.accentSolid]} />}
         ListHeaderComponent={
           <View style={{ gap: space.md, paddingBottom: space.md }}>
-            <Text variant="caption" tone="muted">
-              Who changed what, newest first. Nothing here can be edited or deleted.
-            </Text>
+            <SearchBar value={search} onChange={setSearch} placeholder="Search details…" />
             <Segmented
               value={kind}
               onChange={setKind}
               options={[
-                { value: "edits", label: "Edits & voids" },
                 { value: "all", label: "Everything" },
+                { value: "edits", label: "Edits & voids" },
               ]}
             />
-            <View style={{ flexDirection: "row", gap: space.md }}>
-              <View style={{ flex: 1 }}>
-                <PickerField label="Record" value={entity} options={ENTITIES.map(([value, label]) => ({ value, label }))} onChange={(v) => setEntity(v ?? "")} />
-              </View>
-              <View style={{ flex: 1 }}>
-                <PickerField label="Made by" value={userId} options={[{ value: "", label: "Anyone" }, ...(users.data ?? []).map((u) => ({ value: u.id, label: u.name, sub: u.email }))]} onChange={(v) => setUserId(v ?? "")} loading={users.isPending} />
-              </View>
-            </View>
+            <PickerField label="Done by" value={userId} options={[{ value: "", label: "Anyone" }, ...(users.data ?? []).map((u) => ({ value: u.id, label: u.name, sub: u.email }))]} onChange={(v) => setUserId(v ?? "")} loading={users.isPending} />
             {q.isPending ? <ListSkeleton rows={5} /> : q.error && !q.data ? <ErrorBlock error={q.error} onRetry={q.refetch} /> : null}
           </View>
         }
-        ListEmptyComponent={q.isPending || q.error ? null : <EmptyState icon={History} title="No changes found" body={kind === "edits" ? "Nothing has been edited or voided yet." : "Try another filter."} />}
+        ListEmptyComponent={q.isPending || q.error ? null : <EmptyState icon={History} title="No activity found" body={kind === "edits" ? "Nothing here has been edited or voided." : "Try another filter."} />}
         ListFooterComponent={q.isFetchingNextPage ? <ActivityIndicator color={c.accent} style={{ padding: space.lg }} /> : null}
-        renderItem={({ item }) => <Entry r={item} />}
+        renderItem={({ item }) => <Entry r={item} showWorker={!params.worker} />}
       />
     </View>
   );
 }
 
-function Entry({ r }: { r: ChangeLogRow }) {
+function Entry({ r, showWorker }: { r: ActivityRow; showWorker: boolean }) {
   const { c } = useTheme();
   const a = actionOf(r.action);
+  const record = r.entity === "Job" && r.jobNumber ? `Challan ${r.jobNumber}` : r.jobNumber ? `${r.entityLabel} · ${r.jobNumber}` : r.entityLabel;
   return (
     <View style={[styles.card, { backgroundColor: c.surface, borderColor: c.border }]}>
       <Pressable disabled={!r.href} onPress={() => r.href && openHref(r.href)} android_ripple={{ color: c.surface2 }} style={{ padding: space.md + 2, gap: space.xs }}>
@@ -108,7 +98,7 @@ function Entry({ r }: { r: ChangeLogRow }) {
             </Text>
             {" · "}
             <Text variant="bodyStrong" tone={r.href ? "accent" : "default"}>
-              {r.entityLabel}
+              {record}
             </Text>
           </Text>
           <Text variant="caption" tone="muted" num>
@@ -117,6 +107,7 @@ function Entry({ r }: { r: ChangeLogRow }) {
         </View>
         <Text variant="caption" tone="muted">
           by {r.user ?? "System"}
+          {showWorker && r.worker ? ` · ${r.worker.name}` : ""}
         </Text>
         {r.summary ? <Text variant="label">{r.summary}</Text> : null}
         {r.reason && !r.summary?.includes(r.reason) ? (

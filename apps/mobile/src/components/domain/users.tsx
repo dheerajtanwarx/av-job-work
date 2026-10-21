@@ -16,7 +16,7 @@ export function useUpdateUser(onDone?: () => void) {
     mutationFn: ({ id, ...body }: { id: string; role?: UserRole; disabled?: boolean; password?: string }) => api.patch<UserRow>(`/users/${id}`, body),
     onSuccess: (u, v) => {
       qc.invalidateQueries({ queryKey: ["users"] });
-      qc.invalidateQueries({ queryKey: ["change-log"] });
+      qc.invalidateQueries({ queryKey: ["activity"] });
       if (v.role) toast.success(`${u.name} is now ${v.role === "OWNER" ? "an owner" : "a sub-owner"}`);
       else if (v.disabled !== undefined) toast.success(v.disabled ? `${u.name} can no longer log in` : `${u.name} can log in again`);
       else if (v.password) toast.success(`New password set for ${u.name}`);

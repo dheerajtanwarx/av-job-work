@@ -65,6 +65,19 @@ export const USER_ROLE_HELP: Record<UserRole, string> = {
   SUB_OWNER: "All daily work: challans, returns, new payments, job workers and masters. Can't change or void payments, users or settings.",
 };
 
+/** Activity monitor folders "by type": which audit entities each one holds. */
+export const ACTIVITY_FOLDERS = [
+  { key: "workers", label: "Job workers", entities: ["Client"] },
+  { key: "challans", label: "Challans", entities: ["Job"] },
+  { key: "issues", label: "Material issues", entities: ["Dispatch"] },
+  { key: "returns", label: "Returns", entities: ["Return", "ReturnPhoto"] },
+  { key: "payments", label: "Payments", entities: ["SubBill"] },
+  { key: "stock", label: "Materials & stock", entities: ["Material", "StockMovement"] },
+  { key: "masters", label: "Products & designs", entities: ["Product", "Design", "JobWorkType"] },
+  { key: "team", label: "Users, logins & settings", entities: ["User", "Settings"] },
+] as const;
+export type ActivityFolderKey = (typeof ACTIVITY_FOLDERS)[number]["key"];
+
 export const STOCK_MOVEMENT_TYPES = ["RECEIPT", "ADJUSTMENT_IN", "ADJUSTMENT_OUT"] as const;
 export type StockMovementType = (typeof STOCK_MOVEMENT_TYPES)[number];
 

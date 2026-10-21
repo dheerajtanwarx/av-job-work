@@ -24,7 +24,6 @@ import { Field, Input, Textarea } from "@/components/ui/input";
 import { EmptyState, ErrorBlock, LoadingBlock, Notice, PageHeader } from "@/components/ui/misc";
 import { Segmented } from "@/components/ui/segmented";
 import { Tabs } from "@/components/ui/tabs";
-import { ChangeLogPanel } from "@/components/settings/change-log-panel";
 import { UsersPanel } from "@/components/settings/users-panel";
 import { api, qs } from "@/lib/api";
 import { useSettings } from "@/lib/queries";
@@ -58,7 +57,7 @@ const toBody = (f: Settings): SettingsBody => ({
   payLostDefault: f.payLostDefault,
 });
 
-type SettingsTab = "general" | "users" | "changes" | "notifications";
+type SettingsTab = "general" | "users" | "notifications";
 
 export default function SettingsPage() {
   return (
@@ -75,23 +74,30 @@ function SettingsTabs() {
   const { isOwner, known } = useRole();
   const items: { value: SettingsTab; label: string }[] = [
     { value: "general", label: "General" },
-    ...(isOwner
-      ? [
-          { value: "users" as const, label: "Users" },
-          { value: "changes" as const, label: "Change log" },
-        ]
-      : []),
+    ...(isOwner ? [{ value: "users" as const, label: "Users" }] : []),
     { value: "notifications", label: "Notifications" },
   ];
-  const asked = (params.get("tab") ?? "general") as SettingsTab;
+  const asked = (params.get("tab") ?? "general") as SettingsTab | "changes";
+  // The change log moved to the activity monitor; keep old links working.
+  useEffect(() => {
+    if (asked === "changes") router.replace("/activity");
+  }, [asked, router]);
   const tab = items.some((i) => i.value === asked) ? asked : "general";
   return (
     <div className="max-w-5xl space-y-6">
-      <PageHeader title="Settings" />
+      <PageHeader
+        title="Settings"
+        actions={
+          isOwner && (
+            <Link href="/activity" className="text-[13px] font-medium text-accent hover:underline">
+              Activity monitor →
+            </Link>
+          )
+        }
+      />
       <Tabs value={tab} onChange={(v) => router.replace(v === "general" ? path : `${path}?tab=${v}`, { scroll: false })} items={items} />
       {tab === "general" && known && <GeneralSettings canEdit={isOwner} />}
       {tab === "users" && <UsersPanel />}
-      {tab === "changes" && <ChangeLogPanel />}
       {tab === "notifications" && <NotificationLogSection />}
     </div>
   );

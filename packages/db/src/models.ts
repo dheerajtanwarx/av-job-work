@@ -474,10 +474,16 @@ const auditLogSchema = new Schema(
     before: { type: Schema.Types.Mixed, default: null },
     after: { type: Schema.Types.Mixed, default: null },
     userId: str,
+    // The challan and job worker the entry belongs to (activity folders).
+    jobId: str,
+    clientId: str,
   },
   { ...createdOnly, minimize: false },
 );
 auditLogSchema.index({ entity: 1, entityId: 1, createdAt: 1 });
+auditLogSchema.index({ entity: 1, createdAt: -1 });
+auditLogSchema.index({ clientId: 1, createdAt: -1 });
+auditLogSchema.index({ jobId: 1, createdAt: -1 });
 auditLogSchema.index({ createdAt: -1, _id: -1 });
 auditLogSchema.index({ userId: 1, createdAt: -1 });
 auditLogSchema.index({ "after.returnId": 1 }, { partialFilterExpression: { "after.returnId": { $exists: true } } });

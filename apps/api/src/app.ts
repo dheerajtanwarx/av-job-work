@@ -7,6 +7,7 @@ import { instance, slowRequestLog } from "./lib/perf.js";
 import { requireAuth } from "./middleware/auth.js";
 import { errorHandler } from "./middleware/error.js";
 import { csrfProtection, loginRateLimit, publicRateLimit } from "./middleware/security.js";
+import { activityRouter } from "./routes/activity.js";
 import { authRouter } from "./routes/auth.js";
 import { billingRouter } from "./routes/billing.js";
 import { entriesRouter, jobsRouter } from "./routes/jobs.js";
@@ -56,6 +57,7 @@ export function createApp() {
   app.use("/", billingRouter);
   app.use("/", reportsRouter);
   app.use("/", usersRouter);
+  app.use("/", activityRouter);
 
   app.use((_req, res) => {
     res.status(404).json({ message: "Not found" });

@@ -147,9 +147,12 @@ export default function Login() {
           ) : null}
         </View>
 
-        <View style={s.footer}>
-          <ServerChip onPress={__DEV__ ? () => serverSheet.current?.present() : undefined} />
-        </View>
+        {/* Which backend the app talks to: a developer tool, so dev builds only. */}
+        {__DEV__ ? (
+          <View style={s.footer}>
+            <ServerChip onPress={() => serverSheet.current?.present()} />
+          </View>
+        ) : null}
       </ScrollView>
       <ServerSheet ref={serverSheet} onChanged={() => (setError(undefined), loadGoogle())} />
     </KeyboardAvoidingView>
